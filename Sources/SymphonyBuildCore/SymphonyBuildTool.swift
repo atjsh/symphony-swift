@@ -147,6 +147,94 @@ public final class SymphonyBuildTool {
         return record.run.summaryPath.path
     }
 
+    public func coverage(_ request: CoverageCommandRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        let worker = try WorkerScope(id: request.workerID)
+        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
+        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
+        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .coverage, runID: selector.runIdentifier)
+        let xcodeRequest = XcodeCommandRequest(
+            action: .test,
+            scheme: selector.scheme,
+            destination: destination,
+            derivedDataPath: executionContext.derivedDataPath,
+            resultBundlePath: executionContext.resultBundlePath,
+            enableCodeCoverage: true,
+            outputMode: request.outputMode,
+            environment: [:],
+            workspacePath: workspace.xcodeWorkspacePath,
+            projectPath: workspace.xcodeProjectPath,
+            onlyTesting: request.onlyTesting,
+            skipTesting: request.skipTesting
+        )
+        let coverageReporter = CoverageReporter(processRunner: processRunner)
+        let coverageCommand = coverageReporter.renderedCommandLine(resultBundlePath: executionContext.resultBundlePath)
+
+        if request.dryRun {
+            return [
+                try xcodeRequest.renderedCommandLine(),
+                coverageCommand,
+            ].joined(separator: "\n")
+        }
+
+        let startedAt = Date()
+        let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
+        defer { reporter.finish() }
+        let result = try processRunner.run(
+            command: "xcodebuild",
+            arguments: try xcodeRequest.renderedArguments(),
+            environment: [:],
+            currentDirectory: workspace.projectRoot,
+            observation: reporter.makeObservation(label: "xcodebuild coverage")
+        )
+        let endedAt = Date()
+
+        var coverageArtifacts: CoverageArtifacts?
+        var coverageAnomalies = [ArtifactAnomaly]()
+        if result.exitStatus == 0 {
+            do {
+                coverageArtifacts = try coverageReporter.export(
+                    resultBundlePath: executionContext.resultBundlePath,
+                    artifactRoot: executionContext.artifactRoot,
+                    includeTestTargets: request.includeTestTargets,
+                    showFiles: request.showFiles
+                )
+            } catch let error as SymphonyBuildError {
+                coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
+            } catch {
+                coverageAnomalies.append(
+                    ArtifactAnomaly(code: "coverage_export_failed", message: error.localizedDescription, phase: "coverage")
+                )
+            }
+        }
+
+        let record = try artifactManager.recordXcodeExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .coverage,
+            product: request.product,
+            scheme: selector.scheme,
+            destination: destination,
+            invocation: [
+                try xcodeRequest.renderedCommandLine(),
+                coverageCommand,
+            ].joined(separator: "\n"),
+            exitStatus: result.exitStatus == 0 && coverageAnomalies.isEmpty ? 0 : (result.exitStatus == 0 ? 1 : result.exitStatus),
+            combinedOutput: result.combinedOutput,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            extraAnomalies: coverageAnomalies
+        )
+
+        guard result.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(message: "xcodebuild test with code coverage failed.", summaryPath: record.run.summaryPath)
+        }
+        guard coverageAnomalies.isEmpty, let coverageArtifacts else {
+            throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
+        }
+        return request.json ? coverageArtifacts.jsonOutput : coverageArtifacts.textOutput
+    }
+
     public func run(_ request: RunCommandRequest) throws -> String {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)

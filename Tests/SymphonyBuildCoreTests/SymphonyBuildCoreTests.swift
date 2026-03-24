@@ -229,6 +229,159 @@ import Testing
     }
 }
 
+@Test func artifactResolutionAnnotatesMissingEntries() throws {
+    try withTemporaryDirectory { directory in
+        let workspace = WorkspaceContext(
+            projectRoot: directory,
+            buildStateRoot: directory.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let worker = try WorkerScope(id: 0)
+        let executionContext = try ExecutionContextBuilder().make(
+            workspace: workspace,
+            worker: worker,
+            command: .build,
+            runID: "symphony",
+            date: Date(timeIntervalSince1970: 1_700_000_200)
+        )
+        try FileManager.default.createDirectory(at: executionContext.resultBundlePath, withIntermediateDirectories: true)
+
+        let runner = StubProcessRunner(results: [
+            "xcrun xcresulttool get object --legacy --path \(executionContext.resultBundlePath.path) --format json": StubProcessRunner.success(#"{"kind":"ActionsInvocationRecord"}"#),
+            "xcrun xcresulttool export diagnostics --path \(executionContext.resultBundlePath.path) --output-path \(executionContext.artifactRoot.appendingPathComponent("diagnostics").path)": StubProcessRunner.success(),
+            "xcrun xcresulttool export attachments --path \(executionContext.resultBundlePath.path) --output-path \(executionContext.artifactRoot.appendingPathComponent("attachments").path)": StubProcessRunner.success(),
+        ])
+        let manager = ArtifactManager(processRunner: runner)
+
+        _ = try manager.recordXcodeExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .build,
+            product: .client,
+            scheme: "Symphony",
+            destination: ResolvedDestination(
+                platform: .iosSimulator,
+                displayName: "iPhone 17 (AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA)",
+                simulatorName: "iPhone 17",
+                simulatorUDID: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                xcodeDestination: "platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+            ),
+            invocation: "xcodebuild build",
+            exitStatus: 0,
+            combinedOutput: "build succeeded",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_200),
+            endedAt: Date(timeIntervalSince1970: 1_700_000_240)
+        )
+
+        let rendered = try manager.resolveArtifacts(
+            workspace: workspace,
+            request: ArtifactsCommandRequest(command: .build, latest: true, runID: nil, currentDirectory: directory)
+        )
+
+        #expect(rendered.contains("log.txt \(executionContext.artifactRoot.appendingPathComponent("log.txt").path)"))
+        #expect(rendered.contains("recording.mp4 [missing: missing_recording] \(executionContext.artifactRoot.appendingPathComponent("recording.mp4").path)"))
+        #expect(rendered.contains("screen.png [missing: missing_screen_capture] \(executionContext.artifactRoot.appendingPathComponent("screen.png").path)"))
+        #expect(rendered.contains("ui-tree.txt [missing: missing_ui_tree] \(executionContext.artifactRoot.appendingPathComponent("ui-tree.txt").path)"))
+    }
+}
+
+@Test func artifactResolutionIncludesSupplementalCoverageReports() throws {
+    try withTemporaryDirectory { directory in
+        let workspace = WorkspaceContext(
+            projectRoot: directory,
+            buildStateRoot: directory.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let worker = try WorkerScope(id: 0)
+        let executionContext = try ExecutionContextBuilder().make(
+            workspace: workspace,
+            worker: worker,
+            command: .coverage,
+            runID: "symphony",
+            date: Date(timeIntervalSince1970: 1_700_000_260)
+        )
+        try FileManager.default.createDirectory(at: executionContext.artifactRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: executionContext.resultBundlePath, withIntermediateDirectories: true)
+        try #"{"coveredLines":96}"#.write(
+            to: executionContext.artifactRoot.appendingPathComponent("coverage.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "overall 73.28% (96/131)\n".write(
+            to: executionContext.artifactRoot.appendingPathComponent("coverage.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let runner = StubProcessRunner(results: [
+            "xcrun xcresulttool get object --legacy --path \(executionContext.resultBundlePath.path) --format json": StubProcessRunner.success(#"{"kind":"ActionsInvocationRecord"}"#),
+            "xcrun xcresulttool export diagnostics --path \(executionContext.resultBundlePath.path) --output-path \(executionContext.artifactRoot.appendingPathComponent("diagnostics").path)": StubProcessRunner.success(),
+            "xcrun xcresulttool export attachments --path \(executionContext.resultBundlePath.path) --output-path \(executionContext.artifactRoot.appendingPathComponent("attachments").path)": StubProcessRunner.success(),
+        ])
+        let manager = ArtifactManager(processRunner: runner)
+
+        _ = try manager.recordXcodeExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .coverage,
+            product: .server,
+            scheme: "SymphonyServer",
+            destination: ResolvedDestination(
+                platform: .macos,
+                displayName: "macOS",
+                simulatorName: nil,
+                simulatorUDID: nil,
+                xcodeDestination: expectedHostMacOSDestination()
+            ),
+            invocation: "xcodebuild test -enableCodeCoverage YES",
+            exitStatus: 0,
+            combinedOutput: "tests passed",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_260),
+            endedAt: Date(timeIntervalSince1970: 1_700_000_320)
+        )
+
+        let rendered = try manager.resolveArtifacts(
+            workspace: workspace,
+            request: ArtifactsCommandRequest(command: .coverage, latest: true, runID: nil, currentDirectory: directory)
+        )
+
+        #expect(rendered.contains("coverage.json \(executionContext.artifactRoot.appendingPathComponent("coverage.json").path)"))
+        #expect(rendered.contains("coverage.txt \(executionContext.artifactRoot.appendingPathComponent("coverage.txt").path)"))
+    }
+}
+
+@Test func coverageReporterFiltersOutTestBundlesByDefaultAndWritesReports() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult", isDirectory: true)
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let coverageJSON = #"""
+        {"coveredLines":113,"executableLines":148,"lineCoverage":0.7635135135,"targets":[{"buildProductPath":"/tmp/SymphonyServer","coveredLines":0,"executableLines":1,"files":[{"coveredLines":0,"executableLines":1,"lineCoverage":0,"name":"main.swift","path":"/tmp/main.swift"}],"lineCoverage":0,"name":"SymphonyServer"},{"buildProductPath":"/tmp/SymphonyServerTests.xctest/Contents/MacOS/SymphonyServerTests","coveredLines":17,"executableLines":17,"files":[{"coveredLines":17,"executableLines":17,"lineCoverage":1,"name":"BootstrapServerRunnerTests.swift","path":"/tmp/BootstrapServerRunnerTests.swift"}],"lineCoverage":1,"name":"SymphonyServerTests.xctest"},{"buildProductPath":"/tmp/libXcodeSupport.a","coveredLines":96,"executableLines":130,"files":[{"coveredLines":96,"executableLines":130,"lineCoverage":0.7384615385,"name":"BootstrapSupport.swift","path":"/tmp/BootstrapSupport.swift"}],"lineCoverage":0.7384615385,"name":"libXcodeSupport.a"}]}
+        """#
+        let runner = StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(coverageJSON),
+        ])
+        let reporter = CoverageReporter(processRunner: runner)
+
+        let artifacts = try reporter.export(
+            resultBundlePath: resultBundlePath,
+            artifactRoot: artifactRoot,
+            includeTestTargets: false,
+            showFiles: true
+        )
+
+        #expect(artifacts.report.coveredLines == 96)
+        #expect(artifacts.report.executableLines == 131)
+        #expect(artifacts.report.targets.map(\.name) == ["SymphonyServer", "libXcodeSupport.a"])
+        #expect(artifacts.report.excludedTargets == ["SymphonyServerTests.xctest"])
+        #expect(artifacts.textOutput.contains("overall 73.28% (96/131)"))
+        #expect(artifacts.textOutput.contains("file libXcodeSupport.a BootstrapSupport.swift 73.85% (96/130)"))
+        #expect(FileManager.default.fileExists(atPath: artifacts.jsonPath.path))
+        #expect(FileManager.default.fileExists(atPath: artifacts.textPath.path))
+    }
+}
+
 @Test func doctorReportSortsIssuesAndRendersJSONAndHumanOutput() throws {
     let runner = StubProcessRunner(results: [
         "which swift": StubProcessRunner.success(),
@@ -405,6 +558,37 @@ import Testing
         #expect(buildOutput.hasSuffix(" build"))
         #expect(!testOutput.contains("\n"))
         #expect(testOutput.hasSuffix(" test"))
+        #expect(!FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
+    }
+}
+
+@Test func coverageDryRunRendersXcodeAndXccovCommandsWithoutSideEffects() throws {
+    try withTemporaryRepositoryFixture { repoRoot in
+        let tool = makeToolForFixture(repoRoot: repoRoot)
+        let output = try tool.coverage(
+            CoverageCommandRequest(
+                product: .server,
+                scheme: nil,
+                platform: nil,
+                simulator: nil,
+                workerID: 0,
+                dryRun: true,
+                onlyTesting: [],
+                skipTesting: [],
+                json: false,
+                showFiles: false,
+                includeTestTargets: false,
+                outputMode: .filtered,
+                currentDirectory: repoRoot
+            )
+        )
+
+        let lines = output.split(separator: "\n").map(String.init)
+        #expect(lines.count == 2)
+        #expect(lines[0].contains("-enableCodeCoverage YES"))
+        #expect(lines[0].hasSuffix(" test"))
+        #expect(lines[1].contains("xcrun xccov view --report --json "))
+        #expect(lines[1].contains("/results/coverage/"))
         #expect(!FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
     }
 }

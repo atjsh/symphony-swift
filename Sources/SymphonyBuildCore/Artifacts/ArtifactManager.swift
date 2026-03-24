@@ -93,6 +93,24 @@ public struct ArtifactManager {
             }
         }
 
+        let knownNames = Set(entries.map(\.name))
+        let additionalEntries = try fileManager.contentsOfDirectory(
+            at: artifactRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { !knownNames.contains($0.lastPathComponent) }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        .map { url in
+            ArtifactIndexEntry(
+                name: url.lastPathComponent,
+                relativePath: url.lastPathComponent,
+                kind: kind(for: url),
+                createdAt: createdAt
+            )
+        }
+        entries.append(contentsOf: additionalEntries)
+
         let index = ArtifactIndex(entries: entries, command: command, runID: executionContext.runID, timestamp: executionContext.timestamp, anomalies: anomalies)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -133,7 +151,24 @@ public struct ArtifactManager {
             resolvedRoot = latest.resolvingSymlinksInPath()
         }
 
-        let lines = [resolvedRoot.path] + stableInspectionNames.map { "\($0) \(resolvedRoot.appendingPathComponent($0).path)" }
+        let index = try loadArtifactIndexIfPresent(at: resolvedRoot.appendingPathComponent("index.json"))
+        let indexedEntries = index?.entries ?? []
+        let entryByName = Dictionary(uniqueKeysWithValues: indexedEntries.map { ($0.name, $0) })
+        let orderedNames = stableInspectionNames + indexedEntries.map(\.name).filter { !stableInspectionNames.contains($0) }
+        let lines = [resolvedRoot.path] + orderedNames.map { name in
+            let relativePath = entryByName[name]?.relativePath ?? name
+            let path = resolvedRoot.appendingPathComponent(relativePath).path
+            if let entry = entryByName[name], entry.kind == "missing" {
+                if let code = entry.anomaly?.code {
+                    return "\(name) [missing: \(code)] \(path)"
+                }
+                return "\(name) [missing] \(path)"
+            }
+            if fileManager.fileExists(atPath: path) {
+                return "\(name) \(path)"
+            }
+            return "\(name) [missing] \(path)"
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -257,6 +292,14 @@ public struct ArtifactManager {
         default:
             return nil
         }
+    }
+
+    private func loadArtifactIndexIfPresent(at url: URL) throws -> ArtifactIndex? {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+
+        return try JSONDecoder().decode(ArtifactIndex.self, from: Data(contentsOf: url))
     }
 
     private var stableInspectionNames: [String] {

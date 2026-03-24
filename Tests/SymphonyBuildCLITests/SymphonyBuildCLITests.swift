@@ -20,13 +20,28 @@ import SymphonyBuildCore
     #expect(command.skipTesting.isEmpty)
 }
 
+@Test func coverageCommandUsesSpecDefaults() throws {
+    let command = try SymphonyBuildCommand.Coverage.parseAsRoot([]) as! SymphonyBuildCommand.Coverage
+
+    #expect(command.product == .client)
+    #expect(command.worker == 0)
+    #expect(command.onlyTesting.isEmpty)
+    #expect(command.skipTesting.isEmpty)
+    #expect(command.json == false)
+    #expect(command.showFiles == false)
+    #expect(command.includeTestTargets == false)
+    #expect(command.xcodeOutputMode == .filtered)
+}
+
 @Test func commandsParseExplicitXcodeOutputModes() throws {
     let build = try SymphonyBuildCommand.Build.parseAsRoot(["--xcode-output-mode", "full"]) as! SymphonyBuildCommand.Build
     let test = try SymphonyBuildCommand.Test.parseAsRoot(["--xcode-output-mode", "quiet"]) as! SymphonyBuildCommand.Test
+    let coverage = try SymphonyBuildCommand.Coverage.parseAsRoot(["--xcode-output-mode", "full"]) as! SymphonyBuildCommand.Coverage
     let run = try SymphonyBuildCommand.Run.parseAsRoot(["--xcode-output-mode", "full"]) as! SymphonyBuildCommand.Run
 
     #expect(build.xcodeOutputMode == .full)
     #expect(test.xcodeOutputMode == .quiet)
+    #expect(coverage.xcodeOutputMode == .full)
     #expect(run.xcodeOutputMode == .full)
 }
 
@@ -64,9 +79,9 @@ import SymphonyBuildCore
 }
 
 @Test func artifactsCommandAllowsExplicitRunSelection() throws {
-    let command = try SymphonyBuildCommand.Artifacts.parseAsRoot(["test", "--run", "20260324-120000-symphony"]) as! SymphonyBuildCommand.Artifacts
+    let command = try SymphonyBuildCommand.Artifacts.parseAsRoot(["coverage", "--run", "20260324-120000-symphony"]) as! SymphonyBuildCommand.Artifacts
 
-    #expect(command.command == .test)
+    #expect(command.command == .coverage)
     #expect(command.runID == "20260324-120000-symphony")
     #expect(command.latest == false)
 }

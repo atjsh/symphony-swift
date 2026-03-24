@@ -4,6 +4,7 @@ import SymphonyShared
 public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
     case build
     case test
+    case coverage
     case run
 }
 
@@ -185,6 +186,7 @@ public struct XcodeCommandRequest: Codable, Hashable, Sendable {
     public let destination: ResolvedDestination
     public let derivedDataPath: URL
     public let resultBundlePath: URL
+    public let enableCodeCoverage: Bool
     public let outputMode: XcodeOutputMode
     public let environment: [String: String]
     public let workspacePath: URL?
@@ -198,6 +200,7 @@ public struct XcodeCommandRequest: Codable, Hashable, Sendable {
         destination: ResolvedDestination,
         derivedDataPath: URL,
         resultBundlePath: URL,
+        enableCodeCoverage: Bool = false,
         outputMode: XcodeOutputMode,
         environment: [String: String],
         workspacePath: URL?,
@@ -210,6 +213,7 @@ public struct XcodeCommandRequest: Codable, Hashable, Sendable {
         self.destination = destination
         self.derivedDataPath = derivedDataPath
         self.resultBundlePath = resultBundlePath
+        self.enableCodeCoverage = enableCodeCoverage
         self.outputMode = outputMode
         self.environment = environment
         self.workspacePath = workspacePath
@@ -238,6 +242,10 @@ public struct XcodeCommandRequest: Codable, Hashable, Sendable {
             "-derivedDataPath", derivedDataPath.path,
             "-resultBundlePath", resultBundlePath.path,
         ]
+
+        if enableCodeCoverage {
+            arguments += ["-enableCodeCoverage", "YES"]
+        }
 
         for item in onlyTesting {
             arguments += ["-only-testing:\(item)"]
@@ -278,6 +286,72 @@ public struct XcodeRunResult: Codable, Hashable, Sendable {
         self.endedAt = endedAt
         self.resultBundlePath = resultBundlePath
         self.logPath = logPath
+    }
+}
+
+public struct CoverageFileReport: Codable, Hashable, Sendable {
+    public let name: String
+    public let path: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+
+    public init(name: String, path: String, coveredLines: Int, executableLines: Int, lineCoverage: Double) {
+        self.name = name
+        self.path = path
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+    }
+}
+
+public struct CoverageTargetReport: Codable, Hashable, Sendable {
+    public let name: String
+    public let buildProductPath: String?
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+    public let files: [CoverageFileReport]?
+
+    public init(
+        name: String,
+        buildProductPath: String?,
+        coveredLines: Int,
+        executableLines: Int,
+        lineCoverage: Double,
+        files: [CoverageFileReport]?
+    ) {
+        self.name = name
+        self.buildProductPath = buildProductPath
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+        self.files = files
+    }
+}
+
+public struct CoverageReport: Codable, Hashable, Sendable {
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+    public let includeTestTargets: Bool
+    public let excludedTargets: [String]
+    public let targets: [CoverageTargetReport]
+
+    public init(
+        coveredLines: Int,
+        executableLines: Int,
+        lineCoverage: Double,
+        includeTestTargets: Bool,
+        excludedTargets: [String],
+        targets: [CoverageTargetReport]
+    ) {
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+        self.includeTestTargets = includeTestTargets
+        self.excludedTargets = excludedTargets
+        self.targets = targets
     }
 }
 
@@ -558,6 +632,52 @@ public struct RunCommandRequest: Sendable {
         self.host = host
         self.port = port
         self.environment = environment
+        self.outputMode = outputMode
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct CoverageCommandRequest: Sendable {
+    public let product: ProductKind
+    public let scheme: String?
+    public let platform: PlatformKind?
+    public let simulator: String?
+    public let workerID: Int
+    public let dryRun: Bool
+    public let onlyTesting: [String]
+    public let skipTesting: [String]
+    public let json: Bool
+    public let showFiles: Bool
+    public let includeTestTargets: Bool
+    public let outputMode: XcodeOutputMode
+    public let currentDirectory: URL
+
+    public init(
+        product: ProductKind,
+        scheme: String?,
+        platform: PlatformKind?,
+        simulator: String?,
+        workerID: Int,
+        dryRun: Bool,
+        onlyTesting: [String],
+        skipTesting: [String],
+        json: Bool,
+        showFiles: Bool,
+        includeTestTargets: Bool,
+        outputMode: XcodeOutputMode,
+        currentDirectory: URL
+    ) {
+        self.product = product
+        self.scheme = scheme
+        self.platform = platform
+        self.simulator = simulator
+        self.workerID = workerID
+        self.dryRun = dryRun
+        self.onlyTesting = onlyTesting
+        self.skipTesting = skipTesting
+        self.json = json
+        self.showFiles = showFiles
+        self.includeTestTargets = includeTestTargets
         self.outputMode = outputMode
         self.currentDirectory = currentDirectory
     }

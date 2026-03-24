@@ -5,10 +5,11 @@ import SymphonyBuildCore
 public struct SymphonyBuildCommand: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "symphony-build",
-        abstract: "Repository-local build, test, run, simulator, artifact, and diagnostics workflows for Symphony.",
+        abstract: "Repository-local build, test, coverage, run, simulator, artifact, and diagnostics workflows for Symphony.",
         subcommands: [
             Build.self,
             Test.self,
+            Coverage.self,
             Run.self,
             Sim.self,
             Artifacts.self,
@@ -114,6 +115,45 @@ extension SymphonyBuildCommand {
                     host: host,
                     port: port,
                     environment: try parseEnvironment(env),
+                    outputMode: xcodeOutputMode,
+                    currentDirectory: currentDirectoryURL
+                )
+            )
+            print(output)
+        }
+    }
+
+    struct Coverage: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Run a coverage-enabled test pass and report filtered line coverage.")
+
+        @Option var product: ProductKind = .client
+        @Option var scheme: String?
+        @Option var platform: PlatformKind?
+        @Option var simulator: String?
+        @Option(name: .long) var worker: Int = 0
+        @Flag(name: .long) var dryRun = false
+        @Option(name: .long, parsing: .upToNextOption) var onlyTesting: [String] = []
+        @Option(name: .long, parsing: .upToNextOption) var skipTesting: [String] = []
+        @Flag(name: .long) var json = false
+        @Flag(name: .long) var showFiles = false
+        @Flag(name: .long) var includeTestTargets = false
+        @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
+
+        mutating func run() throws {
+            let tool = SymphonyBuildTool()
+            let output = try tool.coverage(
+                CoverageCommandRequest(
+                    product: product,
+                    scheme: scheme,
+                    platform: platform,
+                    simulator: simulator,
+                    workerID: worker,
+                    dryRun: dryRun,
+                    onlyTesting: onlyTesting,
+                    skipTesting: skipTesting,
+                    json: json,
+                    showFiles: showFiles,
+                    includeTestTargets: includeTestTargets,
                     outputMode: xcodeOutputMode,
                     currentDirectory: currentDirectoryURL
                 )
