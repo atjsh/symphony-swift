@@ -4,6 +4,7 @@ import Testing
 import SymphonyShared
 
 @Test func buildModelsExposeExpectedDefaultsAndComputedValues() throws {
+    #expect(BuildCommandFamily.allCases == [.build, .test, .coverage, .run, .harness])
     #expect(ProductKind.server.defaultBackend == .swiftPM)
     #expect(ProductKind.client.defaultBackend == .xcode)
     #expect(ProductKind.server.defaultScheme == "SymphonyServer")
@@ -153,6 +154,42 @@ import SymphonyShared
     let coverageTarget = CoverageTargetReport(name: "Symphony", buildProductPath: "/tmp/Symphony.app", coveredLines: 10, executableLines: 10, lineCoverage: 1, files: [coverageFile])
     let coverageReport = CoverageReport(coveredLines: 10, executableLines: 10, lineCoverage: 1, includeTestTargets: false, excludedTargets: ["SymphonyTests.xctest"], targets: [coverageTarget])
     #expect(coverageReport.targets.first?.files?.first == coverageFile)
+    let inspectionFunction = CoverageInspectionFunctionReport(name: "Foo.bar()", coveredLines: 2, executableLines: 3, lineCoverage: 2.0 / 3.0)
+    let inspectionFile = CoverageInspectionFileReport(
+        targetName: "Symphony",
+        path: "/tmp/Foo.swift",
+        coveredLines: 8,
+        executableLines: 10,
+        lineCoverage: 0.8,
+        missingLineRanges: [CoverageLineRange(startLine: 10, endLine: 12)],
+        functions: [inspectionFunction]
+    )
+    let inspectionReport = CoverageInspectionReport(
+        backend: .swiftPM,
+        product: .server,
+        generatedAt: "2026-03-25T00:00:00Z",
+        files: [inspectionFile]
+    )
+    let rawReport = CoverageInspectionRawReport(
+        backend: .xcode,
+        product: .client,
+        commands: [
+            CoverageInspectionRawCommand(
+                commandLine: "xcrun xccov view --archive --file /tmp/Foo.swift /tmp/result.xcresult",
+                scope: "missing-lines",
+                filePath: "/tmp/Foo.swift",
+                format: "text",
+                output: "10: 0"
+            )
+        ]
+    )
+    let normalizedEnvelope = CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(inspectionReport))
+    let rawEnvelope = CoverageInspectionResponse(coverage: coverageReport, inspection: .raw(rawReport))
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let decoder = JSONDecoder()
+    #expect(try decoder.decode(CoverageInspectionResponse.self, from: encoder.encode(normalizedEnvelope)) == normalizedEnvelope)
+    #expect(try decoder.decode(CoverageInspectionResponse.self, from: encoder.encode(rawEnvelope)) == rawEnvelope)
 
     let packageFile = PackageCoverageFileReport(path: "Sources/Foo.swift", coveredLines: 5, executableLines: 5, lineCoverage: 1)
     let packageReport = PackageCoverageReport(scope: "first_party_sources", coveredLines: 5, executableLines: 5, lineCoverage: 1, coverageJSONPath: "/tmp/package.json", files: [packageFile])
@@ -239,10 +276,10 @@ import SymphonyShared
     let buildRequest = BuildCommandRequest(product: .server, scheme: "Server", platform: .macos, simulator: nil, workerID: 1, dryRun: true, buildForTesting: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let testRequest = TestCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 2, dryRun: false, onlyTesting: ["Suite/test"], skipTesting: ["Suite/skip"], outputMode: .filtered, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let runRequest = RunCommandRequest(product: .server, scheme: "Server", platform: .macos, simulator: nil, workerID: 3, dryRun: false, serverURL: "http://localhost:8080", host: nil, port: nil, environment: ["FOO": "bar"], outputMode: .full, currentDirectory: URL(fileURLWithPath: "/tmp"))
-    let coverageRequest = CoverageCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 4, dryRun: true, onlyTesting: [], skipTesting: [], json: true, showFiles: true, includeTestTargets: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"))
+    let coverageRequest = CoverageCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 4, dryRun: true, onlyTesting: [], skipTesting: [], json: true, showFiles: true, includeTestTargets: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"), showFunctions: true, showMissingLines: true, rawOutput: true)
     let harnessRequest = HarnessCommandRequest(minimumCoveragePercent: 100, json: true, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let hooksRequest = HooksInstallRequest(currentDirectory: URL(fileURLWithPath: "/tmp"))
-    let artifactsRequest = ArtifactsCommandRequest(command: .coverage, latest: false, runID: "run-1", currentDirectory: URL(fileURLWithPath: "/tmp"))
+    let artifactsRequest = ArtifactsCommandRequest(command: .harness, latest: false, runID: "run-1", currentDirectory: URL(fileURLWithPath: "/tmp"))
     let doctorRequest = DoctorCommandRequest(strict: true, json: true, quiet: true, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let simSetRequest = SimSetServerRequest(serverURL: nil, scheme: "https", host: "example.com", port: 9443, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let simBootRequest = SimBootRequest(simulator: "AAAA-BBBB", currentDirectory: URL(fileURLWithPath: "/tmp"))
@@ -250,8 +287,12 @@ import SymphonyShared
     #expect(testRequest.skipTesting == ["Suite/skip"])
     #expect(runRequest.environment["FOO"] == "bar")
     #expect(coverageRequest.includeTestTargets)
+    #expect(coverageRequest.showFunctions)
+    #expect(coverageRequest.showMissingLines)
+    #expect(coverageRequest.rawOutput)
     #expect(harnessRequest.minimumCoveragePercent == 100)
     #expect(hooksRequest.currentDirectory.path == "/tmp")
+    #expect(artifactsRequest.command == .harness)
     #expect(artifactsRequest.runID == "run-1")
     #expect(doctorRequest.strict)
     #expect(simSetRequest.host == "example.com")

@@ -598,6 +598,24 @@ import Testing
             #expect(error.code == "bootstrap_coverage_decode_failed")
         }
 
+        let undercoveredCoverageJSON = #"""
+        {"coveredLines":1,"executableLines":2,"lineCoverage":0.5,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":2,"lineCoverage":0.5,"files":[{"name":"Foo.swift","path":"/tmp/Foo.swift","coveredLines":1,"executableLines":2,"lineCoverage":0.5}]}]}
+        """#
+        let thresholdFailureRunner = CoverageCommandProcessRunner(
+            packageCoveragePath: coveragePath.path,
+            coverageResult: CommandResult(exitStatus: 0, stdout: undercoveredCoverageJSON, stderr: "")
+        )
+        do {
+            _ = try CommitHarness(processRunner: thresholdFailureRunner).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 100, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected below-threshold coverage to fail the harness.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("below the required threshold"))
+            #expect(error.message.contains("client coverage 50.00% (1/2)"))
+        }
+
         #expect(CommitHarness.resolvedExecutablePath(raw: "/tmp/symphony-build", workingDirectory: repoRoot) == "/tmp/symphony-build")
         #expect(CommitHarness.resolvedExecutablePath(raw: "./.build/debug/symphony-build", workingDirectory: repoRoot).hasSuffix(".build/debug/symphony-build"))
     }
@@ -632,6 +650,95 @@ import Testing
 
         #expect(report.clientCoverage.targets.map { $0.name } == ["Suite"])
         #expect(report.serverCoverage.targets.map { $0.name } == ["Suite"])
+    }
+}
+
+@Test func commitHarnessExecuteDecodesInspectionWrappersAndRequestsInspectionFlags() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coverageReport = CoverageReport(
+            coveredLines: 1,
+            executableLines: 2,
+            lineCoverage: 0.5,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: [
+                CoverageTargetReport(name: "Suite", buildProductPath: nil, coveredLines: 1, executableLines: 2, lineCoverage: 0.5, files: [
+                    CoverageFileReport(name: "Foo.swift", path: "/tmp/Foo.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5),
+                ])
+            ]
+        )
+        let inspectionReport = CoverageInspectionReport(
+            backend: .swiftPM,
+            product: .server,
+            generatedAt: "2026-03-25T00:00:00Z",
+            files: [
+                CoverageInspectionFileReport(
+                    targetName: "Suite",
+                    path: "/tmp/Foo.swift",
+                    coveredLines: 1,
+                    executableLines: 2,
+                    lineCoverage: 0.5,
+                    missingLineRanges: [CoverageLineRange(startLine: 10, endLine: 10)],
+                    functions: []
+                )
+            ]
+        )
+        let wrapperJSON = String(
+            decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(inspectionReport))),
+            as: UTF8.self
+        )
+        let runner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: wrapperJSON)
+
+        let execution = try CommitHarness(processRunner: runner, statusSink: { _ in }).execute(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+        )
+
+        #expect(execution.report.clientCoverage == coverageReport)
+        #expect(execution.report.serverCoverage == coverageReport)
+        #expect(execution.clientInspection == inspectionReport)
+        #expect(execution.serverInspection == inspectionReport)
+        #expect(runner.commands.contains(where: { $0.contains("--show-functions") && $0.contains("--show-missing-lines") }))
+
+        let rawInspection = CoverageInspectionRawReport(
+            backend: .swiftPM,
+            product: .server,
+            commands: [
+                CoverageInspectionRawCommand(
+                    commandLine: "xcrun llvm-cov show",
+                    scope: "missing-lines",
+                    filePath: "/tmp/Foo.swift",
+                    format: "text",
+                    output: "raw output"
+                )
+            ]
+        )
+        let rawWrapperJSON = String(
+            decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .raw(rawInspection))),
+            as: UTF8.self
+        )
+        let rawRunner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: rawWrapperJSON)
+        let rawExecution = try CommitHarness(processRunner: rawRunner, statusSink: { _ in }).execute(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+        )
+        #expect(rawExecution.clientInspection == nil)
+        #expect(rawExecution.serverInspection == nil)
     }
 }
 
@@ -857,6 +964,46 @@ private struct DualCoverageProcessRunner: ProcessRunning {
         }
         if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
             return StubProcessRunner.success(coverageJSON)
+        }
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}
+
+private final class RecordingCoverageInspectionProcessRunner: ProcessRunning, @unchecked Sendable {
+    let packageCoveragePath: String
+    let wrappedCoverageJSON: String
+    private let lock = NSLock()
+    private var storage = [String]()
+
+    init(packageCoveragePath: String, wrappedCoverageJSON: String) {
+        self.packageCoveragePath = packageCoveragePath
+        self.wrappedCoverageJSON = wrappedCoverageJSON
+    }
+
+    var commands: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        let rendered = ([command] + arguments).joined(separator: " ")
+        lock.lock()
+        storage.append(rendered)
+        lock.unlock()
+
+        if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+            return StubProcessRunner.success()
+        }
+        if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+            return StubProcessRunner.success(packageCoveragePath + "\n")
+        }
+        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
+            return StubProcessRunner.success(wrappedCoverageJSON)
         }
         return StubProcessRunner.success()
     }

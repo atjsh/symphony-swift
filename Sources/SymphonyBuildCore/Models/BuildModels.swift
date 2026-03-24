@@ -6,6 +6,7 @@ public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
     case test
     case coverage
     case run
+    case harness
 }
 
 public enum ProductBackend: String, Codable, CaseIterable, Sendable {
@@ -384,6 +385,136 @@ public struct CoverageReport: Codable, Hashable, Sendable {
         self.includeTestTargets = includeTestTargets
         self.excludedTargets = excludedTargets
         self.targets = targets
+    }
+}
+
+public struct CoverageLineRange: Codable, Hashable, Sendable {
+    public let startLine: Int
+    public let endLine: Int
+
+    public init(startLine: Int, endLine: Int) {
+        self.startLine = startLine
+        self.endLine = endLine
+    }
+}
+
+public struct CoverageInspectionFunctionReport: Codable, Hashable, Sendable {
+    public let name: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+
+    public init(name: String, coveredLines: Int, executableLines: Int, lineCoverage: Double) {
+        self.name = name
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+    }
+}
+
+public struct CoverageInspectionFileReport: Codable, Hashable, Sendable {
+    public let targetName: String
+    public let path: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+    public let missingLineRanges: [CoverageLineRange]
+    public let functions: [CoverageInspectionFunctionReport]
+
+    public init(
+        targetName: String,
+        path: String,
+        coveredLines: Int,
+        executableLines: Int,
+        lineCoverage: Double,
+        missingLineRanges: [CoverageLineRange],
+        functions: [CoverageInspectionFunctionReport]
+    ) {
+        self.targetName = targetName
+        self.path = path
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+        self.missingLineRanges = missingLineRanges
+        self.functions = functions
+    }
+}
+
+public struct CoverageInspectionReport: Codable, Hashable, Sendable {
+    public let backend: ProductBackend
+    public let product: ProductKind
+    public let generatedAt: String
+    public let files: [CoverageInspectionFileReport]
+
+    public init(backend: ProductBackend, product: ProductKind, generatedAt: String, files: [CoverageInspectionFileReport]) {
+        self.backend = backend
+        self.product = product
+        self.generatedAt = generatedAt
+        self.files = files
+    }
+}
+
+public struct CoverageInspectionRawCommand: Codable, Hashable, Sendable {
+    public let commandLine: String
+    public let scope: String
+    public let filePath: String?
+    public let format: String
+    public let output: String
+
+    public init(commandLine: String, scope: String, filePath: String?, format: String, output: String) {
+        self.commandLine = commandLine
+        self.scope = scope
+        self.filePath = filePath
+        self.format = format
+        self.output = output
+    }
+}
+
+public struct CoverageInspectionRawReport: Codable, Hashable, Sendable {
+    public let backend: ProductBackend
+    public let product: ProductKind
+    public let commands: [CoverageInspectionRawCommand]
+
+    public init(backend: ProductBackend, product: ProductKind, commands: [CoverageInspectionRawCommand]) {
+        self.backend = backend
+        self.product = product
+        self.commands = commands
+    }
+}
+
+public enum CoverageInspectionPayload: Hashable, Sendable {
+    case normalized(CoverageInspectionReport)
+    case raw(CoverageInspectionRawReport)
+}
+
+extension CoverageInspectionPayload: Codable {
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let normalized = try? container.decode(CoverageInspectionReport.self) {
+            self = .normalized(normalized)
+            return
+        }
+        self = .raw(try container.decode(CoverageInspectionRawReport.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .normalized(let report):
+            try container.encode(report)
+        case .raw(let report):
+            try container.encode(report)
+        }
+    }
+}
+
+public struct CoverageInspectionResponse: Codable, Hashable, Sendable {
+    public let coverage: CoverageReport
+    public let inspection: CoverageInspectionPayload
+
+    public init(coverage: CoverageReport, inspection: CoverageInspectionPayload) {
+        self.coverage = coverage
+        self.inspection = inspection
     }
 }
 
@@ -801,6 +932,9 @@ public struct CoverageCommandRequest: Sendable {
     public let includeTestTargets: Bool
     public let outputMode: XcodeOutputMode
     public let currentDirectory: URL
+    public let showFunctions: Bool
+    public let showMissingLines: Bool
+    public let rawOutput: Bool
 
     public init(
         product: ProductKind,
@@ -815,7 +949,10 @@ public struct CoverageCommandRequest: Sendable {
         showFiles: Bool,
         includeTestTargets: Bool,
         outputMode: XcodeOutputMode,
-        currentDirectory: URL
+        currentDirectory: URL,
+        showFunctions: Bool = false,
+        showMissingLines: Bool = false,
+        rawOutput: Bool = false
     ) {
         self.product = product
         self.scheme = scheme
@@ -830,6 +967,9 @@ public struct CoverageCommandRequest: Sendable {
         self.includeTestTargets = includeTestTargets
         self.outputMode = outputMode
         self.currentDirectory = currentDirectory
+        self.showFunctions = showFunctions
+        self.showMissingLines = showMissingLines
+        self.rawOutput = rawOutput
     }
 }
 

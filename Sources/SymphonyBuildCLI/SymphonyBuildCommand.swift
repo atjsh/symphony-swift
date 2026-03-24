@@ -206,8 +206,17 @@ extension SymphonyBuildCommand {
         @Option(name: .long, parsing: .upToNextOption) var skipTesting: [String] = []
         @Flag(name: .long) var json = false
         @Flag(name: .long) var showFiles = false
+        @Flag(name: .long) var showFunctions = false
+        @Flag(name: .long) var showMissingLines = false
+        @Flag(name: .long) var rawOutput = false
         @Flag(name: .long) var includeTestTargets = false
         @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
+
+        mutating func validate() throws {
+            guard !rawOutput || showFunctions || showMissingLines else {
+                throw ValidationError("`--raw-output` requires `--show-functions` or `--show-missing-lines`.")
+            }
+        }
 
         mutating func run() throws {
             let tool = CLIContext.makeTool()
@@ -225,7 +234,10 @@ extension SymphonyBuildCommand {
                     showFiles: showFiles,
                     includeTestTargets: includeTestTargets,
                     outputMode: xcodeOutputMode,
-                    currentDirectory: CLIContext.currentDirectory()
+                    currentDirectory: CLIContext.currentDirectory(),
+                    showFunctions: showFunctions,
+                    showMissingLines: showMissingLines,
+                    rawOutput: rawOutput
                 )
             )
             CLIContext.emit(output)

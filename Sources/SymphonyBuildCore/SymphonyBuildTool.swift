@@ -349,6 +349,7 @@ public final class SymphonyBuildTool {
         destination: ResolvedDestination,
         executionContext: ExecutionContext
     ) throws -> String {
+        let wantsInspection = request.showFunctions || request.showMissingLines
         let xcodeRequest = XcodeCommandRequest(
             action: .test,
             scheme: selector.scheme,
@@ -386,15 +387,52 @@ public final class SymphonyBuildTool {
         let endedAt = Date()
 
         var coverageArtifacts: CoverageArtifacts?
+        var inspectionReport: CoverageInspectionReport?
+        var rawInspectionReport: CoverageInspectionRawReport?
         var coverageAnomalies = [ArtifactAnomaly]()
         if result.exitStatus == 0 {
             do {
-                coverageArtifacts = try coverageReporter.export(
+                let exportedArtifacts = try coverageReporter.export(
                     resultBundlePath: executionContext.resultBundlePath,
                     artifactRoot: executionContext.artifactRoot,
                     includeTestTargets: request.includeTestTargets,
-                    showFiles: request.showFiles
+                    showFiles: request.showFiles || wantsInspection
                 )
+                let finalizedArtifacts = try displayedCoverageArtifacts(
+                    from: exportedArtifacts,
+                    showFiles: request.showFiles,
+                    artifactRoot: executionContext.artifactRoot
+                )
+
+                if wantsInspection {
+                    let inspection = try XcodeCoverageInspector(processRunner: processRunner).inspect(
+                        resultBundlePath: executionContext.resultBundlePath,
+                        candidates: inspectionCandidates(from: exportedArtifacts.report),
+                        includeFunctions: request.showFunctions,
+                        includeMissingLines: request.showMissingLines
+                    )
+                    let normalizedInspection = CoverageInspectionReport(
+                        backend: .xcode,
+                        product: request.product,
+                        generatedAt: DateFormatting.iso8601(endedAt),
+                        files: inspection.files
+                    )
+                    let rawInspection = CoverageInspectionRawReport(
+                        backend: .xcode,
+                        product: request.product,
+                        commands: inspection.rawCommands
+                    )
+                    try writeCoverageInspectionArtifacts(
+                        artifactRoot: executionContext.artifactRoot,
+                        normalizedReport: normalizedInspection,
+                        rawReport: rawInspection,
+                        writeRawArtifacts: request.rawOutput
+                    )
+                    inspectionReport = normalizedInspection
+                    rawInspectionReport = rawInspection
+                }
+
+                coverageArtifacts = finalizedArtifacts
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
             } catch {
@@ -428,7 +466,12 @@ public final class SymphonyBuildTool {
         guard coverageAnomalies.isEmpty, let coverageArtifacts else {
             throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
         }
-        return request.json ? coverageArtifacts.jsonOutput : coverageArtifacts.textOutput
+        return try renderCoverageOutput(
+            request: request,
+            coverageArtifacts: coverageArtifacts,
+            inspectionReport: inspectionReport,
+            rawInspectionReport: rawInspectionReport
+        )
     }
 
     private func coverageSwiftPM(
@@ -438,6 +481,7 @@ public final class SymphonyBuildTool {
         destination: ResolvedDestination,
         executionContext: ExecutionContext
     ) throws -> String {
+        let wantsInspection = request.showFunctions || request.showMissingLines
         let testFilter = "SymphonyServerTests"
         let coverageCommand = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: true)
         let coveragePathCommand = SwiftPMCoverageReporter().renderedCoveragePathCommandLine()
@@ -456,6 +500,8 @@ public final class SymphonyBuildTool {
         )
 
         var coverageArtifacts: CoverageArtifacts?
+        var inspectionReport: CoverageInspectionReport?
+        var rawInspectionReport: CoverageInspectionRawReport?
         var coverageAnomalies = [ArtifactAnomaly]()
         var coveragePathOutput = ""
         if result.exitStatus == 0 {
@@ -480,12 +526,48 @@ public final class SymphonyBuildTool {
                     throw SymphonyBuildError(code: "missing_swiftpm_coverage_path", message: "SwiftPM returned an empty coverage JSON path.")
                 }
 
-                coverageArtifacts = try SwiftPMCoverageReporter().exportServerCoverage(
+                let exportedArtifacts = try SwiftPMCoverageReporter().exportServerCoverage(
                     coverageJSONPath: URL(fileURLWithPath: rawPath),
                     projectRoot: workspace.projectRoot,
                     artifactRoot: executionContext.artifactRoot,
-                    showFiles: request.showFiles
+                    showFiles: request.showFiles || wantsInspection
                 )
+                let finalizedArtifacts = try displayedCoverageArtifacts(
+                    from: exportedArtifacts,
+                    showFiles: request.showFiles,
+                    artifactRoot: executionContext.artifactRoot
+                )
+
+                if wantsInspection {
+                    let inspection = try SwiftPMCoverageInspector(processRunner: processRunner).inspect(
+                        coverageJSONPath: URL(fileURLWithPath: rawPath),
+                        projectRoot: workspace.projectRoot,
+                        candidates: inspectionCandidates(from: exportedArtifacts.report),
+                        includeFunctions: request.showFunctions,
+                        includeMissingLines: request.showMissingLines
+                    )
+                    let normalizedInspection = CoverageInspectionReport(
+                        backend: .swiftPM,
+                        product: request.product,
+                        generatedAt: DateFormatting.iso8601(Date()),
+                        files: inspection.files
+                    )
+                    let rawInspection = CoverageInspectionRawReport(
+                        backend: .swiftPM,
+                        product: request.product,
+                        commands: inspection.rawCommands
+                    )
+                    try writeCoverageInspectionArtifacts(
+                        artifactRoot: executionContext.artifactRoot,
+                        normalizedReport: normalizedInspection,
+                        rawReport: rawInspection,
+                        writeRawArtifacts: request.rawOutput
+                    )
+                    inspectionReport = normalizedInspection
+                    rawInspectionReport = rawInspection
+                }
+
+                coverageArtifacts = finalizedArtifacts
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
             } catch {
@@ -515,7 +597,12 @@ public final class SymphonyBuildTool {
         guard coverageAnomalies.isEmpty, let coverageArtifacts else {
             throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
         }
-        return request.json ? coverageArtifacts.jsonOutput : coverageArtifacts.textOutput
+        return try renderCoverageOutput(
+            request: request,
+            coverageArtifacts: coverageArtifacts,
+            inspectionReport: inspectionReport,
+            rawInspectionReport: rawInspectionReport
+        )
     }
 
     private func runXcode(
@@ -737,13 +824,64 @@ public final class SymphonyBuildTool {
 
     public func harness(_ request: HarnessCommandRequest) throws -> String {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let report = try commitHarness.run(workspace: workspace, request: request)
-        if request.json {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            return String(decoding: try encoder.encode(report), as: UTF8.self)
+        let startedAt = Date()
+        let execution = try commitHarness.execute(workspace: workspace, request: request)
+        let generatedAt = DateFormatting.iso8601(Date())
+        let worker = try WorkerScope(id: 0)
+        let executionContext = try executionContextBuilder.make(
+            workspace: workspace,
+            worker: worker,
+            command: .harness,
+            runID: "commit-harness"
+        )
+
+        let packageInspection = try makePackageHarnessInspectionArtifact(
+            workspace: workspace,
+            report: execution.report.packageCoverage,
+            generatedAt: generatedAt
+        )
+        let clientInspection = HarnessCoverageInspectionArtifact(
+            suite: "client",
+            backend: ProductKind.client.defaultBackend,
+            generatedAt: generatedAt,
+            files: execution.clientInspection?.files ?? []
+        )
+        let serverInspection = HarnessCoverageInspectionArtifact(
+            suite: "server",
+            backend: ProductKind.server.defaultBackend,
+            generatedAt: generatedAt,
+            files: execution.serverInspection?.files ?? []
+        )
+
+        try writeHarnessInspectionArtifacts(
+            packageInspection: packageInspection,
+            clientInspection: clientInspection,
+            serverInspection: serverInspection,
+            artifactRoot: executionContext.artifactRoot
+        )
+
+        let reportJSON = try encodePrettyJSON(execution.report)
+        let summaryText = commitHarness.renderHuman(report: execution.report)
+        let endedAt = Date()
+        let record = try artifactManager.recordHarnessExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            invocation: renderedHarnessCommandLine(request: request),
+            exitStatus: execution.report.meetsCoverageThreshold ? 0 : 1,
+            summaryJSON: reportJSON,
+            summaryText: summaryText,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+
+        guard execution.report.meetsCoverageThreshold else {
+            throw SymphonyBuildCommandFailure(
+                message: compactHarnessFailureMessage(report: execution.report, artifactRoot: record.run.artifactRoot),
+                summaryPath: record.run.summaryPath
+            )
         }
-        return commitHarness.renderHuman(report: report)
+
+        return request.json ? reportJSON : summaryText
     }
 
     public func hooksInstall(_ request: HooksInstallRequest) throws -> String {
@@ -785,6 +923,191 @@ public final class SymphonyBuildTool {
     private func renderSwiftPMRunSequence(productName: String, binPath: String?) -> String {
         let resolvedBinPath = binPath.map { "\($0)/\(productName)" } ?? "<built-product>/\(productName)"
         return [renderSwiftBuildCommandLine(productName: productName), ShellQuoting.render(command: "swift", arguments: ["build", "--show-bin-path"]), ShellQuoting.render(command: resolvedBinPath, arguments: [])].joined(separator: "\n")
+    }
+
+    private func makePackageHarnessInspectionArtifact(
+        workspace: WorkspaceContext,
+        report: PackageCoverageReport,
+        generatedAt: String
+    ) throws -> HarnessCoverageInspectionArtifact {
+        let candidates = report.files.compactMap { file -> CoverageInspectionFileCandidate? in
+            guard file.executableLines > 0, file.coveredLines < file.executableLines else {
+                return nil
+            }
+            let components = file.path.split(separator: "/")
+            let targetName = components.count > 2 ? String(components[1]) : "Sources"
+            return CoverageInspectionFileCandidate(
+                targetName: targetName,
+                path: file.path,
+                coveredLines: file.coveredLines,
+                executableLines: file.executableLines,
+                lineCoverage: file.lineCoverage
+            )
+        }
+        let inspection: CoverageInspectionResult
+        do {
+            inspection = try SwiftPMCoverageInspector(processRunner: processRunner).inspect(
+                coverageJSONPath: URL(fileURLWithPath: report.coverageJSONPath),
+                projectRoot: workspace.projectRoot,
+                candidates: candidates,
+                includeFunctions: true,
+                includeMissingLines: true
+            )
+        } catch let error as SymphonyBuildError
+            where error.code == "missing_swiftpm_profdata" || error.code == "missing_swiftpm_test_binary" {
+            inspection = CoverageInspectionResult(files: [], rawCommands: [])
+        }
+        return HarnessCoverageInspectionArtifact(
+            suite: "package",
+            backend: .swiftPM,
+            generatedAt: generatedAt,
+            files: inspection.files
+        )
+    }
+
+    private func writeHarnessInspectionArtifacts(
+        packageInspection: HarnessCoverageInspectionArtifact,
+        clientInspection: HarnessCoverageInspectionArtifact,
+        serverInspection: HarnessCoverageInspectionArtifact,
+        artifactRoot: URL
+    ) throws {
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        try (encodePrettyJSON(packageInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("package-inspection.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (renderHarnessInspectionHuman(artifact: packageInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("package-inspection.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (encodePrettyJSON(clientInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("client-inspection.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (renderHarnessInspectionHuman(artifact: clientInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("client-inspection.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (encodePrettyJSON(serverInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("server-inspection.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (renderHarnessInspectionHuman(artifact: serverInspection) + "\n").write(
+            to: artifactRoot.appendingPathComponent("server-inspection.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func displayedCoverageArtifacts(
+        from artifacts: CoverageArtifacts,
+        showFiles: Bool,
+        artifactRoot: URL
+    ) throws -> CoverageArtifacts {
+        let report = showFiles ? artifacts.report : strippedCoverageReport(artifacts.report)
+        let jsonOutput = try encodePrettyJSON(report)
+        let textOutput = CoverageReporter().renderHuman(report: report)
+        try (jsonOutput + "\n").write(to: artifactRoot.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
+        try (textOutput + "\n").write(to: artifactRoot.appendingPathComponent("coverage.txt"), atomically: true, encoding: .utf8)
+        return CoverageArtifacts(
+            report: report,
+            jsonPath: artifactRoot.appendingPathComponent("coverage.json"),
+            textPath: artifactRoot.appendingPathComponent("coverage.txt"),
+            jsonOutput: jsonOutput,
+            textOutput: textOutput
+        )
+    }
+
+    private func writeCoverageInspectionArtifacts(
+        artifactRoot: URL,
+        normalizedReport: CoverageInspectionReport,
+        rawReport: CoverageInspectionRawReport,
+        writeRawArtifacts: Bool
+    ) throws {
+        let normalizedJSON = try encodePrettyJSON(normalizedReport)
+        let normalizedText = renderInspectionHuman(report: normalizedReport)
+        try (normalizedJSON + "\n").write(
+            to: artifactRoot.appendingPathComponent("coverage-inspection.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (normalizedText + "\n").write(
+            to: artifactRoot.appendingPathComponent("coverage-inspection.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        guard writeRawArtifacts else {
+            return
+        }
+
+        let rawJSON = try encodePrettyJSON(rawReport)
+        let rawText = renderRawInspectionHuman(report: rawReport)
+        try (rawJSON + "\n").write(
+            to: artifactRoot.appendingPathComponent("coverage-inspection-raw.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try (rawText + "\n").write(
+            to: artifactRoot.appendingPathComponent("coverage-inspection-raw.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func renderCoverageOutput(
+        request: CoverageCommandRequest,
+        coverageArtifacts: CoverageArtifacts,
+        inspectionReport: CoverageInspectionReport?,
+        rawInspectionReport: CoverageInspectionRawReport?
+    ) throws -> String {
+        if request.json {
+            guard let inspectionReport else {
+                return coverageArtifacts.jsonOutput
+            }
+            let inspectionPayload: CoverageInspectionPayload
+            if request.rawOutput, let rawInspectionReport {
+                inspectionPayload = .raw(rawInspectionReport)
+            } else {
+                inspectionPayload = .normalized(inspectionReport)
+            }
+            return try encodePrettyJSON(
+                CoverageInspectionResponse(coverage: coverageArtifacts.report, inspection: inspectionPayload)
+            )
+        }
+
+        guard let inspectionReport else {
+            return coverageArtifacts.textOutput
+        }
+        return coverageArtifacts.textOutput + "\n" + renderInspectionHuman(report: inspectionReport)
+    }
+
+    private func renderedHarnessCommandLine(request: HarnessCommandRequest) -> String {
+        var arguments = ["harness", "--minimum-coverage", String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), request.minimumCoveragePercent)]
+        if request.json {
+            arguments.append("--json")
+        }
+        return ShellQuoting.render(command: "symphony-build", arguments: arguments)
+    }
+
+    private func compactHarnessFailureMessage(report: HarnessReport, artifactRoot: URL) -> String {
+        let preview = report.violations.prefix(3).map { violation in
+            let percentage = String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), violation.lineCoverage * 100)
+            return "\(violation.suite) \(violation.kind) \(violation.name) \(percentage) (\(violation.coveredLines)/\(violation.executableLines))"
+        }
+        let previewLines = preview.isEmpty ? [] : preview
+        return (
+            [
+                "Commit harness failed because one or more required coverage suites are below the required threshold.",
+            ] + previewLines + [
+                "Harness artifacts: \(artifactRoot.path)",
+            ]
+        ).joined(separator: "\n")
     }
 
     private func destinationSelector(platform: PlatformKind, simulator: String?) -> DestinationSelector {

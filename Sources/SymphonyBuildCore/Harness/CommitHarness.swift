@@ -1,5 +1,17 @@
 import Foundation
 
+public struct CommitHarnessExecution: Sendable {
+    public let report: HarnessReport
+    public let clientInspection: CoverageInspectionReport?
+    public let serverInspection: CoverageInspectionReport?
+
+    public init(report: HarnessReport, clientInspection: CoverageInspectionReport?, serverInspection: CoverageInspectionReport?) {
+        self.report = report
+        self.clientInspection = clientInspection
+        self.serverInspection = serverInspection
+    }
+}
+
 public struct CommitHarness {
     private let processRunner: ProcessRunning
     private let coverageReporter: PackageCoverageReporter
@@ -22,6 +34,22 @@ public struct CommitHarness {
     }
 
     public func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws -> HarnessReport {
+        let execution = try execute(workspace: workspace, request: request)
+        let report = execution.report
+
+        guard report.meetsCoverageThreshold else {
+            throw SymphonyBuildCommandFailure(
+                message: """
+                Commit harness failed because one or more required coverage suites are below the required threshold.
+                \(coverageReporter.renderHuman(report: report))
+                """
+            )
+        }
+
+        return report
+    }
+
+    public func execute(workspace: WorkspaceContext, request: HarnessCommandRequest) throws -> CommitHarnessExecution {
         guard request.minimumCoveragePercent >= 0, request.minimumCoveragePercent <= 100 else {
             throw SymphonyBuildError(code: "invalid_coverage_threshold", message: "The minimum coverage threshold must be between 0 and 100.")
         }
@@ -63,36 +91,68 @@ public struct CommitHarness {
         )
         let clientCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: ["coverage", "--product", "client", "--platform", "macos", "--show-files", "--json"]
+            arguments: [
+                "coverage",
+                "--product", "client",
+                "--platform", "macos",
+                "--show-files",
+                "--show-functions",
+                "--show-missing-lines",
+                "--json",
+            ]
         )
         let serverCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: ["coverage", "--product", "server", "--show-files", "--json"]
+            arguments: [
+                "coverage",
+                "--product", "server",
+                "--show-files",
+                "--show-functions",
+                "--show-missing-lines",
+                "--json",
+            ]
         )
-        let clientCoverage: CoverageReport
+        let clientExecution: CoverageSuiteExecution
         if let clientCoverageLoader {
-            clientCoverage = try clientCoverageLoader(workspace)
+            clientExecution = CoverageSuiteExecution(report: try clientCoverageLoader(workspace), inspection: nil)
         } else {
-            clientCoverage = try Self.runCoverageSuite(
+            clientExecution = try Self.runCoverageSuiteExecution(
                 processRunner: processRunner,
                 executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: ["coverage", "--product", "client", "--platform", "macos", "--show-files", "--json"],
+                arguments: [
+                    "coverage",
+                    "--product", "client",
+                    "--platform", "macos",
+                    "--show-files",
+                    "--show-functions",
+                    "--show-missing-lines",
+                    "--json",
+                ],
                 currentDirectory: workspace.projectRoot,
                 statusSink: statusSink
             )
         }
-        let serverCoverage: CoverageReport
+        let serverExecution: CoverageSuiteExecution
         if let serverCoverageLoader {
-            serverCoverage = try serverCoverageLoader(workspace)
+            serverExecution = CoverageSuiteExecution(report: try serverCoverageLoader(workspace), inspection: nil)
         } else {
-            serverCoverage = try Self.runCoverageSuite(
+            serverExecution = try Self.runCoverageSuiteExecution(
                 processRunner: processRunner,
                 executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: ["coverage", "--product", "server", "--show-files", "--json"],
+                arguments: [
+                    "coverage",
+                    "--product", "server",
+                    "--show-files",
+                    "--show-functions",
+                    "--show-missing-lines",
+                    "--json",
+                ],
                 currentDirectory: workspace.projectRoot,
                 statusSink: statusSink
             )
         }
+        let clientCoverage = clientExecution.report
+        let serverCoverage = serverExecution.report
         let threshold = request.minimumCoveragePercent / 100
         let packageFileViolations = coverageReporter.makePackageFileViolations(report: coverageReport, minimumLineCoverage: threshold)
         let clientTargetViolations = coverageReporter.makeTargetViolations(report: clientCoverage, suite: "client", minimumLineCoverage: threshold)
@@ -116,16 +176,11 @@ public struct CommitHarness {
             serverFileViolations: serverFileViolations
         )
 
-        guard report.meetsCoverageThreshold else {
-            throw SymphonyBuildCommandFailure(
-                message: """
-                Commit harness failed because one or more required coverage suites are below the required threshold.
-                \(coverageReporter.renderHuman(report: report))
-                """
-            )
-        }
-
-        return report
+        return CommitHarnessExecution(
+            report: report,
+            clientInspection: clientExecution.inspection,
+            serverInspection: serverExecution.inspection
+        )
     }
 
     public func renderHuman(report: HarnessReport) -> String {
@@ -155,6 +210,22 @@ public struct CommitHarness {
         currentDirectory: URL,
         statusSink: @escaping @Sendable (String) -> Void
     ) throws -> CoverageReport {
+        try runCoverageSuiteExecution(
+            processRunner: processRunner,
+            executablePath: executablePath,
+            arguments: arguments,
+            currentDirectory: currentDirectory,
+            statusSink: statusSink
+        ).report
+    }
+
+    static func runCoverageSuiteExecution(
+        processRunner: ProcessRunning,
+        executablePath: String,
+        arguments: [String],
+        currentDirectory: URL,
+        statusSink: @escaping @Sendable (String) -> Void
+    ) throws -> CoverageSuiteExecution {
         let label = "symphony-build " + arguments.joined(separator: " ")
         let result = try processRunner.run(
             command: executablePath,
@@ -189,7 +260,18 @@ public struct CommitHarness {
         }
 
         do {
-            return try JSONDecoder().decode(CoverageReport.self, from: Data(result.stdout.utf8))
+            let data = Data(result.stdout.utf8)
+            if let wrapped = try? JSONDecoder().decode(CoverageInspectionResponse.self, from: data) {
+                let inspection: CoverageInspectionReport?
+                switch wrapped.inspection {
+                case .normalized(let report):
+                    inspection = report
+                case .raw:
+                    inspection = nil
+                }
+                return CoverageSuiteExecution(report: wrapped.coverage, inspection: inspection)
+            }
+            return CoverageSuiteExecution(report: try JSONDecoder().decode(CoverageReport.self, from: data), inspection: nil)
         } catch {
             throw SymphonyBuildError(code: "bootstrap_coverage_decode_failed", message: "The coverage command JSON output could not be decoded.")
         }
@@ -209,6 +291,11 @@ public struct CommitHarness {
         }
         return URL(fileURLWithPath: raw, relativeTo: workingDirectory).standardizedFileURL.path
     }
+}
+
+struct CoverageSuiteExecution: Sendable {
+    let report: CoverageReport
+    let inspection: CoverageInspectionReport?
 }
 
 public struct GitHookInstaller {

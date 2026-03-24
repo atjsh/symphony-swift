@@ -29,8 +29,34 @@ import SymphonyBuildCore
     #expect(command.skipTesting.isEmpty)
     #expect(command.json == false)
     #expect(command.showFiles == false)
+    #expect(command.showFunctions == false)
+    #expect(command.showMissingLines == false)
+    #expect(command.rawOutput == false)
     #expect(command.includeTestTargets == false)
     #expect(command.xcodeOutputMode == .filtered)
+}
+
+@Test func coverageCommandParsesInspectionFlags() throws {
+    let command = try SymphonyBuildCommand.Coverage.parseAsRoot([
+        "--show-files",
+        "--show-functions",
+        "--show-missing-lines",
+        "--raw-output",
+    ]) as! SymphonyBuildCommand.Coverage
+
+    #expect(command.showFiles == true)
+    #expect(command.showFunctions == true)
+    #expect(command.showMissingLines == true)
+    #expect(command.rawOutput == true)
+}
+
+@Test func coverageCommandRejectsRawOutputWithoutInspectionSelection() throws {
+    do {
+        _ = try SymphonyBuildCommand.Coverage.parseAsRoot(["--raw-output"]) as! SymphonyBuildCommand.Coverage
+        Issue.record("Expected --raw-output without inspection flags to fail.")
+    } catch {
+        #expect(String(describing: error).contains("--show-functions"))
+    }
 }
 
 @Test func harnessCommandUsesSpecDefaults() throws {
@@ -99,6 +125,14 @@ import SymphonyBuildCore
     #expect(command.latest == false)
 }
 
+@Test func artifactsCommandSupportsHarnessFamily() throws {
+    let command = try SymphonyBuildCommand.Artifacts.parseAsRoot(["harness"]) as! SymphonyBuildCommand.Artifacts
+
+    #expect(command.command == .harness)
+    #expect(command.latest == false)
+    #expect(command.runID == nil)
+}
+
 @Test func doctorCommandDefaultsToHumanNonStrictMode() throws {
     let command = try SymphonyBuildCommand.Doctor.parseAsRoot([]) as! SymphonyBuildCommand.Doctor
 
@@ -148,7 +182,13 @@ import SymphonyBuildCore
         var test = try SymphonyBuildCommand.Test.parseAsRoot(["--product", "server", "--only-testing", "Suite/testThing"]) as! SymphonyBuildCommand.Test
         try test.run()
 
-        var coverage = try SymphonyBuildCommand.Coverage.parseAsRoot(["--product", "server", "--show-files", "--json"]) as! SymphonyBuildCommand.Coverage
+        var coverage = try SymphonyBuildCommand.Coverage.parseAsRoot([
+            "--product", "server",
+            "--show-files",
+            "--show-functions",
+            "--show-missing-lines",
+            "--json",
+        ]) as! SymphonyBuildCommand.Coverage
         try coverage.run()
 
         var run = try SymphonyBuildCommand.Run.parseAsRoot(["--env", "FOO=bar", "--host", "example.com", "--port", "9443"]) as! SymphonyBuildCommand.Run
@@ -172,7 +212,7 @@ import SymphonyBuildCore
         var install = try SymphonyBuildCommand.Hooks.Install.parseAsRoot([]) as! SymphonyBuildCommand.Hooks.Install
         try install.run()
 
-        var artifacts = try SymphonyBuildCommand.Artifacts.parseAsRoot(["coverage", "--run", "run-1"]) as! SymphonyBuildCommand.Artifacts
+        var artifacts = try SymphonyBuildCommand.Artifacts.parseAsRoot(["harness", "--run", "run-1"]) as! SymphonyBuildCommand.Artifacts
         try artifacts.run()
 
         var doctor = try SymphonyBuildCommand.Doctor.parseAsRoot(["--strict", "--json", "--quiet"]) as! SymphonyBuildCommand.Doctor
@@ -190,6 +230,9 @@ import SymphonyBuildCore
 
     #expect(tool.coverageRequests.count == 1)
     #expect(tool.coverageRequests[0].showFiles == true)
+    #expect(tool.coverageRequests[0].showFunctions == true)
+    #expect(tool.coverageRequests[0].showMissingLines == true)
+    #expect(tool.coverageRequests[0].rawOutput == false)
     #expect(tool.coverageRequests[0].json == true)
 
     #expect(tool.runRequests.count == 1)
@@ -206,6 +249,7 @@ import SymphonyBuildCore
     #expect(tool.simSetServerRequests.map(\.serverURL) == ["http://localhost:9000"])
     #expect(tool.simClearServerDirectories == [currentDirectory])
     #expect(tool.hooksInstallRequests.map(\.currentDirectory) == [currentDirectory])
+    #expect(tool.artifactsRequests.map(\.command) == [.harness])
     #expect(tool.artifactsRequests.map(\.runID) == ["run-1"])
     #expect(tool.doctorRequests.count == 1)
     #expect(tool.doctorRequests[0].strict == true)
