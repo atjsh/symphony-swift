@@ -11,6 +11,8 @@ public struct SymphonyBuildCommand: ParsableCommand {
             Test.self,
             Coverage.self,
             Run.self,
+            Harness.self,
+            Hooks.self,
             Sim.self,
             Artifacts.self,
             Doctor.self,
@@ -169,6 +171,32 @@ extension SymphonyBuildCommand {
         )
     }
 
+    struct Harness: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Run the commit harness: package tests plus first-party source coverage gating.")
+
+        @Option(name: .long) var minimumCoverage: Double = 50
+        @Flag(name: .long) var json = false
+
+        mutating func run() throws {
+            let tool = SymphonyBuildTool()
+            let output = try tool.harness(
+                HarnessCommandRequest(
+                    minimumCoveragePercent: minimumCoverage,
+                    json: json,
+                    currentDirectory: currentDirectoryURL
+                )
+            )
+            print(output)
+        }
+    }
+
+    struct Hooks: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Install repository-local Git hooks backed by symphony-build.",
+            subcommands: [Install.self]
+        )
+    }
+
     struct Artifacts: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Print stable inspection paths for the latest or selected run.")
 
@@ -259,6 +287,16 @@ extension SymphonyBuildCommand.Sim {
 
         mutating func run() throws {
             print(try SymphonyBuildTool().simClearServer(currentDirectory: currentDirectoryURL))
+        }
+    }
+}
+
+extension SymphonyBuildCommand.Hooks {
+    struct Install: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Configure Git to use the committed .githooks directory for this clone/worktree set.")
+
+        mutating func run() throws {
+            print(try SymphonyBuildTool().hooksInstall(HooksInstallRequest(currentDirectory: currentDirectoryURL)))
         }
     }
 }

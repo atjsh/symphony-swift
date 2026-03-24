@@ -355,6 +355,68 @@ public struct CoverageReport: Codable, Hashable, Sendable {
     }
 }
 
+public struct PackageCoverageFileReport: Codable, Hashable, Sendable {
+    public let path: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+
+    public init(path: String, coveredLines: Int, executableLines: Int, lineCoverage: Double) {
+        self.path = path
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+    }
+}
+
+public struct PackageCoverageReport: Codable, Hashable, Sendable {
+    public let scope: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+    public let coverageJSONPath: String
+    public let files: [PackageCoverageFileReport]
+
+    public init(
+        scope: String,
+        coveredLines: Int,
+        executableLines: Int,
+        lineCoverage: Double,
+        coverageJSONPath: String,
+        files: [PackageCoverageFileReport]
+    ) {
+        self.scope = scope
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+        self.coverageJSONPath = coverageJSONPath
+        self.files = files
+    }
+}
+
+public struct HarnessReport: Codable, Hashable, Sendable {
+    public let minimumCoveragePercent: Double
+    public let testsInvocation: String
+    public let coveragePathInvocation: String
+    public let packageCoverage: PackageCoverageReport
+
+    public init(
+        minimumCoveragePercent: Double,
+        testsInvocation: String,
+        coveragePathInvocation: String,
+        packageCoverage: PackageCoverageReport
+    ) {
+        self.minimumCoveragePercent = minimumCoveragePercent
+        self.testsInvocation = testsInvocation
+        self.coveragePathInvocation = coveragePathInvocation
+        self.packageCoverage = packageCoverage
+    }
+
+    public var meetsCoverageThreshold: Bool {
+        (packageCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent
+    }
+}
+
 public struct ArtifactRun: Codable, Hashable, Sendable {
     public let command: BuildCommandFamily
     public let runID: String
@@ -679,6 +741,26 @@ public struct CoverageCommandRequest: Sendable {
         self.showFiles = showFiles
         self.includeTestTargets = includeTestTargets
         self.outputMode = outputMode
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct HarnessCommandRequest: Sendable {
+    public let minimumCoveragePercent: Double
+    public let json: Bool
+    public let currentDirectory: URL
+
+    public init(minimumCoveragePercent: Double, json: Bool, currentDirectory: URL) {
+        self.minimumCoveragePercent = minimumCoveragePercent
+        self.json = json
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct HooksInstallRequest: Sendable {
+    public let currentDirectory: URL
+
+    public init(currentDirectory: URL) {
         self.currentDirectory = currentDirectory
     }
 }

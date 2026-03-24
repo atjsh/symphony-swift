@@ -33,6 +33,13 @@ import SymphonyBuildCore
     #expect(command.xcodeOutputMode == .filtered)
 }
 
+@Test func harnessCommandUsesSpecDefaults() throws {
+    let command = try SymphonyBuildCommand.Harness.parseAsRoot([]) as! SymphonyBuildCommand.Harness
+
+    #expect(command.minimumCoverage == 50)
+    #expect(command.json == false)
+}
+
 @Test func commandsParseExplicitXcodeOutputModes() throws {
     let build = try SymphonyBuildCommand.Build.parseAsRoot(["--xcode-output-mode", "full"]) as! SymphonyBuildCommand.Build
     let test = try SymphonyBuildCommand.Test.parseAsRoot(["--xcode-output-mode", "quiet"]) as! SymphonyBuildCommand.Test
@@ -43,6 +50,12 @@ import SymphonyBuildCore
     #expect(test.xcodeOutputMode == .quiet)
     #expect(coverage.xcodeOutputMode == .full)
     #expect(run.xcodeOutputMode == .full)
+}
+
+@Test func hooksInstallCommandParses() throws {
+    let command = try SymphonyBuildCommand.Hooks.Install.parseAsRoot([]) as! SymphonyBuildCommand.Hooks.Install
+
+    #expect(type(of: command) == SymphonyBuildCommand.Hooks.Install.self)
 }
 
 @Test func runCommandDefaultsToServerAndCapturesEnvOverrides() throws {

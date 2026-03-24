@@ -382,6 +382,126 @@ import Testing
     }
 }
 
+@Test func packageCoverageReporterFiltersToFirstPartySources() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = directory.appendingPathComponent("package-coverage.json")
+        let json = #"""
+        {
+          "data": [
+            {
+              "files": [
+                {
+                  "filename": "__REPO__/Sources/Foo.swift",
+                  "summary": { "lines": { "count": 20, "covered": 10 } }
+                },
+                {
+                  "filename": "__REPO__/Tests/FooTests.swift",
+                  "summary": { "lines": { "count": 50, "covered": 50 } }
+                },
+                {
+                  "filename": "__REPO__/.build/checkouts/swift-argument-parser/Sources/Dependency.swift",
+                  "summary": { "lines": { "count": 100, "covered": 0 } }
+                }
+              ]
+            }
+          ]
+        }
+        """#
+        try json
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let report = try PackageCoverageReporter().loadReport(at: coveragePath, projectRoot: repoRoot)
+
+        #expect(report.scope == "first_party_sources")
+        #expect(report.coveredLines == 10)
+        #expect(report.executableLines == 20)
+        #expect(report.files.map(\.path) == ["Sources/Foo.swift"])
+    }
+}
+
+@Test func harnessUsesSwiftTestCoverageAndFailsBelowThreshold() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let json = #"""
+        {
+          "data": [
+            {
+              "files": [
+                {
+                  "filename": "__REPO__/Sources/Foo.swift",
+                  "summary": { "lines": { "count": 100, "covered": 60 } }
+                }
+              ]
+            }
+          ]
+        }
+        """#
+        try json
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let discovery = StubWorkspaceDiscovery(
+            workspace: WorkspaceContext(
+                projectRoot: repoRoot,
+                buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+                xcodeWorkspacePath: nil,
+                xcodeProjectPath: nil
+            )
+        )
+        let runner = StubProcessRunner(results: [
+            "swift test --enable-code-coverage": StubProcessRunner.success("tests passed\n"),
+            "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+        ])
+        let tool = SymphonyBuildTool(workspaceDiscovery: discovery, processRunner: runner)
+
+        let output = try tool.harness(
+            HarnessCommandRequest(minimumCoveragePercent: 50, json: false, currentDirectory: repoRoot)
+        )
+        #expect(output.contains("coverage 60.00% (60/100)"))
+        #expect(output.contains("file Sources/Foo.swift 60.00% (60/100)"))
+
+        do {
+            _ = try tool.harness(
+                HarnessCommandRequest(minimumCoveragePercent: 80, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected the harness to fail when coverage is below threshold.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("below the required threshold"))
+            #expect(error.message.contains("coverage 60.00% (60/100)"))
+        }
+    }
+}
+
+@Test func hooksInstallConfiguresRepoLocalHooksPath() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+
+        let discovery = StubWorkspaceDiscovery(
+            workspace: WorkspaceContext(
+                projectRoot: repoRoot,
+                buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+                xcodeWorkspacePath: nil,
+                xcodeProjectPath: nil
+            )
+        )
+        let runner = RecordingProcessRunner()
+        let tool = SymphonyBuildTool(workspaceDiscovery: discovery, processRunner: runner)
+
+        let installedPath = try tool.hooksInstall(HooksInstallRequest(currentDirectory: repoRoot))
+
+        #expect(installedPath == repoRoot.appendingPathComponent(".githooks", isDirectory: true).path)
+        #expect(runner.commands == ["git config core.hooksPath .githooks"])
+    }
+}
+
 @Test func doctorReportSortsIssuesAndRendersJSONAndHumanOutput() throws {
     let runner = StubProcessRunner(results: [
         "which swift": StubProcessRunner.success(),
@@ -685,6 +805,28 @@ private struct StubProcessRunner: ProcessRunning {
 
     static func success(_ stdout: String = "") -> CommandResult {
         CommandResult(exitStatus: 0, stdout: stdout, stderr: "")
+    }
+}
+
+private final class RecordingProcessRunner: ProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = [String]()
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        lock.lock()
+        storage.append(([command] + arguments).joined(separator: " "))
+        lock.unlock()
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        1234
+    }
+
+    var commands: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 }
 

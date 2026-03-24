@@ -10,6 +10,8 @@ public final class SymphonyBuildTool {
     private let endpointOverrideStore: EndpointOverrideStore
     private let doctorService: DoctorServicing
     private let productLocator: ProductLocator
+    private let commitHarness: CommitHarness
+    private let gitHookInstaller: GitHookInstaller
     private let statusSink: @Sendable (String) -> Void
 
     public init(
@@ -21,6 +23,8 @@ public final class SymphonyBuildTool {
         endpointOverrideStore: EndpointOverrideStore = EndpointOverrideStore(),
         doctorService: DoctorServicing = DoctorService(),
         productLocator: ProductLocator = ProductLocator(),
+        commitHarness: CommitHarness? = nil,
+        gitHookInstaller: GitHookInstaller? = nil,
         statusSink: @escaping @Sendable (String) -> Void = { message in
             guard let data = (message + "\n").data(using: .utf8) else {
                 return
@@ -37,6 +41,8 @@ public final class SymphonyBuildTool {
         self.doctorService = doctorService
         self.productLocator = productLocator
         self.statusSink = statusSink
+        self.commitHarness = commitHarness ?? CommitHarness(processRunner: processRunner, statusSink: statusSink)
+        self.gitHookInstaller = gitHookInstaller ?? GitHookInstaller(processRunner: processRunner)
     }
 
     public func build(_ request: BuildCommandRequest) throws -> String {
@@ -383,6 +389,22 @@ public final class SymphonyBuildTool {
             throw SymphonyBuildCommandFailure(message: try doctorService.render(report: report, json: request.json, quiet: request.quiet))
         }
         return try doctorService.render(report: report, json: request.json, quiet: request.quiet)
+    }
+
+    public func harness(_ request: HarnessCommandRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        let report = try commitHarness.run(workspace: workspace, request: request)
+        if request.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return String(decoding: try encoder.encode(report), as: UTF8.self)
+        }
+        return PackageCoverageReporter().renderHuman(report: report)
+    }
+
+    public func hooksInstall(_ request: HooksInstallRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        return try gitHookInstaller.install(workspace: workspace)
     }
 
     public func simList(currentDirectory: URL) throws -> String {

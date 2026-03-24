@@ -21,19 +21,33 @@ This repository uses a test-first workflow for all changes.
 - Keep commit topics small and green.
 - Tests and implementation may be developed incrementally in a topic branch, but they should be committed together only after the topic passes.
 - Do not inherit the current git index blindly. Stage intentionally for each commit.
+- The repository-level pre-commit harness is authoritative once installed. Do not bypass it with `--no-verify` unless the user explicitly tells you to do so for a one-off emergency.
+- After cloning a fresh checkout, run `swift run symphony-build hooks install` once so the committed `.githooks/pre-commit` hook is active for that clone and any future worktrees attached to it.
 
 ## Required validation
 
 - Minimum gate for any code change:
-  - `swift test`
+  - `swift run symphony-build harness`
   - `swift run symphony-build doctor`
+- The commit harness is the canonical gate for package-level changes:
+  - It runs `swift test --enable-code-coverage`.
+  - It measures first-party code coverage from SwiftPM’s exported coverage JSON, filtered to tracked files under `Sources/`.
+  - Test files, generated runners, and checked-out dependency sources are excluded from the threshold calculation.
+  - Commits must not proceed if the measured first-party source coverage is below `50.00%`.
+  - The current threshold is intentionally lower than the long-term goal; treat regressions below the current floor as hard failures.
 - If the change touches `SymphonyBuildCore`, `SymphonyBuildCLI`, `project.yml`, `Symphony.xcworkspace`, `SymphonyApps.xcodeproj`, or the bootstrap app/server targets, run the dry-run command surface as well:
   - `swift run symphony-build build --product server --dry-run --xcode-output-mode filtered`
   - `swift run symphony-build test --product server --dry-run --xcode-output-mode filtered`
   - `swift run symphony-build run --product server --dry-run --xcode-output-mode quiet`
+  - `swift run symphony-build coverage --product server --dry-run --xcode-output-mode filtered`
+- If the change touches commit gating, validation plumbing, or agent harness behavior, validate the harness explicitly:
+  - `swift run symphony-build harness`
+  - `swift run symphony-build harness --minimum-coverage 100` must fail unless first-party source coverage is already at `100.00%`
+  - `swift run symphony-build hooks install`
 - If the change touches simulator resolution, destination defaults, runtime endpoint injection, or the client bootstrap target, also validate the client path:
   - `swift run symphony-build build --dry-run`
   - `swift run symphony-build run --product client --dry-run`
+  - `swift run symphony-build coverage --product client --dry-run`
   - On machines where the default `iPhone 17` destination is ambiguous, those two commands must fail with a clear `ambiguous_simulator_name` error. Use an explicit UDID for all remaining client validations.
   - Use `swift run symphony-build sim list` to select the simulator UDID for explicit client runs.
 - If the change touches artifact generation, xcresult export, launch behavior, or any real Xcode invocation path, run the live smoke checks:
@@ -52,8 +66,9 @@ This repository uses a test-first workflow for all changes.
 - Use the tool itself to resolve artifact roots; do not guess paths manually:
   - `swift run symphony-build artifacts build`
   - `swift run symphony-build artifacts test`
+  - `swift run symphony-build artifacts coverage`
   - `swift run symphony-build artifacts run`
-  - Use `swift run symphony-build artifacts <build|test|run> --run <run-id>` when you need a non-latest run.
+  - Use `swift run symphony-build artifacts <build|test|coverage|run> --run <run-id>` when you need a non-latest run.
 - Inspect artifacts in this order:
   1. `summary.txt`
   2. `index.json`
@@ -71,6 +86,10 @@ This repository uses a test-first workflow for all changes.
   - `missing_result_bundle` is never acceptable for a successful Xcode-backed run
   - `xcresult_summary_export_failed`, `xcresult_diagnostics_export_failed`, and `xcresult_attachments_export_failed` are build-tool defects unless the test explicitly expects them
   - `simulator_install_failed` and `simulator_launch_failed` are always failures for client launch validation
+- Coverage artifacts add two extra canonical outputs:
+  - `coverage.txt` is the primary human-readable coverage summary for the `coverage` command family.
+  - `coverage.json` is the machine-readable coverage summary derived from `xccov`.
+  - For the commit harness, the equivalent machine-readable source is SwiftPM’s exported coverage JSON path printed by `swift test --show-code-coverage-path`, but the rendered `swift run symphony-build harness --json` output is the canonical normalized view.
 - `summary.json` must contain exported xcresult JSON for successful Xcode-backed runs. An empty `{}` payload is only acceptable when the run legitimately produced no result bundle and the summary/index record that explicitly.
 - `process-stdout-stderr.txt` is the canonical raw transcript for diagnosing filtered output. Use it when:
   - filtered mode suppressed too much detail
