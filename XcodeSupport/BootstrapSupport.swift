@@ -1,5 +1,27 @@
 import Foundation
 
+enum BootstrapRuntimeHooks {
+    nonisolated(unsafe) static var outputOverride: ((String) -> Void)?
+    nonisolated(unsafe) static var keepAliveOverride: (() -> Void)?
+    nonisolated(unsafe) static var runLoopRunner: () -> Void = RunLoop.main.run
+
+    static func defaultOutput(_ line: String) {
+        if let outputOverride {
+            outputOverride(line)
+        } else {
+            print(line)
+        }
+    }
+
+    static func keepAlive() {
+        if let keepAliveOverride {
+            keepAliveOverride()
+        } else {
+            runLoopRunner()
+        }
+    }
+}
+
 public enum BootstrapEnvironment {
     public static let serverSchemeKey = "SYMPHONY_SERVER_SCHEME"
     public static let serverHostKey = "SYMPHONY_SERVER_HOST"
@@ -165,8 +187,11 @@ public enum BootstrapServerRunner {
         processIdentifier: Int32 = getpid(),
         launchArguments: [String] = ProcessInfo.processInfo.arguments,
         startedAt: Date = Date(),
-        output: (String) -> Void = { print($0) }
+        output: ((String) -> Void)? = nil,
+        keepAlive: (() -> Void)? = nil
     ) {
+        let output = output ?? BootstrapRuntimeHooks.defaultOutput
+        let keepAlive = keepAlive ?? BootstrapRuntimeHooks.keepAlive
         let state = BootstrapStartupState.current(
             componentName: componentName,
             environment: environment,
@@ -176,7 +201,7 @@ public enum BootstrapServerRunner {
         )
 
         state.startupLogLines.forEach(output)
-        RunLoop.main.run()
+        keepAlive()
     }
 
     public static func startupState(
@@ -193,5 +218,17 @@ public enum BootstrapServerRunner {
             launchArguments: launchArguments,
             startedAt: startedAt
         )
+    }
+}
+
+public enum BootstrapKeepAlivePolicy {
+    public static let exitAfterStartupKey = "SYMPHONY_EXIT_AFTER_STARTUP"
+
+    public static func shouldExitAfterStartup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        environment[exitAfterStartupKey] == "1"
+    }
+
+    public static func makeKeepAlive(environment: [String: String] = ProcessInfo.processInfo.environment) -> () -> Void {
+        shouldExitAfterStartup(environment: environment) ? {} : { BootstrapRuntimeHooks.keepAlive() }
     }
 }

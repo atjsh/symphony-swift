@@ -376,8 +376,16 @@ public struct Issue: Codable, Hashable, Sendable {
         self.issueState = try container.decode(String.self, forKey: .issueState)
         self.projectItemID = try container.decodeIfPresent(String.self, forKey: .projectItemID)
         self.url = try container.decodeIfPresent(String.self, forKey: .url)
-        self.labels = (try container.decodeIfPresent([String].self, forKey: .labels) ?? []).map { $0.lowercased() }
-        self.blockedBy = try container.decodeIfPresent([BlockerReference].self, forKey: .blockedBy) ?? []
+        if let labels = try container.decodeIfPresent([String].self, forKey: .labels) {
+            self.labels = labels.map { $0.lowercased() }
+        } else {
+            self.labels = []
+        }
+        if let blockedBy = try container.decodeIfPresent([BlockerReference].self, forKey: .blockedBy) {
+            self.blockedBy = blockedBy
+        } else {
+            self.blockedBy = []
+        }
         self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
     }
@@ -728,7 +736,7 @@ public struct EventCursor: Codable, Hashable, Sendable, CustomStringConvertible 
     private static func encode(_ payload: CursorPayload) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = (try? encoder.encode(payload)) ?? Data()
+        let data = try! encoder.encode(payload)
         return data.base64URLEncodedString()
     }
 

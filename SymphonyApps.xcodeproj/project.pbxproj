@@ -10,9 +10,9 @@
 		05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */; };
 		11248F5021B8D9C6ED9C710D /* BootstrapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DE291B8BB6058F6F4AB4C7 /* BootstrapSupport.swift */; };
 		24B1F731C068B6A54007EB95 /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
-		3AC457CF7C967204B8328505 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCECC687E55CD2EA2F5DF92F /* main.swift */; };
 		49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41F51113E5586F70F705846 /* ContentView.swift */; };
 		4C898CE7A0BF581F09EC2EC8 /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
+		7D4665C5B474B326318990E6 /* SymphonyServerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BAA6240A09C9354B1E2C1E /* SymphonyServerMain.swift */; };
 		98DAEA57072B39E7C78F65AB /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
 		BA5FDBCE8465CF58C7F9CCF5 /* BootstrapSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */; };
 		BB4918EC00869660914EC1FC /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
@@ -48,6 +48,13 @@
 			remoteGlobalIDString = 5A05BF9E93794077D7E6E9BC;
 			remoteInfo = XcodeSupport;
 		};
+		C06066C147D616984F81FD92 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2299CB2884BEEF9AA816D6F8;
+			remoteInfo = Symphony;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -59,9 +66,9 @@
 		97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = archive.ar; path = libXcodeSupport.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		BCECC687E55CD2EA2F5DF92F /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C1DE291B8BB6058F6F4AB4C7 /* BootstrapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupport.swift; sourceTree = "<group>"; };
 		D41F51113E5586F70F705846 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		E2BAA6240A09C9354B1E2C1E /* SymphonyServerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyServerMain.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,7 +130,7 @@
 		664BF76C1EDF09C7C7B86DF6 /* SymphonyServer */ = {
 			isa = PBXGroup;
 			children = (
-				BCECC687E55CD2EA2F5DF92F /* main.swift */,
+				E2BAA6240A09C9354B1E2C1E /* SymphonyServerMain.swift */,
 			);
 			path = SymphonyServer;
 			sourceTree = "<group>";
@@ -186,6 +193,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				F414D936B4DADECD086FAEB0 /* PBXTargetDependency */,
 				A0DED2B4B5E0B54AAE27A2D4 /* PBXTargetDependency */,
 			);
 			name = SymphonyTests;
@@ -343,7 +351,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3AC457CF7C967204B8328505 /* main.swift in Sources */,
+				7D4665C5B474B326318990E6 /* SymphonyServerMain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -403,6 +411,11 @@
 			target = 5A05BF9E93794077D7E6E9BC /* XcodeSupport */;
 			targetProxy = 12C94AC2986280C956957544 /* PBXContainerItemProxy */;
 		};
+		F414D936B4DADECD086FAEB0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2299CB2884BEEF9AA816D6F8 /* Symphony */;
+			targetProxy = C06066C147D616984F81FD92 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -410,12 +423,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				OTHER_LDFLAGS = (
@@ -425,11 +438,11 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
 				PRODUCT_NAME = SymphonyTests;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony";
 			};
 			name = Release;
 		};
@@ -715,12 +728,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				OTHER_LDFLAGS = (
@@ -730,11 +743,11 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
 				PRODUCT_NAME = SymphonyTests;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony";
 			};
 			name = Debug;
 		};

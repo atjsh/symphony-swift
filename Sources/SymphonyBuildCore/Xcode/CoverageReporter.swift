@@ -74,14 +74,14 @@ public struct CoverageReporter {
                 buildProductPath: target.buildProductPath,
                 coveredLines: target.coveredLines,
                 executableLines: target.executableLines,
-                lineCoverage: normalizedCoverage(coveredLines: target.coveredLines, executableLines: target.executableLines),
+                lineCoverage: Self.normalizedCoverage(coveredLines: target.coveredLines, executableLines: target.executableLines),
                 files: showFiles ? target.files.map { file in
                     CoverageFileReport(
                         name: file.name,
                         path: file.path,
                         coveredLines: file.coveredLines,
                         executableLines: file.executableLines,
-                        lineCoverage: normalizedCoverage(coveredLines: file.coveredLines, executableLines: file.executableLines)
+                        lineCoverage: Self.normalizedCoverage(coveredLines: file.coveredLines, executableLines: file.executableLines)
                     )
                 } : nil
             )
@@ -92,7 +92,7 @@ public struct CoverageReporter {
         let report = CoverageReport(
             coveredLines: coveredLines,
             executableLines: executableLines,
-            lineCoverage: normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines),
+            lineCoverage: Self.normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines),
             includeTestTargets: includeTestTargets,
             excludedTargets: excludedTargets,
             targets: targets
@@ -142,7 +142,7 @@ public struct CoverageReporter {
         return lines.joined(separator: "\n")
     }
 
-    private func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double {
+    static func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double {
         guard executableLines > 0 else {
             return 0
         }
@@ -166,7 +166,13 @@ private struct RawCoverageTarget: Decodable {
     let name: String
 
     var isTestBundle: Bool {
-        name.hasSuffix(".xctest") || (buildProductPath?.contains(".xctest/") ?? false)
+        if name.hasSuffix(".xctest") {
+            return true
+        }
+        if let buildProductPath {
+            return buildProductPath.contains(".xctest/")
+        }
+        return false
     }
 }
 

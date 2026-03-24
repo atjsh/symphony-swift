@@ -26,10 +26,7 @@ public final class SymphonyBuildTool {
         commitHarness: CommitHarness? = nil,
         gitHookInstaller: GitHookInstaller? = nil,
         statusSink: @escaping @Sendable (String) -> Void = { message in
-            guard let data = (message + "\n").data(using: .utf8) else {
-                return
-            }
-            FileHandle.standardError.write(data)
+            FileHandle.standardError.write(Data((message + "\n").utf8))
         }
     ) {
         self.workspaceDiscovery = workspaceDiscovery
@@ -495,11 +492,16 @@ public final class SymphonyBuildTool {
     }
 
     private func simctlEnvironment(endpoint: RuntimeEndpoint, overrides: [String: String]) -> [String: String] {
-        endpointOverrideStore.clientEnvironment(for: endpoint)
-            .merging(overrides, uniquingKeysWith: { _, rhs in rhs })
-            .reduce(into: [String: String]()) { partial, pair in
-                partial["SIMCTL_CHILD_\(pair.key)"] = pair.value
-            }
+        var merged = endpointOverrideStore.clientEnvironment(for: endpoint)
+        for (key, value) in overrides {
+            merged[key] = value
+        }
+
+        var prefixed = [String: String]()
+        for (key, value) in merged {
+            prefixed["SIMCTL_CHILD_\(key)"] = value
+        }
+        return prefixed
     }
 
     private func simulatorResolverCatalog() -> SimulatorCataloging {

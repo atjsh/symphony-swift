@@ -53,10 +53,28 @@ public struct EndpointOverrideStore {
 
         if host != nil || port != nil || scheme != nil {
             let fallback = try load(in: workspace) ?? RuntimeEndpoint()
+            let resolvedScheme: String
+            if let scheme {
+                resolvedScheme = scheme
+            } else {
+                resolvedScheme = fallback.scheme
+            }
+            let resolvedHost: String
+            if let host {
+                resolvedHost = host
+            } else {
+                resolvedHost = fallback.host
+            }
+            let resolvedPort: Int
+            if let port {
+                resolvedPort = port
+            } else {
+                resolvedPort = fallback.port
+            }
             return try RuntimeEndpoint(
-                scheme: scheme ?? fallback.scheme,
-                host: host ?? fallback.host,
-                port: port ?? fallback.port
+                scheme: resolvedScheme,
+                host: resolvedHost,
+                port: resolvedPort
             )
         }
 

@@ -14,7 +14,7 @@ public struct SymphonyBuildError: LocalizedError, CustomStringConvertible, Senda
     }
 
     public var description: String {
-        errorDescription ?? message
+        "[\(code)] \(message)"
     }
 }
 

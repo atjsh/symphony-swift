@@ -394,6 +394,31 @@ public struct PackageCoverageReport: Codable, Hashable, Sendable {
     }
 }
 
+public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
+    public let suite: String
+    public let kind: String
+    public let name: String
+    public let coveredLines: Int
+    public let executableLines: Int
+    public let lineCoverage: Double
+
+    public init(
+        suite: String,
+        kind: String,
+        name: String,
+        coveredLines: Int,
+        executableLines: Int,
+        lineCoverage: Double
+    ) {
+        self.suite = suite
+        self.kind = kind
+        self.name = name
+        self.coveredLines = coveredLines
+        self.executableLines = executableLines
+        self.lineCoverage = lineCoverage
+    }
+}
+
 public struct HarnessReport: Codable, Hashable, Sendable {
     public let minimumCoveragePercent: Double
     public let testsInvocation: String
@@ -403,6 +428,11 @@ public struct HarnessReport: Codable, Hashable, Sendable {
     public let clientCoverage: CoverageReport
     public let serverCoverageInvocation: String
     public let serverCoverage: CoverageReport
+    public let packageFileViolations: [HarnessCoverageViolation]
+    public let clientTargetViolations: [HarnessCoverageViolation]
+    public let clientFileViolations: [HarnessCoverageViolation]
+    public let serverTargetViolations: [HarnessCoverageViolation]
+    public let serverFileViolations: [HarnessCoverageViolation]
 
     public init(
         minimumCoveragePercent: Double,
@@ -412,7 +442,12 @@ public struct HarnessReport: Codable, Hashable, Sendable {
         clientCoverageInvocation: String,
         clientCoverage: CoverageReport,
         serverCoverageInvocation: String,
-        serverCoverage: CoverageReport
+        serverCoverage: CoverageReport,
+        packageFileViolations: [HarnessCoverageViolation],
+        clientTargetViolations: [HarnessCoverageViolation],
+        clientFileViolations: [HarnessCoverageViolation],
+        serverTargetViolations: [HarnessCoverageViolation],
+        serverFileViolations: [HarnessCoverageViolation]
     ) {
         self.minimumCoveragePercent = minimumCoveragePercent
         self.testsInvocation = testsInvocation
@@ -422,12 +457,19 @@ public struct HarnessReport: Codable, Hashable, Sendable {
         self.clientCoverage = clientCoverage
         self.serverCoverageInvocation = serverCoverageInvocation
         self.serverCoverage = serverCoverage
+        self.packageFileViolations = packageFileViolations
+        self.clientTargetViolations = clientTargetViolations
+        self.clientFileViolations = clientFileViolations
+        self.serverTargetViolations = serverTargetViolations
+        self.serverFileViolations = serverFileViolations
+    }
+
+    public var violations: [HarnessCoverageViolation] {
+        packageFileViolations + clientTargetViolations + clientFileViolations + serverTargetViolations + serverFileViolations
     }
 
     public var meetsCoverageThreshold: Bool {
-        (packageCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent &&
-        (clientCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent &&
-        (serverCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent
+        violations.isEmpty
     }
 }
 

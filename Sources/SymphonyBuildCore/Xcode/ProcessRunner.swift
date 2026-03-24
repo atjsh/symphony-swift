@@ -94,7 +94,11 @@ public struct SystemProcessRunner: ProcessRunning {
         process.arguments = executableArguments(for: command, arguments: arguments)
         process.currentDirectoryURL = currentDirectory
         if !environment.isEmpty {
-            process.environment = ProcessInfo.processInfo.environment.merging(environment, uniquingKeysWith: { _, rhs in rhs })
+            var mergedEnvironment = ProcessInfo.processInfo.environment
+            for (key, value) in environment {
+                mergedEnvironment[key] = value
+            }
+            process.environment = mergedEnvironment
         }
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -157,7 +161,11 @@ public struct SystemProcessRunner: ProcessRunning {
         process.arguments = executableArguments(for: executablePath, arguments: arguments)
         process.currentDirectoryURL = currentDirectory
         if !environment.isEmpty {
-            process.environment = ProcessInfo.processInfo.environment.merging(environment, uniquingKeysWith: { _, rhs in rhs })
+            var mergedEnvironment = ProcessInfo.processInfo.environment
+            for (key, value) in environment {
+                mergedEnvironment[key] = value
+            }
+            process.environment = mergedEnvironment
         }
         process.standardOutput = outputHandle
         process.standardError = outputHandle
@@ -188,7 +196,7 @@ public struct SystemProcessRunner: ProcessRunning {
     }
 }
 
-private final class DataCollector: @unchecked Sendable {
+final class DataCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var storage = Data()
 
@@ -205,7 +213,7 @@ private final class DataCollector: @unchecked Sendable {
     }
 }
 
-private final class LineEmitter: @unchecked Sendable {
+final class LineEmitter: @unchecked Sendable {
     private let stream: ProcessStream
     private let observation: ProcessObservation?
     private let lock = NSLock()
@@ -263,7 +271,7 @@ private final class LineEmitter: @unchecked Sendable {
     }
 }
 
-private final class StaleSignalController: @unchecked Sendable {
+final class StaleSignalController: @unchecked Sendable {
     private let observation: ProcessObservation
     private let collector: DataCollector
     private let lock = NSLock()
@@ -301,7 +309,7 @@ private final class StaleSignalController: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func signalIfNeeded() {
+    func signalIfNeeded() {
         let message: String?
 
         lock.lock()

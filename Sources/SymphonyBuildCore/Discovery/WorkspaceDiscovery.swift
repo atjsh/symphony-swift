@@ -32,10 +32,8 @@ public struct WorkspaceDiscovery: WorkspaceDiscovering {
 
         let workspacePath = workspaces.first
         let projectPath = workspacePath == nil ? projects.first : nil
-        let buildStateRoot = projectRoot.appendingPathComponent(".build/symphony-build", isDirectory: true)
-        guard fileManager.isContained(buildStateRoot, within: projectRoot) else {
-            throw SymphonyBuildError(code: "artifact_root_out_of_bounds", message: "The canonical build state root must stay within the repository root.")
-        }
+        let buildStateRoot = Self.buildStateRoot(for: projectRoot)
+        try Self.validateBuildStateRoot(buildStateRoot, within: projectRoot, fileManager: fileManager)
 
         return WorkspaceContext(
             projectRoot: projectRoot,
@@ -55,16 +53,14 @@ public struct WorkspaceDiscovery: WorkspaceDiscovering {
         }
 
         var cursor = startDirectory.standardizedFileURL
-        while true {
-            if fileManager.fileExists(atPath: cursor.appendingPathComponent(".git").path) {
-                return cursor
-            }
+        while !fileManager.fileExists(atPath: cursor.appendingPathComponent(".git").path) {
             let parent = cursor.deletingLastPathComponent()
             if parent == cursor {
                 throw SymphonyBuildError(code: "missing_repository_root", message: "Could not determine the repository root from the current directory.")
             }
             cursor = parent
         }
+        return cursor
     }
 
     private func collectCandidates(from startDirectory: URL, upTo projectRoot: URL) throws -> [URL] {
@@ -91,6 +87,16 @@ public struct WorkspaceDiscovery: WorkspaceDiscovering {
 
         return urls.filter {
             $0.pathExtension == "xcworkspace" || $0.pathExtension == "xcodeproj"
+        }
+    }
+
+    static func buildStateRoot(for projectRoot: URL) -> URL {
+        projectRoot.appendingPathComponent(".build/symphony-build", isDirectory: true)
+    }
+
+    static func validateBuildStateRoot(_ buildStateRoot: URL, within projectRoot: URL, fileManager: FileManager = .default) throws {
+        guard fileManager.isContained(buildStateRoot, within: projectRoot) else {
+            throw SymphonyBuildError(code: "artifact_root_out_of_bounds", message: "The canonical build state root must stay within the repository root.")
         }
     }
 }

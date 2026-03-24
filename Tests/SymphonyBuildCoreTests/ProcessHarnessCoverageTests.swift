@@ -1,0 +1,611 @@
+import Foundation
+import Testing
+@testable import SymphonyBuildCore
+
+@Test func packageCoverageReporterCoversFailureModesAndViolations() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+
+        let missingPath = directory.appendingPathComponent("missing.json")
+        do {
+            _ = try PackageCoverageReporter().loadReport(at: missingPath, projectRoot: repoRoot)
+            Issue.record("Expected missing coverage files to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "missing_package_coverage_json")
+        }
+
+        let invalidJSONPath = directory.appendingPathComponent("invalid.json")
+        try "not json".write(to: invalidJSONPath, atomically: true, encoding: .utf8)
+        do {
+            _ = try PackageCoverageReporter().loadReport(at: invalidJSONPath, projectRoot: repoRoot)
+            Issue.record("Expected undecodable coverage exports to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "package_coverage_decode_failed")
+        }
+
+        let emptySourcesPath = directory.appendingPathComponent("empty.json")
+        let emptySourcesJSON = #"""
+        {"data":[{"files":[{"filename":"__REPO__/Tests/FooTests.swift","summary":{"lines":{"count":10,"covered":10}}},{"filename":"__REPO__/Sources/Zero.swift","summary":{"lines":{"count":0,"covered":0}}}]}]}
+        """#.replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+        try emptySourcesJSON.write(to: emptySourcesPath, atomically: true, encoding: .utf8)
+        do {
+            _ = try PackageCoverageReporter().loadReport(at: emptySourcesPath, projectRoot: repoRoot)
+            Issue.record("Expected missing first-party source coverage to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "package_coverage_sources_missing")
+        }
+
+        let reporter = PackageCoverageReporter()
+        let harness = HarnessReport(
+            minimumCoveragePercent: 100,
+            testsInvocation: "swift test",
+            coveragePathInvocation: "swift test --show-code-coverage-path",
+            packageCoverage: PackageCoverageReport(
+                scope: "scope",
+                coveredLines: 2,
+                executableLines: 4,
+                lineCoverage: 0.5,
+                coverageJSONPath: "/tmp/coverage.json",
+                files: [
+                    PackageCoverageFileReport(path: "Sources/Low.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5),
+                    PackageCoverageFileReport(path: "Sources/High.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5),
+                ]
+            ),
+            clientCoverageInvocation: "client",
+            clientCoverage: CoverageReport(
+                coveredLines: 1,
+                executableLines: 2,
+                lineCoverage: 0.5,
+                includeTestTargets: false,
+                excludedTargets: [],
+                targets: [
+                    CoverageTargetReport(
+                        name: "Symphony.app",
+                        buildProductPath: nil,
+                        coveredLines: 1,
+                        executableLines: 2,
+                        lineCoverage: 0.5,
+                        files: [
+                            CoverageFileReport(name: "ContentView.swift", path: "/tmp/ContentView.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5)
+                        ]
+                    )
+                ]
+            ),
+            serverCoverageInvocation: "server",
+            serverCoverage: CoverageReport(
+                coveredLines: 2,
+                executableLines: 2,
+                lineCoverage: 1,
+                includeTestTargets: false,
+                excludedTargets: [],
+                targets: []
+            ),
+            packageFileViolations: [HarnessCoverageViolation(suite: "package", kind: "file", name: "Sources/Low.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5)],
+            clientTargetViolations: [HarnessCoverageViolation(suite: "client", kind: "target", name: "Symphony.app", coveredLines: 1, executableLines: 2, lineCoverage: 0.5)],
+            clientFileViolations: [HarnessCoverageViolation(suite: "client", kind: "file", name: "/tmp/ContentView.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5)],
+            serverTargetViolations: [],
+            serverFileViolations: []
+        )
+
+        let human = reporter.renderHuman(report: harness)
+        #expect(human.contains("violations"))
+        #expect(human.contains("client file /tmp/ContentView.swift 50.00% (1/2)"))
+        #expect(reporter.makePackageFileViolations(report: harness.packageCoverage, minimumLineCoverage: 1).count == 2)
+        #expect(reporter.makeTargetViolations(report: harness.clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
+        #expect(reporter.makeFileViolations(report: harness.clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
+        #expect(reporter.makeFileViolations(report: harness.serverCoverage, suite: "server", minimumLineCoverage: 1).isEmpty)
+        #expect(PackageCoverageReporter.normalizedCoverage(coveredLines: 0, executableLines: 0) == 0)
+    }
+}
+
+@Test func packageCoverageReporterSortsFilesAndSkipsFullyCoveredFileViolations() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = directory.appendingPathComponent("package-coverage.json")
+        let json = #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/Beta.swift", "summary": { "lines": { "count": 10, "covered": 5 } } },
+                { "filename": "__REPO__/Sources/Low.swift", "summary": { "lines": { "count": 10, "covered": 1 } } },
+                { "filename": "__REPO__/Sources/Alpha.swift", "summary": { "lines": { "count": 10, "covered": 5 } } }
+              ]
+            }
+          ]
+        }
+        """#
+        try json.replacingOccurrences(of: "__REPO__", with: repoRoot.path).write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let reporter = PackageCoverageReporter()
+        let report = try reporter.loadReport(at: coveragePath, projectRoot: repoRoot)
+        #expect(report.files.map(\.path) == ["Sources/Low.swift", "Sources/Alpha.swift", "Sources/Beta.swift"])
+
+        let violations = reporter.makeFileViolations(
+            report: CoverageReport(
+                coveredLines: 3,
+                executableLines: 4,
+                lineCoverage: 0.75,
+                includeTestTargets: false,
+                excludedTargets: [],
+                targets: [
+                    CoverageTargetReport(
+                        name: "Symphony.app",
+                        buildProductPath: nil,
+                        coveredLines: 3,
+                        executableLines: 4,
+                        lineCoverage: 0.75,
+                        files: [
+                            CoverageFileReport(name: "Covered.swift", path: "/tmp/Covered.swift", coveredLines: 2, executableLines: 2, lineCoverage: 1),
+                            CoverageFileReport(name: "Partial.swift", path: "/tmp/Partial.swift", coveredLines: 1, executableLines: 2, lineCoverage: 0.5),
+                        ]
+                    )
+                ]
+            ),
+            suite: "client",
+            minimumLineCoverage: 1
+        )
+        #expect(violations.map(\.name) == ["/tmp/Partial.swift"])
+    }
+}
+
+@Test func coverageReporterCoversErrorModesAndTestTargetInclusion() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+
+        do {
+            _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
+                "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.failure("xccov broke"),
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            Issue.record("Expected xccov failures to surface.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_export_failed")
+        }
+
+        do {
+            _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
+                "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success("not json"),
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            Issue.record("Expected invalid xccov JSON to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_report_decode_failed")
+        }
+
+        let onlyTestsJSON = #"""
+        {"targets":[{"buildProductPath":"/tmp/FooTests.xctest/Contents/MacOS/FooTests","coveredLines":2,"executableLines":2,"files":[{"coveredLines":2,"executableLines":2,"name":"FooTests.swift","path":"/tmp/FooTests.swift"}],"name":"FooTests.xctest"}]}
+        """#
+        do {
+            _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
+                "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(onlyTestsJSON),
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            Issue.record("Expected missing non-test targets to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_targets_missing")
+            #expect(error.message.contains("non-test"))
+        }
+
+        let included = try CoverageReporter(processRunner: StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(onlyTestsJSON),
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: true, showFiles: false)
+        #expect(included.report.includeTestTargets)
+        #expect(included.report.excludedTargets.isEmpty)
+        #expect(included.textOutput.contains("scope including_test_targets"))
+        #expect(CoverageReporter.normalizedCoverage(coveredLines: 0, executableLines: 0) == 0)
+    }
+}
+
+@Test func coverageReporterTreatsPathBasedTestBundlesAsExcludedTests() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let pathOnlyTestsJSON = #"""
+        {"targets":[{"buildProductPath":"/tmp/Runner.xctest/Contents/MacOS/Runner","coveredLines":2,"executableLines":2,"files":[{"coveredLines":2,"executableLines":2,"name":"Runner.swift","path":"/tmp/Runner.swift"}],"name":"Runner"}]}
+        """#
+
+        do {
+            _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
+                "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(pathOnlyTestsJSON),
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            Issue.record("Expected path-based test bundles to be excluded.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_targets_missing")
+        }
+    }
+}
+
+@Test func coverageReporterTreatsNilBuildProductPathsAsNonTests() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let nonTestJSON = #"""
+        {"targets":[{"buildProductPath":null,"coveredLines":3,"executableLines":3,"files":[{"coveredLines":3,"executableLines":3,"name":"Main.swift","path":"/tmp/Main.swift"}],"name":"SymphonyServer"}]}
+        """#
+
+        let artifacts = try CoverageReporter(processRunner: StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(nonTestJSON),
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+
+        #expect(artifacts.report.targets.map { $0.name } == ["SymphonyServer"])
+    }
+}
+
+@Test func commitHarnessCoversValidationFailuresAndCoverageCommandFailures() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = repoRoot.appendingPathComponent(".build/package.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+
+        do {
+            _ = try CommitHarness(processRunner: StubProcessRunner()).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 101, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected invalid coverage thresholds to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "invalid_coverage_threshold")
+        }
+
+        do {
+            _ = try CommitHarness(processRunner: StubProcessRunner(results: [
+                "swift test --enable-code-coverage": StubProcessRunner.failure("tests failed"),
+            ])).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected failing swift test runs to fail the harness.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("swift test --enable-code-coverage"))
+        }
+
+        do {
+            _ = try CommitHarness(processRunner: StubProcessRunner(results: [
+                "swift test --enable-code-coverage": StubProcessRunner.success(),
+                "swift test --show-code-coverage-path": StubProcessRunner.failure("no path"),
+            ])).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected coverage-path lookup failures to fail the harness.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("coverage JSON path"))
+        }
+
+        do {
+            _ = try CommitHarness(processRunner: StubProcessRunner(results: [
+                "swift test --enable-code-coverage": StubProcessRunner.success(),
+                "swift test --show-code-coverage-path": StubProcessRunner.success("\n"),
+            ])).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected empty coverage paths to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "missing_package_coverage_path")
+        }
+
+        let status = SignalBox()
+        let failingCoverageRunner = CoverageCommandProcessRunner(
+            packageCoveragePath: coveragePath.path,
+            coverageResult: CommandResult(exitStatus: 1, stdout: "", stderr: "coverage failed")
+        )
+        do {
+            _ = try CommitHarness(processRunner: failingCoverageRunner, statusSink: { status.append($0) }).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected failing coverage commands to fail the harness.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("did not pass"))
+        }
+        #expect(status.values.contains(where: { $0.contains("running commit harness tests") }))
+
+        let emptyCoverageRunner = CoverageCommandProcessRunner(
+            packageCoveragePath: coveragePath.path,
+            coverageResult: CommandResult(exitStatus: 0, stdout: "", stderr: "")
+        )
+        do {
+            _ = try CommitHarness(processRunner: emptyCoverageRunner).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected empty coverage JSON output to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "missing_bootstrap_coverage_json")
+        }
+
+        let invalidCoverageRunner = CoverageCommandProcessRunner(
+            packageCoveragePath: coveragePath.path,
+            coverageResult: CommandResult(exitStatus: 0, stdout: "not json", stderr: "")
+        )
+        do {
+            _ = try CommitHarness(processRunner: invalidCoverageRunner).run(
+                workspace: workspace,
+                request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected undecodable coverage JSON output to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "bootstrap_coverage_decode_failed")
+        }
+
+        #expect(CommitHarness.resolvedExecutablePath(raw: "/tmp/symphony-build", workingDirectory: repoRoot) == "/tmp/symphony-build")
+        #expect(CommitHarness.resolvedExecutablePath(raw: "./.build/debug/symphony-build", workingDirectory: repoRoot).hasSuffix(".build/debug/symphony-build"))
+    }
+}
+
+@Test func commitHarnessUsesDefaultCoverageLoadersForBothClientAndServer() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coverageJSON = #"""
+        {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+        """#
+        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, coverageJSON: coverageJSON)
+
+        let report = try CommitHarness(processRunner: runner, statusSink: { _ in }).run(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+        )
+
+        #expect(report.clientCoverage.targets.map { $0.name } == ["Suite"])
+        #expect(report.serverCoverage.targets.map { $0.name } == ["Suite"])
+    }
+}
+
+@Test func commitHarnessHelperClosuresForwardSignalsAndFilterCoverageOutput() throws {
+    let status = SignalBox()
+    let harness = CommitHarness(processRunner: StubProcessRunner(), statusSink: { status.append($0) })
+    let observation = harness.forwardingObservation(label: "swift test")
+    observation.onStaleSignal?("stale-signal")
+    observation.onLine?(.stdout, "   ")
+    observation.onLine?(.stderr, "observed line")
+    #expect(status.values == ["stale-signal", "observed line"])
+
+    let coverageJSON = #"""
+    {"coveredLines":4,"executableLines":4,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"SymphonyServer","buildProductPath":"/tmp/SymphonyServer","coveredLines":4,"executableLines":4,"lineCoverage":1,"files":[]}]}
+    """#
+    let runner = ObservationCoverageRunner(json: coverageJSON) { observation in
+        observation?.onStaleSignal?("coverage stale")
+        observation?.onLine?(.stdout, "ignore stdout")
+        observation?.onLine?(.stderr, " ")
+        observation?.onLine?(.stderr, "stderr line")
+    }
+    let report = try CommitHarness.runCoverageSuite(
+        processRunner: runner,
+        executablePath: "/tmp/symphony-build",
+        arguments: ["coverage", "--product", "server"],
+        currentDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true),
+        statusSink: { status.append($0) }
+    )
+    #expect(report.targets.map { $0.name } == ["SymphonyServer"])
+    #expect(status.values.contains("coverage stale"))
+    #expect(status.values.contains("stderr line"))
+    #expect(!status.values.contains("ignore stdout"))
+}
+
+@Test func gitHookInstallerAndProcessRunnersCoverDetachedAndObservationPaths() throws {
+    try withTemporaryDirectory { directory in
+        let workspace = WorkspaceContext(
+            projectRoot: directory,
+            buildStateRoot: directory.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+
+        do {
+            _ = try GitHookInstaller(processRunner: StubProcessRunner(results: [
+                "git config core.hooksPath .githooks": StubProcessRunner.failure("git broke"),
+            ])).install(workspace: workspace)
+            Issue.record("Expected git hook install failures to surface.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "git_hooks_install_failed")
+        }
+
+        do {
+            _ = try GitHookInstaller(processRunner: StubProcessRunner(results: [
+                "git config core.hooksPath .githooks": CommandResult(exitStatus: 1, stdout: "", stderr: ""),
+            ])).install(workspace: workspace)
+            Issue.record("Expected empty-output git hook install failures to use the fallback message.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "git_hooks_install_failed")
+            #expect(error.message == "Failed to configure core.hooksPath.")
+        }
+
+        let combined = CommandResult(exitStatus: 0, stdout: "one", stderr: "two")
+        #expect(combined.combinedOutput == "one\ntwo")
+        #expect(CommandResult(exitStatus: 0, stdout: "one", stderr: "").combinedOutput == "one")
+        #expect(CommandResult(exitStatus: 0, stdout: "", stderr: "two").combinedOutput == "two")
+
+        let protocolRunner = ProtocolExtensionRunner()
+        _ = try protocolRunner.run(command: "echo", arguments: [], environment: [:], currentDirectory: directory)
+        #expect(protocolRunner.lastObservationWasNil)
+
+        let systemRunner = SystemProcessRunner()
+        let noObservation = try systemRunner.run(
+            command: "sh",
+            arguments: ["-c", "printf 'plain-output\n'"],
+            environment: [:],
+            currentDirectory: directory
+        )
+        #expect(noObservation.stdout == "plain-output\n")
+
+        let lines = SignalBox()
+        let result = try systemRunner.run(
+            command: "/bin/sh",
+            arguments: ["-c", "printf 'hello\\n'; printf 'problem\\n' >&2"],
+            environment: ["FOO": "bar"],
+            currentDirectory: directory,
+            observation: ProcessObservation(
+                label: "shell",
+                onLine: { stream, line in lines.append("\(stream.rawValue):\(line)") }
+            )
+        )
+        #expect(result.stdout == "hello\n")
+        #expect(result.stderr == "problem\n")
+        #expect(lines.values.contains("stdout:hello"))
+        #expect(lines.values.contains("stderr:problem"))
+
+        let detachedOutput = directory.appendingPathComponent("detached/output.txt")
+        let pid = try systemRunner.startDetached(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "echo $DETACHED_VALUE"],
+            environment: ["DETACHED_VALUE": "detached"],
+            currentDirectory: directory,
+            output: detachedOutput
+        )
+        #expect(pid > 0)
+
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if let contents = try? String(contentsOf: detachedOutput, encoding: .utf8), contents.contains("detached") {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        #expect((try String(contentsOf: detachedOutput, encoding: .utf8)).contains("detached"))
+
+        _ = try systemRunner.run(
+            command: "sh",
+            arguments: ["-c", "sleep 0.12"],
+            environment: [:],
+            currentDirectory: nil,
+            observation: ProcessObservation(label: "stderr-heartbeat", staleInterval: 0.05)
+        )
+    }
+}
+
+@Test func processHelpersCoverLineEmitterRemaindersAndIdleStaleSignals() {
+    let silentEmitter = LineEmitter(stream: .stdout, observation: nil)
+    silentEmitter.append(Data())
+    silentEmitter.append(Data("ignored\n".utf8))
+    silentEmitter.finish()
+
+    let lines = SignalBox()
+    let observedEmitter = LineEmitter(
+        stream: .stderr,
+        observation: ProcessObservation(label: "emitter", onLine: { stream, line in
+            lines.append("\(stream.rawValue):\(line)")
+        })
+    )
+    observedEmitter.append(Data("line-1\npartial".utf8))
+    observedEmitter.finish()
+
+    #expect(lines.values == ["stderr:line-1", "stderr:partial"])
+
+    let collector = DataCollector()
+    let staleSignals = SignalBox()
+    let controller = StaleSignalController(
+        observation: ProcessObservation(label: "idle", staleInterval: 60, onStaleSignal: { staleSignals.append($0) }),
+        collector: collector
+    )
+    controller.signalIfNeeded()
+
+    #expect(collector.data.isEmpty)
+    #expect(staleSignals.values.isEmpty)
+}
+
+@Test func artifactManagerRecursiveFilesSkipsPlainFilesWhenEnumerationIsUnavailable() throws {
+    let manager = ArtifactManager(processRunner: StubProcessRunner(), enumeratorFactory: { _ in nil })
+    #expect(manager.recursiveFiles(in: [URL(fileURLWithPath: "/tmp/missing", isDirectory: true)]).isEmpty)
+}
+
+private struct CoverageCommandProcessRunner: ProcessRunning {
+    let packageCoveragePath: String
+    let coverageResult: CommandResult
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+            observation?.onLine?(.stdout, "swift test passed")
+            observation?.onStaleSignal?("[symphony-build] swift test still running")
+            return StubProcessRunner.success()
+        }
+        if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+            return StubProcessRunner.success(packageCoveragePath + "\n")
+        }
+        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
+            observation?.onLine?(.stderr, "coverage stderr")
+            return coverageResult
+        }
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}
+
+private final class ProtocolExtensionRunner: ProcessRunning, @unchecked Sendable {
+    private(set) var lastObservationWasNil = false
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        lastObservationWasNil = observation == nil
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}
+
+private struct ObservationCoverageRunner: ProcessRunning {
+    let json: String
+    let observe: @Sendable (ProcessObservation?) -> Void
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        observe(observation)
+        return StubProcessRunner.success(json)
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}
+
+private struct DualCoverageProcessRunner: ProcessRunning {
+    let packageCoveragePath: String
+    let coverageJSON: String
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+            return StubProcessRunner.success()
+        }
+        if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+            return StubProcessRunner.success(packageCoveragePath + "\n")
+        }
+        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
+            return StubProcessRunner.success(coverageJSON)
+        }
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}

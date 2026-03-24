@@ -72,24 +72,23 @@ targets:
   SymphonyTests:
     type: bundle.unit-test
     supportedDestinations:
-      - iOS
       - macOS
     deploymentTarget:
-      iOS: "18.0"
       macOS: "15.0"
     sources:
       - path: Applications/SymphonyTests
     dependencies:
+      - target: Symphony
       - target: XcodeSupport
     hostApplication: Symphony
     settings:
       base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
         PRODUCT_NAME: SymphonyTests
         PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.tests
         GENERATE_INFOPLIST_FILE: YES
         MACOSX_DEPLOYMENT_TARGET: "15.0"
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony"
 
   SymphonyServerTests:
     type: bundle.unit-test

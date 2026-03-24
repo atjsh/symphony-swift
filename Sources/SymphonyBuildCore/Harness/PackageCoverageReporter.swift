@@ -38,15 +38,10 @@ public struct PackageCoverageReporter {
                     path: relativePath,
                     coveredLines: coveredLines,
                     executableLines: executableLines,
-                    lineCoverage: normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines)
+                    lineCoverage: Self.normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines)
                 )
             }
-            .sorted {
-                if $0.lineCoverage == $1.lineCoverage {
-                    return $0.path < $1.path
-                }
-                return $0.lineCoverage < $1.lineCoverage
-            }
+            .sorted(by: Self.packageFileSort)
 
         guard !files.isEmpty else {
             throw SymphonyBuildError(code: "package_coverage_sources_missing", message: "SwiftPM coverage did not include any first-party files under Sources/.")
@@ -58,7 +53,7 @@ public struct PackageCoverageReporter {
             scope: "first_party_sources",
             coveredLines: coveredLines,
             executableLines: executableLines,
-            lineCoverage: normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines),
+            lineCoverage: Self.normalizedCoverage(coveredLines: coveredLines, executableLines: executableLines),
             coverageJSONPath: coverageJSONPath.path,
             files: files
         )
@@ -92,18 +87,92 @@ public struct PackageCoverageReporter {
             lines.append("target \(target.name) \(percentage(target.lineCoverage)) (\(target.coveredLines)/\(target.executableLines))")
         }
 
+        if !report.violations.isEmpty {
+            lines.append("violations")
+            for violation in report.violations.sorted(by: violationSort) {
+                lines.append("\(violation.suite) \(violation.kind) \(violation.name) \(percentage(violation.lineCoverage)) (\(violation.coveredLines)/\(violation.executableLines))")
+            }
+        }
+
         return lines.joined(separator: "\n")
     }
 
-    private func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double {
+    public func makePackageFileViolations(report: PackageCoverageReport, minimumLineCoverage: Double) -> [HarnessCoverageViolation] {
+        report.files.compactMap { file in
+            guard file.lineCoverage + 0.000_001 < minimumLineCoverage else {
+                return nil
+            }
+            return HarnessCoverageViolation(
+                suite: "package",
+                kind: "file",
+                name: file.path,
+                coveredLines: file.coveredLines,
+                executableLines: file.executableLines,
+                lineCoverage: file.lineCoverage
+            )
+        }
+    }
+
+    public func makeTargetViolations(report: CoverageReport, suite: String, minimumLineCoverage: Double) -> [HarnessCoverageViolation] {
+        report.targets.compactMap { target in
+            guard target.lineCoverage + 0.000_001 < minimumLineCoverage else {
+                return nil
+            }
+            return HarnessCoverageViolation(
+                suite: suite,
+                kind: "target",
+                name: target.name,
+                coveredLines: target.coveredLines,
+                executableLines: target.executableLines,
+                lineCoverage: target.lineCoverage
+            )
+        }
+    }
+
+    public func makeFileViolations(report: CoverageReport, suite: String, minimumLineCoverage: Double) -> [HarnessCoverageViolation] {
+        report.targets.flatMap { target in
+            (target.files ?? []).compactMap { file in
+                guard file.lineCoverage + 0.000_001 < minimumLineCoverage else {
+                    return nil
+                }
+                return HarnessCoverageViolation(
+                    suite: suite,
+                    kind: "file",
+                    name: file.path,
+                    coveredLines: file.coveredLines,
+                    executableLines: file.executableLines,
+                    lineCoverage: file.lineCoverage
+                )
+            }
+        }
+    }
+
+    static func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double {
         guard executableLines > 0 else {
             return 0
         }
         return Double(coveredLines) / Double(executableLines)
     }
 
+    static func packageFileSort(lhs: PackageCoverageFileReport, rhs: PackageCoverageFileReport) -> Bool {
+        if lhs.lineCoverage == rhs.lineCoverage {
+            return lhs.path < rhs.path
+        }
+        return lhs.lineCoverage < rhs.lineCoverage
+    }
+
     private func percentage(_ coverage: Double) -> String {
         String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), coverage * 100)
+    }
+
+    private func violationSort(lhs: HarnessCoverageViolation, rhs: HarnessCoverageViolation) -> Bool {
+        if lhs.suite == rhs.suite {
+            if lhs.kind == rhs.kind {
+                return lhs.name < rhs.name
+            }
+            return lhs.kind < rhs.kind
+        }
+        return lhs.suite < rhs.suite
     }
 }
 

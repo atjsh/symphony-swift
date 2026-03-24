@@ -33,15 +33,9 @@ public struct SimctlSimulatorCatalog: SimulatorCataloging {
 
         let data = Data(result.stdout.utf8)
         let decoded = try JSONDecoder().decode(SimctlListResponse.self, from: data)
-        return decoded.devices.flatMap { runtime, devices in
-            devices.map { SimulatorDevice(name: $0.name, udid: $0.udid, state: $0.state, runtime: runtime) }
-        }
-        .sorted { lhs, rhs in
-            if lhs.name == rhs.name {
-                return lhs.udid < rhs.udid
-            }
-            return lhs.name < rhs.name
-        }
+        return decoded.devices
+            .flatMap(Self.devicesForRuntime)
+            .sorted(by: Self.deviceSort)
     }
 
     private struct SimctlListResponse: Decodable {
@@ -52,6 +46,17 @@ public struct SimctlSimulatorCatalog: SimulatorCataloging {
         let name: String
         let udid: String
         let state: String
+    }
+
+    private static func devicesForRuntime(runtime: String, devices: [SimctlDevice]) -> [SimulatorDevice] {
+        devices.map { SimulatorDevice(name: $0.name, udid: $0.udid, state: $0.state, runtime: runtime) }
+    }
+
+    private static func deviceSort(lhs: SimulatorDevice, rhs: SimulatorDevice) -> Bool {
+        if lhs.name == rhs.name {
+            return lhs.udid < rhs.udid
+        }
+        return lhs.name < rhs.name
     }
 }
 

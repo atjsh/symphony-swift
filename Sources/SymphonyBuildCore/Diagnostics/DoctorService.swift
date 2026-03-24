@@ -102,7 +102,19 @@ public struct DoctorService: DoctorServicing {
         }
 
         let decoded = try JSONDecoder().decode(SchemeListResponse.self, from: Data(result.stdout.utf8))
-        return Set((decoded.project?.schemes ?? []) + (decoded.workspace?.schemes ?? []))
+        let projectSchemes: [String]
+        if let project = decoded.project {
+            projectSchemes = project.schemes
+        } else {
+            projectSchemes = []
+        }
+        let workspaceSchemes: [String]
+        if let workspace = decoded.workspace {
+            workspaceSchemes = workspace.schemes
+        } else {
+            workspaceSchemes = []
+        }
+        return Set(projectSchemes + workspaceSchemes)
     }
 
     private struct SchemeListResponse: Decodable {

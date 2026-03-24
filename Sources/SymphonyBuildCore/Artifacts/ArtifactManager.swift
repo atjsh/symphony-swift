@@ -8,10 +8,22 @@ public struct ArtifactRecord {
 public struct ArtifactManager {
     private let fileManager: FileManager
     private let processRunner: ProcessRunning
+    private let enumeratorFactory: (URL) -> FileManager.DirectoryEnumerator?
 
     public init(fileManager: FileManager = .default, processRunner: ProcessRunning = SystemProcessRunner()) {
+        self.init(fileManager: fileManager, processRunner: processRunner, enumeratorFactory: nil)
+    }
+
+    init(
+        fileManager: FileManager = .default,
+        processRunner: ProcessRunning = SystemProcessRunner(),
+        enumeratorFactory: ((URL) -> FileManager.DirectoryEnumerator?)?
+    ) {
         self.fileManager = fileManager
         self.processRunner = processRunner
+        self.enumeratorFactory = enumeratorFactory ?? { url in
+            fileManager.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey])
+        }
     }
 
     public func recordXcodeExecution(
@@ -243,22 +255,19 @@ public struct ArtifactManager {
         return anomalies
     }
 
-    private func recursiveFiles(in directories: [URL]) -> [URL] {
+    func recursiveFiles(in directories: [URL]) -> [URL] {
         directories.flatMap { directory -> [URL] in
-            guard let enumerator = fileManager.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            guard let enumerator = enumeratorFactory(directory) else {
                 return []
             }
             return enumerator.compactMap { $0 as? URL }
         }
     }
 
-    private func updateLatestLink(familyRoot: URL, target: URL) throws {
+    func updateLatestLink(familyRoot: URL, target: URL) throws {
         try fileManager.createDirectory(at: familyRoot, withIntermediateDirectories: true)
         let latest = familyRoot.appendingPathComponent("latest")
         let temporary = familyRoot.appendingPathComponent(".latest-\(UUID().uuidString)")
-        if fileManager.fileExists(atPath: temporary.path) {
-            try fileManager.removeItem(at: temporary)
-        }
         try fileManager.createSymbolicLink(at: temporary, withDestinationURL: target)
         if fileManager.fileExists(atPath: latest.path) {
             try fileManager.removeItem(at: latest)
@@ -294,7 +303,7 @@ public struct ArtifactManager {
         }
     }
 
-    private func loadArtifactIndexIfPresent(at url: URL) throws -> ArtifactIndex? {
+    func loadArtifactIndexIfPresent(at url: URL) throws -> ArtifactIndex? {
         guard fileManager.fileExists(atPath: url.path) else {
             return nil
         }

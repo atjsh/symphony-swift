@@ -2,6 +2,74 @@ import ArgumentParser
 import Foundation
 import SymphonyBuildCore
 
+protocol SymphonyBuildTooling {
+    func build(_ request: BuildCommandRequest) throws -> String
+    func test(_ request: TestCommandRequest) throws -> String
+    func coverage(_ request: CoverageCommandRequest) throws -> String
+    func run(_ request: RunCommandRequest) throws -> String
+    func harness(_ request: HarnessCommandRequest) throws -> String
+    func hooksInstall(_ request: HooksInstallRequest) throws -> String
+    func simList(currentDirectory: URL) throws -> String
+    func simBoot(_ request: SimBootRequest) throws -> String
+    func simSetServer(_ request: SimSetServerRequest) throws -> String
+    func simClearServer(currentDirectory: URL) throws -> String
+    func artifacts(_ request: ArtifactsCommandRequest) throws -> String
+    func doctor(_ request: DoctorCommandRequest) throws -> String
+}
+
+extension SymphonyBuildTool: SymphonyBuildTooling {}
+
+enum CLIContext {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var toolFactoryOverride: (() -> any SymphonyBuildTooling)?
+    nonisolated(unsafe) private static var printerOverride: ((String) -> Void)?
+    nonisolated(unsafe) private static var currentDirectoryProviderOverride: (() -> URL)?
+
+    static func makeTool() -> any SymphonyBuildTooling {
+        if let toolFactoryOverride {
+            return toolFactoryOverride()
+        }
+        return SymphonyBuildTool()
+    }
+
+    static func emit(_ output: String) {
+        if let printerOverride {
+            printerOverride(output)
+        } else {
+            Swift.print(output)
+        }
+    }
+
+    static func currentDirectory() -> URL {
+        if let currentDirectoryProviderOverride {
+            return currentDirectoryProviderOverride()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+    }
+
+    static func withOverrides<T>(
+        toolFactory: (() -> any SymphonyBuildTooling)?,
+        printer: ((String) -> Void)?,
+        currentDirectoryProvider: (() -> URL)?,
+        operation: () throws -> T
+    ) rethrows -> T {
+        lock.lock()
+        let previousFactory = self.toolFactoryOverride
+        let previousPrinter = self.printerOverride
+        let previousDirectoryProvider = self.currentDirectoryProviderOverride
+        self.toolFactoryOverride = toolFactory
+        self.printerOverride = printer
+        self.currentDirectoryProviderOverride = currentDirectoryProvider
+        defer {
+            self.toolFactoryOverride = previousFactory
+            self.printerOverride = previousPrinter
+            self.currentDirectoryProviderOverride = previousDirectoryProvider
+            lock.unlock()
+        }
+        return try operation()
+    }
+}
+
 public struct SymphonyBuildCommand: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "symphony-build",
@@ -37,7 +105,7 @@ extension SymphonyBuildCommand {
         @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.build(
                 BuildCommandRequest(
                     product: product,
@@ -48,10 +116,10 @@ extension SymphonyBuildCommand {
                     dryRun: dryRun,
                     buildForTesting: buildForTesting,
                     outputMode: xcodeOutputMode,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -69,7 +137,7 @@ extension SymphonyBuildCommand {
         @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.test(
                 TestCommandRequest(
                     product: product,
@@ -81,10 +149,10 @@ extension SymphonyBuildCommand {
                     onlyTesting: onlyTesting,
                     skipTesting: skipTesting,
                     outputMode: xcodeOutputMode,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -104,7 +172,7 @@ extension SymphonyBuildCommand {
         @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.run(
                 RunCommandRequest(
                     product: product,
@@ -118,10 +186,10 @@ extension SymphonyBuildCommand {
                     port: port,
                     environment: try parseEnvironment(env),
                     outputMode: xcodeOutputMode,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -142,7 +210,7 @@ extension SymphonyBuildCommand {
         @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.coverage(
                 CoverageCommandRequest(
                     product: product,
@@ -157,10 +225,10 @@ extension SymphonyBuildCommand {
                     showFiles: showFiles,
                     includeTestTargets: includeTestTargets,
                     outputMode: xcodeOutputMode,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -174,19 +242,19 @@ extension SymphonyBuildCommand {
     struct Harness: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Run the commit harness: package tests plus first-party source coverage gating.")
 
-        @Option(name: .long) var minimumCoverage: Double = 50
+        @Option(name: .long) var minimumCoverage: Double = 100
         @Flag(name: .long) var json = false
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.harness(
                 HarnessCommandRequest(
                     minimumCoveragePercent: minimumCoverage,
                     json: json,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -205,16 +273,16 @@ extension SymphonyBuildCommand {
         @Option(name: .customLong("run")) var runID: String?
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.artifacts(
                 ArtifactsCommandRequest(
                     command: command,
                     latest: latest || runID == nil,
                     runID: runID,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 
@@ -226,16 +294,16 @@ extension SymphonyBuildCommand {
         @Flag(name: .long) var quiet = false
 
         mutating func run() throws {
-            let tool = SymphonyBuildTool()
+            let tool = CLIContext.makeTool()
             let output = try tool.doctor(
                 DoctorCommandRequest(
                     strict: strict,
                     json: json,
                     quiet: quiet,
-                    currentDirectory: currentDirectoryURL
+                    currentDirectory: CLIContext.currentDirectory()
                 )
             )
-            print(output)
+            CLIContext.emit(output)
         }
     }
 }
@@ -245,7 +313,7 @@ extension SymphonyBuildCommand.Sim {
         static let configuration = CommandConfiguration(abstract: "List available simulator names and UDIDs.")
 
         mutating func run() throws {
-            print(try SymphonyBuildTool().simList(currentDirectory: currentDirectoryURL))
+            CLIContext.emit(try CLIContext.makeTool().simList(currentDirectory: CLIContext.currentDirectory()))
         }
     }
 
@@ -255,7 +323,7 @@ extension SymphonyBuildCommand.Sim {
         @Option(name: .long) var simulator: String?
 
         mutating func run() throws {
-            print(try SymphonyBuildTool().simBoot(SimBootRequest(simulator: simulator, currentDirectory: currentDirectoryURL)))
+            CLIContext.emit(try CLIContext.makeTool().simBoot(SimBootRequest(simulator: simulator, currentDirectory: CLIContext.currentDirectory())))
         }
     }
 
@@ -268,14 +336,14 @@ extension SymphonyBuildCommand.Sim {
         @Option(name: .long) var port: Int?
 
         mutating func run() throws {
-            print(
-                try SymphonyBuildTool().simSetServer(
+            CLIContext.emit(
+                try CLIContext.makeTool().simSetServer(
                     SimSetServerRequest(
                         serverURL: serverURL,
                         scheme: scheme,
                         host: host,
                         port: port,
-                        currentDirectory: currentDirectoryURL
+                        currentDirectory: CLIContext.currentDirectory()
                     )
                 )
             )
@@ -286,7 +354,7 @@ extension SymphonyBuildCommand.Sim {
         static let configuration = CommandConfiguration(abstract: "Remove the persisted local endpoint override.")
 
         mutating func run() throws {
-            print(try SymphonyBuildTool().simClearServer(currentDirectory: currentDirectoryURL))
+            CLIContext.emit(try CLIContext.makeTool().simClearServer(currentDirectory: CLIContext.currentDirectory()))
         }
     }
 }
@@ -296,7 +364,7 @@ extension SymphonyBuildCommand.Hooks {
         static let configuration = CommandConfiguration(abstract: "Configure Git to use the committed .githooks directory for this clone/worktree set.")
 
         mutating func run() throws {
-            print(try SymphonyBuildTool().hooksInstall(HooksInstallRequest(currentDirectory: currentDirectoryURL)))
+            CLIContext.emit(try CLIContext.makeTool().hooksInstall(HooksInstallRequest(currentDirectory: CLIContext.currentDirectory())))
         }
     }
 }
@@ -309,10 +377,6 @@ private func parseEnvironment(_ rawValues: [String]) throws -> [String: String] 
         }
         partial[String(parts[0])] = String(parts[1])
     }
-}
-
-private var currentDirectoryURL: URL {
-    URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
 }
 
 extension ProductKind: ExpressibleByArgument {}

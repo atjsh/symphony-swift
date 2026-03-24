@@ -4,8 +4,8 @@ public struct CommitHarness {
     private let processRunner: ProcessRunning
     private let coverageReporter: PackageCoverageReporter
     private let statusSink: @Sendable (String) -> Void
-    private let clientCoverageLoader: @Sendable (WorkspaceContext) throws -> CoverageReport
-    private let serverCoverageLoader: @Sendable (WorkspaceContext) throws -> CoverageReport
+    private let clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
+    private let serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
 
     public init(
         processRunner: ProcessRunning = SystemProcessRunner(),
@@ -17,24 +17,8 @@ public struct CommitHarness {
         self.processRunner = processRunner
         self.coverageReporter = coverageReporter
         self.statusSink = statusSink
-        self.clientCoverageLoader = clientCoverageLoader ?? { workspace in
-            try Self.runCoverageSuite(
-                processRunner: processRunner,
-                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: ["coverage", "--product", "client", "--platform", "macos", "--json"],
-                currentDirectory: workspace.projectRoot,
-                statusSink: statusSink
-            )
-        }
-        self.serverCoverageLoader = serverCoverageLoader ?? { workspace in
-            try Self.runCoverageSuite(
-                processRunner: processRunner,
-                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: ["coverage", "--product", "server", "--json"],
-                currentDirectory: workspace.projectRoot,
-                statusSink: statusSink
-            )
-        }
+        self.clientCoverageLoader = clientCoverageLoader
+        self.serverCoverageLoader = serverCoverageLoader
     }
 
     public func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws -> HarnessReport {
@@ -79,14 +63,42 @@ public struct CommitHarness {
         )
         let clientCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: ["coverage", "--product", "client", "--platform", "macos", "--json"]
+            arguments: ["coverage", "--product", "client", "--platform", "macos", "--show-files", "--json"]
         )
         let serverCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: ["coverage", "--product", "server", "--json"]
+            arguments: ["coverage", "--product", "server", "--show-files", "--json"]
         )
-        let clientCoverage = try clientCoverageLoader(workspace)
-        let serverCoverage = try serverCoverageLoader(workspace)
+        let clientCoverage: CoverageReport
+        if let clientCoverageLoader {
+            clientCoverage = try clientCoverageLoader(workspace)
+        } else {
+            clientCoverage = try Self.runCoverageSuite(
+                processRunner: processRunner,
+                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+                arguments: ["coverage", "--product", "client", "--platform", "macos", "--show-files", "--json"],
+                currentDirectory: workspace.projectRoot,
+                statusSink: statusSink
+            )
+        }
+        let serverCoverage: CoverageReport
+        if let serverCoverageLoader {
+            serverCoverage = try serverCoverageLoader(workspace)
+        } else {
+            serverCoverage = try Self.runCoverageSuite(
+                processRunner: processRunner,
+                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+                arguments: ["coverage", "--product", "server", "--show-files", "--json"],
+                currentDirectory: workspace.projectRoot,
+                statusSink: statusSink
+            )
+        }
+        let threshold = request.minimumCoveragePercent / 100
+        let packageFileViolations = coverageReporter.makePackageFileViolations(report: coverageReport, minimumLineCoverage: threshold)
+        let clientTargetViolations = coverageReporter.makeTargetViolations(report: clientCoverage, suite: "client", minimumLineCoverage: threshold)
+        let clientFileViolations = coverageReporter.makeFileViolations(report: clientCoverage, suite: "client", minimumLineCoverage: threshold)
+        let serverTargetViolations = coverageReporter.makeTargetViolations(report: serverCoverage, suite: "server", minimumLineCoverage: threshold)
+        let serverFileViolations = coverageReporter.makeFileViolations(report: serverCoverage, suite: "server", minimumLineCoverage: threshold)
 
         let report = HarnessReport(
             minimumCoveragePercent: request.minimumCoveragePercent,
@@ -96,7 +108,12 @@ public struct CommitHarness {
             clientCoverageInvocation: clientCoverageInvocation,
             clientCoverage: clientCoverage,
             serverCoverageInvocation: serverCoverageInvocation,
-            serverCoverage: serverCoverage
+            serverCoverage: serverCoverage,
+            packageFileViolations: packageFileViolations,
+            clientTargetViolations: clientTargetViolations,
+            clientFileViolations: clientFileViolations,
+            serverTargetViolations: serverTargetViolations,
+            serverFileViolations: serverFileViolations
         )
 
         guard report.meetsCoverageThreshold else {
@@ -115,7 +132,7 @@ public struct CommitHarness {
         coverageReporter.renderHuman(report: report)
     }
 
-    private func forwardingObservation(label: String) -> ProcessObservation {
+    func forwardingObservation(label: String) -> ProcessObservation {
         ProcessObservation(
             label: label,
             onStaleSignal: { [statusSink] message in
@@ -131,7 +148,7 @@ public struct CommitHarness {
         )
     }
 
-    private static func runCoverageSuite(
+    static func runCoverageSuite(
         processRunner: ProcessRunning,
         executablePath: String,
         arguments: [String],
@@ -178,8 +195,15 @@ public struct CommitHarness {
         }
     }
 
-    private static func currentExecutablePath(workingDirectory: URL) -> String {
-        let raw = CommandLine.arguments.first ?? "symphony-build"
+    static func currentExecutablePath(workingDirectory: URL) -> String {
+        var rawPath = ProcessInfo.processInfo.processName
+        if let firstArgument = CommandLine.arguments.first {
+            rawPath = firstArgument
+        }
+        return resolvedExecutablePath(raw: rawPath, workingDirectory: workingDirectory)
+    }
+
+    static func resolvedExecutablePath(raw: String, workingDirectory: URL) -> String {
         if raw.hasPrefix("/") {
             return raw
         }
