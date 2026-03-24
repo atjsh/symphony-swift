@@ -1,0 +1,830 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */; };
+		11248F5021B8D9C6ED9C710D /* BootstrapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DE291B8BB6058F6F4AB4C7 /* BootstrapSupport.swift */; };
+		24B1F731C068B6A54007EB95 /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
+		3AC457CF7C967204B8328505 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCECC687E55CD2EA2F5DF92F /* main.swift */; };
+		49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41F51113E5586F70F705846 /* ContentView.swift */; };
+		4C898CE7A0BF581F09EC2EC8 /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
+		98DAEA57072B39E7C78F65AB /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
+		BA5FDBCE8465CF58C7F9CCF5 /* BootstrapSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */; };
+		BB4918EC00869660914EC1FC /* libXcodeSupport.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */; };
+		FD24455535191B7DD50E5BC6 /* BootstrapServerRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 106D603473818BC4FDE22B0C /* BootstrapServerRunnerTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		12C94AC2986280C956957544 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A05BF9E93794077D7E6E9BC;
+			remoteInfo = XcodeSupport;
+		};
+		4A413D756824620CD5B51A9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A05BF9E93794077D7E6E9BC;
+			remoteInfo = XcodeSupport;
+		};
+		6D2846EFA25EA16E0F99FBF9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A05BF9E93794077D7E6E9BC;
+			remoteInfo = XcodeSupport;
+		};
+		9961317E9E817014524D76A4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A05BF9E93794077D7E6E9BC;
+			remoteInfo = XcodeSupport;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		05E1D7B09A582118B2125470 /* SymphonyServer */ = {isa = PBXFileReference; includeInIndex = 0; path = SymphonyServer; sourceTree = BUILT_PRODUCTS_DIR; };
+		106D603473818BC4FDE22B0C /* BootstrapServerRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapServerRunnerTests.swift; sourceTree = "<group>"; };
+		6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupportTests.swift; sourceTree = "<group>"; };
+		6CEC33A310A410E656D8F865 /* SymphonyServerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SymphonyServerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyApp.swift; sourceTree = "<group>"; };
+		97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = archive.ar; path = libXcodeSupport.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BCECC687E55CD2EA2F5DF92F /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		C1DE291B8BB6058F6F4AB4C7 /* BootstrapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupport.swift; sourceTree = "<group>"; };
+		D41F51113E5586F70F705846 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		30C31E8A8DF872558F3B76B4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				24B1F731C068B6A54007EB95 /* libXcodeSupport.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		74693E0C7D816559CA106716 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB4918EC00869660914EC1FC /* libXcodeSupport.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B5ADF9E671BFEB73B7B73900 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4C898CE7A0BF581F09EC2EC8 /* libXcodeSupport.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF8266663C0352E7516D33FF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				98DAEA57072B39E7C78F65AB /* libXcodeSupport.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		09E819F80D1870A7F25E53C8 /* Applications */ = {
+			isa = PBXGroup;
+			children = (
+				E9EBDE2FA6B8050169009581 /* Symphony */,
+				664BF76C1EDF09C7C7B86DF6 /* SymphonyServer */,
+				E3AFDC680D814D902022D73C /* SymphonyServerTests */,
+				E55126918B907B93F4719E52 /* SymphonyTests */,
+			);
+			path = Applications;
+			sourceTree = "<group>";
+		};
+		56AB32BCB7F7E06B595D254D = {
+			isa = PBXGroup;
+			children = (
+				09E819F80D1870A7F25E53C8 /* Applications */,
+				6A1060F04F8AD14754796C85 /* XcodeSupport */,
+				6706755F3E233C2DFA820A85 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		664BF76C1EDF09C7C7B86DF6 /* SymphonyServer */ = {
+			isa = PBXGroup;
+			children = (
+				BCECC687E55CD2EA2F5DF92F /* main.swift */,
+			);
+			path = SymphonyServer;
+			sourceTree = "<group>";
+		};
+		6706755F3E233C2DFA820A85 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */,
+				BB3BDD964B47278C650FADD7 /* Symphony.app */,
+				05E1D7B09A582118B2125470 /* SymphonyServer */,
+				6CEC33A310A410E656D8F865 /* SymphonyServerTests.xctest */,
+				97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6A1060F04F8AD14754796C85 /* XcodeSupport */ = {
+			isa = PBXGroup;
+			children = (
+				C1DE291B8BB6058F6F4AB4C7 /* BootstrapSupport.swift */,
+			);
+			path = XcodeSupport;
+			sourceTree = "<group>";
+		};
+		E3AFDC680D814D902022D73C /* SymphonyServerTests */ = {
+			isa = PBXGroup;
+			children = (
+				106D603473818BC4FDE22B0C /* BootstrapServerRunnerTests.swift */,
+			);
+			path = SymphonyServerTests;
+			sourceTree = "<group>";
+		};
+		E55126918B907B93F4719E52 /* SymphonyTests */ = {
+			isa = PBXGroup;
+			children = (
+				6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */,
+			);
+			path = SymphonyTests;
+			sourceTree = "<group>";
+		};
+		E9EBDE2FA6B8050169009581 /* Symphony */ = {
+			isa = PBXGroup;
+			children = (
+				D41F51113E5586F70F705846 /* ContentView.swift */,
+				77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */,
+			);
+			path = Symphony;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		13AD461CA49A2003317B8214 /* SymphonyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonyTests" */;
+			buildPhases = (
+				351FB117AD4D9B7412D0C8A2 /* Sources */,
+				74693E0C7D816559CA106716 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A0DED2B4B5E0B54AAE27A2D4 /* PBXTargetDependency */,
+			);
+			name = SymphonyTests;
+			packageProductDependencies = (
+			);
+			productName = SymphonyTests;
+			productReference = 97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		2299CB2884BEEF9AA816D6F8 /* Symphony */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D26DD97709F46D95D8A2AFC8 /* Build configuration list for PBXNativeTarget "Symphony" */;
+			buildPhases = (
+				5B5D61BB6DDE3ADDF81D5FA3 /* Sources */,
+				BF8266663C0352E7516D33FF /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				403D681751EE34A8A5873182 /* PBXTargetDependency */,
+			);
+			name = Symphony;
+			packageProductDependencies = (
+			);
+			productName = Symphony;
+			productReference = BB3BDD964B47278C650FADD7 /* Symphony.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5A05BF9E93794077D7E6E9BC /* XcodeSupport */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9F74EDE26657019987181139 /* Build configuration list for PBXNativeTarget "XcodeSupport" */;
+			buildPhases = (
+				AE7ADB619F464FA6CB47D8C5 /* Sources */,
+				8D4B8E0E4A5F9BFECDF1446D /* Copy Swift Objective-C Interface Header */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = XcodeSupport;
+			packageProductDependencies = (
+			);
+			productName = XcodeSupport;
+			productReference = A30EE8AB223D5389A08EC965 /* libXcodeSupport.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+		63D1083379D06D81BEB65620 /* SymphonyServer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D497DF8EFFAFA1742BEA0AB4 /* Build configuration list for PBXNativeTarget "SymphonyServer" */;
+			buildPhases = (
+				1207AF86352A03F907180349 /* Sources */,
+				B5ADF9E671BFEB73B7B73900 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F0B94A81BA237E9A67961524 /* PBXTargetDependency */,
+			);
+			name = SymphonyServer;
+			packageProductDependencies = (
+			);
+			productName = SymphonyServer;
+			productReference = 05E1D7B09A582118B2125470 /* SymphonyServer */;
+			productType = "com.apple.product-type.tool";
+		};
+		67AAD765A1693FDBDACA6717 /* SymphonyServerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EAA1EE0117275F80B1A6BAA0 /* Build configuration list for PBXNativeTarget "SymphonyServerTests" */;
+			buildPhases = (
+				E9D4E5E277D9B99264AB5D49 /* Sources */,
+				30C31E8A8DF872558F3B76B4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				71382210849BB0A1DB2443B4 /* PBXTargetDependency */,
+			);
+			name = SymphonyServerTests;
+			packageProductDependencies = (
+			);
+			productName = SymphonyServerTests;
+			productReference = 6CEC33A310A410E656D8F865 /* SymphonyServerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D4106BBA2672AB3F9DA74F38 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					13AD461CA49A2003317B8214 = {
+						DevelopmentTeam = "";
+					};
+					2299CB2884BEEF9AA816D6F8 = {
+						DevelopmentTeam = "";
+					};
+					5A05BF9E93794077D7E6E9BC = {
+						DevelopmentTeam = "";
+					};
+					63D1083379D06D81BEB65620 = {
+						DevelopmentTeam = "";
+					};
+					67AAD765A1693FDBDACA6717 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 01B3C5EB2EB8995477F6F98A /* Build configuration list for PBXProject "SymphonyApps" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 56AB32BCB7F7E06B595D254D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6706755F3E233C2DFA820A85 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2299CB2884BEEF9AA816D6F8 /* Symphony */,
+				63D1083379D06D81BEB65620 /* SymphonyServer */,
+				67AAD765A1693FDBDACA6717 /* SymphonyServerTests */,
+				13AD461CA49A2003317B8214 /* SymphonyTests */,
+				5A05BF9E93794077D7E6E9BC /* XcodeSupport */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8D4B8E0E4A5F9BFECDF1446D /* Copy Swift Objective-C Interface Header */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(DERIVED_SOURCES_DIR)/$(SWIFT_OBJC_INTERFACE_HEADER_NAME)",
+			);
+			name = "Copy Swift Objective-C Interface Header";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/include/$(PRODUCT_MODULE_NAME)/$(SWIFT_OBJC_INTERFACE_HEADER_NAME)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "ditto \"${SCRIPT_INPUT_FILE_0}\" \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1207AF86352A03F907180349 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3AC457CF7C967204B8328505 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		351FB117AD4D9B7412D0C8A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BA5FDBCE8465CF58C7F9CCF5 /* BootstrapSupportTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5B5D61BB6DDE3ADDF81D5FA3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */,
+				05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE7ADB619F464FA6CB47D8C5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				11248F5021B8D9C6ED9C710D /* BootstrapSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E9D4E5E277D9B99264AB5D49 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FD24455535191B7DD50E5BC6 /* BootstrapServerRunnerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		403D681751EE34A8A5873182 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A05BF9E93794077D7E6E9BC /* XcodeSupport */;
+			targetProxy = 4A413D756824620CD5B51A9E /* PBXContainerItemProxy */;
+		};
+		71382210849BB0A1DB2443B4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A05BF9E93794077D7E6E9BC /* XcodeSupport */;
+			targetProxy = 6D2846EFA25EA16E0F99FBF9 /* PBXContainerItemProxy */;
+		};
+		A0DED2B4B5E0B54AAE27A2D4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A05BF9E93794077D7E6E9BC /* XcodeSupport */;
+			targetProxy = 9961317E9E817014524D76A4 /* PBXContainerItemProxy */;
+		};
+		F0B94A81BA237E9A67961524 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A05BF9E93794077D7E6E9BC /* XcodeSupport */;
+			targetProxy = 12C94AC2986280C956957544 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		04FFF8D689DCFBCD54BE4906 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+				PRODUCT_NAME = SymphonyTests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1B7BFF7FAB3BBBD2752E25FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.server.tests;
+				PRODUCT_NAME = SymphonyServerTests;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		2B4A2616BF41B343D3F15CF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_MODULE_NAME = XcodeSupport;
+				PRODUCT_NAME = XcodeSupport;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		3642671DE72BFFE16014C286 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.server;
+				PRODUCT_NAME = SymphonyServer;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		52D6E27E8BB16B90E95E76A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.server;
+				PRODUCT_NAME = SymphonyServer;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		6D709B0A7682AE4362D91425 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_MODULE_NAME = XcodeSupport;
+				PRODUCT_NAME = XcodeSupport;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A0E6D7584E6D84D68F4AE1C1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.server.tests;
+				PRODUCT_NAME = SymphonyServerTests;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		B2AD19EFC74B4BFE83D2808B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BCCBFC6ED3138D95A760161C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		ED873472B64C28FC9C3B0B28 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Symphony;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+				PRODUCT_NAME = Symphony;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F29221511996AF509CFF8AD1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+				PRODUCT_NAME = SymphonyTests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FE9F22B430DBFBEF48104089 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Symphony;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+				PRODUCT_NAME = Symphony;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		01B3C5EB2EB8995477F6F98A /* Build configuration list for PBXProject "SymphonyApps" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B2AD19EFC74B4BFE83D2808B /* Debug */,
+				BCCBFC6ED3138D95A760161C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F29221511996AF509CFF8AD1 /* Debug */,
+				04FFF8D689DCFBCD54BE4906 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9F74EDE26657019987181139 /* Build configuration list for PBXNativeTarget "XcodeSupport" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D709B0A7682AE4362D91425 /* Debug */,
+				2B4A2616BF41B343D3F15CF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D26DD97709F46D95D8A2AFC8 /* Build configuration list for PBXNativeTarget "Symphony" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ED873472B64C28FC9C3B0B28 /* Debug */,
+				FE9F22B430DBFBEF48104089 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D497DF8EFFAFA1742BEA0AB4 /* Build configuration list for PBXNativeTarget "SymphonyServer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3642671DE72BFFE16014C286 /* Debug */,
+				52D6E27E8BB16B90E95E76A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EAA1EE0117275F80B1A6BAA0 /* Build configuration list for PBXNativeTarget "SymphonyServerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1B7BFF7FAB3BBBD2752E25FC /* Debug */,
+				A0E6D7584E6D84D68F4AE1C1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D4106BBA2672AB3F9DA74F38 /* Project object */;
+}

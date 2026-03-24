@@ -1,0 +1,130 @@
+name: SymphonyApps
+options:
+  createIntermediateGroups: true
+  groupSortPosition: top
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    DEVELOPMENT_TEAM: ""
+targets:
+  XcodeSupport:
+    type: library.static
+    supportedDestinations:
+      - iOS
+      - macOS
+    deploymentTarget:
+      iOS: "18.0"
+      macOS: "15.0"
+    sources:
+      - path: XcodeSupport
+    settings:
+      base:
+        PRODUCT_NAME: XcodeSupport
+        PRODUCT_MODULE_NAME: XcodeSupport
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  Symphony:
+    type: application
+    supportedDestinations:
+      - iOS
+      - macOS
+    deploymentTarget:
+      iOS: "18.0"
+      macOS: "15.0"
+    sources:
+      - path: Applications/Symphony
+    dependencies:
+      - target: XcodeSupport
+    settings:
+      base:
+        PRODUCT_NAME: Symphony
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Symphony
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  SymphonyServer:
+    type: tool
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Applications/SymphonyServer
+    dependencies:
+      - target: XcodeSupport
+    settings:
+      base:
+        PRODUCT_NAME: SymphonyServer
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.server
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+  SymphonyTests:
+    type: bundle.unit-test
+    supportedDestinations:
+      - iOS
+      - macOS
+    deploymentTarget:
+      iOS: "18.0"
+      macOS: "15.0"
+    sources:
+      - path: Applications/SymphonyTests
+    dependencies:
+      - target: XcodeSupport
+    hostApplication: Symphony
+    settings:
+      base:
+        PRODUCT_NAME: SymphonyTests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.tests
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  SymphonyServerTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Applications/SymphonyServerTests
+    dependencies:
+      - target: XcodeSupport
+    settings:
+      base:
+        PRODUCT_NAME: SymphonyServerTests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.server.tests
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+schemes:
+  Symphony:
+    build:
+      targets:
+        Symphony: all
+        XcodeSupport: [run, test, profile, analyze, archive]
+    test:
+      targets:
+        - name: SymphonyTests
+    run:
+      config: Debug
+
+  SymphonyServer:
+    build:
+      targets:
+        SymphonyServer: all
+        XcodeSupport: [run, test, profile, analyze, archive]
+    test:
+      targets:
+        - name: SymphonyServerTests
+    run:
+      config: Debug

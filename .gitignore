@@ -148,9 +148,18 @@ iOSInjectionProject/
 Packages
 xcuserdata
 *.xcodeproj
+!SymphonyApps.xcodeproj/
+!SymphonyApps.xcodeproj/project.pbxproj
+!SymphonyApps.xcodeproj/project.xcworkspace/
+!SymphonyApps.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+!SymphonyApps.xcodeproj/xcshareddata/
+!SymphonyApps.xcodeproj/xcshareddata/xcschemes/
+!SymphonyApps.xcodeproj/xcshareddata/xcschemes/*.xcscheme
 
 
 ### SwiftPM ###
+.swiftpm/
+.vscode/
 
 
 ### Windows ###
@@ -193,3 +202,5 @@ $RECYCLE.BIN/
 **/xcshareddata/WorkspaceSettings.xcsettings
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,xcode,osx,linux,swift,swiftpm,swiftpackagemanager
+
+Plans/

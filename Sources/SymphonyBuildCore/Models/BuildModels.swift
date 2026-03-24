@@ -1,0 +1,618 @@
+import Foundation
+import SymphonyShared
+
+public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
+    case build
+    case test
+    case run
+}
+
+public enum ProductKind: String, Codable, CaseIterable, Sendable {
+    case server
+    case client
+
+    public var defaultScheme: String {
+        switch self {
+        case .server:
+            return "SymphonyServer"
+        case .client:
+            return "Symphony"
+        }
+    }
+
+    public var defaultPlatform: PlatformKind {
+        switch self {
+        case .server:
+            return .macos
+        case .client:
+            return .iosSimulator
+        }
+    }
+}
+
+public enum PlatformKind: String, Codable, CaseIterable, Sendable {
+    case macos
+    case iosSimulator = "ios-simulator"
+
+    public var xcodeDestinationPlatform: String {
+        switch self {
+        case .macos:
+            return "macOS"
+        case .iosSimulator:
+            return "iOS Simulator"
+        }
+    }
+}
+
+public enum XcodeOutputMode: String, Codable, CaseIterable, Sendable {
+    case filtered
+    case full
+    case quiet
+}
+
+public struct WorkspaceContext: Sendable {
+    public let projectRoot: URL
+    public let buildStateRoot: URL
+    public let xcodeWorkspacePath: URL?
+    public let xcodeProjectPath: URL?
+
+    public init(projectRoot: URL, buildStateRoot: URL, xcodeWorkspacePath: URL?, xcodeProjectPath: URL?) {
+        self.projectRoot = projectRoot
+        self.buildStateRoot = buildStateRoot
+        self.xcodeWorkspacePath = xcodeWorkspacePath
+        self.xcodeProjectPath = xcodeProjectPath
+    }
+}
+
+public struct WorkerScope: Codable, Hashable, Sendable {
+    public let id: Int
+    public let slug: String
+
+    public init(id: Int) throws {
+        guard id >= 0 else {
+            throw SymphonyBuildError(code: "invalid_worker_id", message: "Worker ids must be non-negative.")
+        }
+
+        self.id = id
+        self.slug = "worker-\(id)"
+    }
+}
+
+public struct ExecutionContext: Sendable {
+    public let worker: WorkerScope
+    public let timestamp: String
+    public let runID: String
+    public let artifactRoot: URL
+    public let derivedDataPath: URL
+    public let resultBundlePath: URL
+    public let logPath: URL
+    public let runtimeRoot: URL
+
+    public init(
+        worker: WorkerScope,
+        timestamp: String,
+        runID: String,
+        artifactRoot: URL,
+        derivedDataPath: URL,
+        resultBundlePath: URL,
+        logPath: URL,
+        runtimeRoot: URL
+    ) {
+        self.worker = worker
+        self.timestamp = timestamp
+        self.runID = runID
+        self.artifactRoot = artifactRoot
+        self.derivedDataPath = derivedDataPath
+        self.resultBundlePath = resultBundlePath
+        self.logPath = logPath
+        self.runtimeRoot = runtimeRoot
+    }
+}
+
+public enum XcodeAction: String, Codable, Sendable {
+    case build
+    case buildForTesting
+    case test
+    case launch
+
+    public var xcodebuildAction: String? {
+        switch self {
+        case .build:
+            return "build"
+        case .buildForTesting:
+            return "build-for-testing"
+        case .test:
+            return "test"
+        case .launch:
+            return nil
+        }
+    }
+}
+
+public struct SchemeSelector: Codable, Hashable, Sendable {
+    public let product: ProductKind
+    public let scheme: String
+    public let platform: PlatformKind
+
+    public init(product: ProductKind, scheme: String?, platform: PlatformKind?) {
+        self.product = product
+        self.scheme = scheme ?? product.defaultScheme
+        self.platform = platform ?? product.defaultPlatform
+    }
+
+    public var runIdentifier: String {
+        ShellQuoting.slugify(self.scheme)
+    }
+}
+
+public struct DestinationSelector: Codable, Hashable, Sendable {
+    public let platform: PlatformKind
+    public let simulatorName: String?
+    public let simulatorUDID: String?
+
+    public init(platform: PlatformKind, simulatorName: String? = nil, simulatorUDID: String? = nil) {
+        self.platform = platform
+        self.simulatorName = simulatorName
+        self.simulatorUDID = simulatorUDID
+    }
+}
+
+public struct ResolvedDestination: Codable, Hashable, Sendable {
+    public let platform: PlatformKind
+    public let displayName: String
+    public let simulatorName: String?
+    public let simulatorUDID: String?
+    public let xcodeDestination: String
+
+    public init(
+        platform: PlatformKind,
+        displayName: String,
+        simulatorName: String?,
+        simulatorUDID: String?,
+        xcodeDestination: String
+    ) {
+        self.platform = platform
+        self.displayName = displayName
+        self.simulatorName = simulatorName
+        self.simulatorUDID = simulatorUDID
+        self.xcodeDestination = xcodeDestination
+    }
+}
+
+public struct XcodeCommandRequest: Codable, Hashable, Sendable {
+    public let action: XcodeAction
+    public let scheme: String
+    public let destination: ResolvedDestination
+    public let derivedDataPath: URL
+    public let resultBundlePath: URL
+    public let outputMode: XcodeOutputMode
+    public let environment: [String: String]
+    public let workspacePath: URL?
+    public let projectPath: URL?
+    public let onlyTesting: [String]
+    public let skipTesting: [String]
+
+    public init(
+        action: XcodeAction,
+        scheme: String,
+        destination: ResolvedDestination,
+        derivedDataPath: URL,
+        resultBundlePath: URL,
+        outputMode: XcodeOutputMode,
+        environment: [String: String],
+        workspacePath: URL?,
+        projectPath: URL?,
+        onlyTesting: [String] = [],
+        skipTesting: [String] = []
+    ) {
+        self.action = action
+        self.scheme = scheme
+        self.destination = destination
+        self.derivedDataPath = derivedDataPath
+        self.resultBundlePath = resultBundlePath
+        self.outputMode = outputMode
+        self.environment = environment
+        self.workspacePath = workspacePath
+        self.projectPath = projectPath
+        self.onlyTesting = onlyTesting
+        self.skipTesting = skipTesting
+    }
+
+    public func renderedArguments() throws -> [String] {
+        guard let action = action.xcodebuildAction else {
+            throw SymphonyBuildError(code: "invalid_xcode_action", message: "Launch requests do not render an xcodebuild action directly.")
+        }
+
+        var arguments = [String]()
+        if let workspacePath {
+            arguments += ["-workspace", workspacePath.path]
+        } else if let projectPath {
+            arguments += ["-project", projectPath.path]
+        } else {
+            throw SymphonyBuildError(code: "missing_build_definition", message: "No Xcode workspace or project was resolved.")
+        }
+
+        arguments += [
+            "-scheme", scheme,
+            "-destination", destination.xcodeDestination,
+            "-derivedDataPath", derivedDataPath.path,
+            "-resultBundlePath", resultBundlePath.path,
+        ]
+
+        for item in onlyTesting {
+            arguments += ["-only-testing:\(item)"]
+        }
+
+        for item in skipTesting {
+            arguments += ["-skip-testing:\(item)"]
+        }
+
+        arguments.append(action)
+        return arguments
+    }
+
+    public func renderedCommandLine() throws -> String {
+        ShellQuoting.render(command: "xcodebuild", arguments: try renderedArguments())
+    }
+}
+
+public struct XcodeRunResult: Codable, Hashable, Sendable {
+    public let exitStatus: Int32
+    public let invocation: String
+    public let startedAt: Date
+    public let endedAt: Date
+    public let resultBundlePath: URL
+    public let logPath: URL
+
+    public init(
+        exitStatus: Int32,
+        invocation: String,
+        startedAt: Date,
+        endedAt: Date,
+        resultBundlePath: URL,
+        logPath: URL
+    ) {
+        self.exitStatus = exitStatus
+        self.invocation = invocation
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.resultBundlePath = resultBundlePath
+        self.logPath = logPath
+    }
+}
+
+public struct ArtifactRun: Codable, Hashable, Sendable {
+    public let command: BuildCommandFamily
+    public let runID: String
+    public let timestamp: String
+    public let artifactRoot: URL
+    public let summaryPath: URL
+    public let indexPath: URL
+
+    public init(command: BuildCommandFamily, runID: String, timestamp: String, artifactRoot: URL, summaryPath: URL, indexPath: URL) {
+        self.command = command
+        self.runID = runID
+        self.timestamp = timestamp
+        self.artifactRoot = artifactRoot
+        self.summaryPath = summaryPath
+        self.indexPath = indexPath
+    }
+}
+
+public struct ArtifactIndexEntry: Codable, Hashable, Sendable {
+    public let name: String
+    public let relativePath: String
+    public let kind: String
+    public let createdAt: String
+    public let anomaly: ArtifactAnomaly?
+
+    public init(name: String, relativePath: String, kind: String, createdAt: String, anomaly: ArtifactAnomaly? = nil) {
+        self.name = name
+        self.relativePath = relativePath
+        self.kind = kind
+        self.createdAt = createdAt
+        self.anomaly = anomaly
+    }
+}
+
+public struct ArtifactIndex: Codable, Hashable, Sendable {
+    public let entries: [ArtifactIndexEntry]
+    public let command: BuildCommandFamily
+    public let runID: String
+    public let timestamp: String
+    public let anomalies: [ArtifactAnomaly]
+
+    public init(entries: [ArtifactIndexEntry], command: BuildCommandFamily, runID: String, timestamp: String, anomalies: [ArtifactAnomaly]) {
+        self.entries = entries
+        self.command = command
+        self.runID = runID
+        self.timestamp = timestamp
+        self.anomalies = anomalies
+    }
+}
+
+public struct ArtifactAnomaly: Codable, Hashable, Sendable {
+    public let code: String
+    public let message: String
+    public let phase: String
+
+    public init(code: String, message: String, phase: String) {
+        self.code = code
+        self.message = message
+        self.phase = phase
+    }
+}
+
+public enum RuntimeTarget: String, Codable, CaseIterable, Sendable {
+    case server
+    case client
+}
+
+public struct RuntimeEndpoint: Codable, Hashable, Sendable {
+    public let scheme: String
+    public let host: String
+    public let port: Int
+
+    public init(scheme: String = "http", host: String = "localhost", port: Int = 8080) throws {
+        let endpoint = try ServerEndpoint(scheme: scheme, host: host, port: port)
+        self.scheme = endpoint.scheme
+        self.host = endpoint.host
+        self.port = endpoint.port
+    }
+
+    public init(serverEndpoint: ServerEndpoint) {
+        self.scheme = serverEndpoint.scheme
+        self.host = serverEndpoint.host
+        self.port = serverEndpoint.port
+    }
+
+    public var url: URL? {
+        try? ServerEndpoint(scheme: scheme, host: host, port: port).url
+    }
+
+    public var serverEndpoint: ServerEndpoint {
+        get throws {
+            try ServerEndpoint(scheme: scheme, host: host, port: port)
+        }
+    }
+}
+
+public struct LaunchConfiguration: Codable, Hashable, Sendable {
+    public let target: RuntimeTarget
+    public let scheme: String
+    public let destination: ResolvedDestination
+    public let endpoint: RuntimeEndpoint
+    public let environment: [String: String]
+
+    public init(target: RuntimeTarget, scheme: String, destination: ResolvedDestination, endpoint: RuntimeEndpoint, environment: [String: String]) {
+        self.target = target
+        self.scheme = scheme
+        self.destination = destination
+        self.endpoint = endpoint
+        self.environment = environment
+    }
+}
+
+public enum DiagnosticSeverity: String, Codable, CaseIterable, Comparable, Sendable {
+    case error
+    case warning
+    case info
+
+    public static func < (lhs: DiagnosticSeverity, rhs: DiagnosticSeverity) -> Bool {
+        lhs.sortRank < rhs.sortRank
+    }
+
+    private var sortRank: Int {
+        switch self {
+        case .error:
+            return 0
+        case .warning:
+            return 1
+        case .info:
+            return 2
+        }
+    }
+}
+
+public struct DiagnosticIssue: Codable, Hashable, Sendable {
+    public let severity: DiagnosticSeverity
+    public let code: String
+    public let message: String
+    public let suggestedFix: String?
+
+    public init(severity: DiagnosticSeverity, code: String, message: String, suggestedFix: String? = nil) {
+        self.severity = severity
+        self.code = code
+        self.message = message
+        self.suggestedFix = suggestedFix
+    }
+}
+
+public struct DiagnosticsReport: Codable, Hashable, Sendable {
+    public let issues: [DiagnosticIssue]
+    public let checkedPaths: [String]
+    public let checkedExecutables: [String]
+
+    public init(issues: [DiagnosticIssue], checkedPaths: [String], checkedExecutables: [String]) {
+        self.issues = issues.sorted { lhs, rhs in
+            if lhs.severity == rhs.severity {
+                return lhs.code < rhs.code
+            }
+            return lhs.severity < rhs.severity
+        }
+        self.checkedPaths = checkedPaths
+        self.checkedExecutables = checkedExecutables
+    }
+
+    public var isHealthy: Bool {
+        issues.allSatisfy { $0.severity != .error }
+    }
+}
+
+public struct BuildCommandRequest: Sendable {
+    public let product: ProductKind
+    public let scheme: String?
+    public let platform: PlatformKind?
+    public let simulator: String?
+    public let workerID: Int
+    public let dryRun: Bool
+    public let buildForTesting: Bool
+    public let outputMode: XcodeOutputMode
+    public let currentDirectory: URL
+
+    public init(
+        product: ProductKind,
+        scheme: String?,
+        platform: PlatformKind?,
+        simulator: String?,
+        workerID: Int,
+        dryRun: Bool,
+        buildForTesting: Bool,
+        outputMode: XcodeOutputMode,
+        currentDirectory: URL
+    ) {
+        self.product = product
+        self.scheme = scheme
+        self.platform = platform
+        self.simulator = simulator
+        self.workerID = workerID
+        self.dryRun = dryRun
+        self.buildForTesting = buildForTesting
+        self.outputMode = outputMode
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct TestCommandRequest: Sendable {
+    public let product: ProductKind
+    public let scheme: String?
+    public let platform: PlatformKind?
+    public let simulator: String?
+    public let workerID: Int
+    public let dryRun: Bool
+    public let onlyTesting: [String]
+    public let skipTesting: [String]
+    public let outputMode: XcodeOutputMode
+    public let currentDirectory: URL
+
+    public init(
+        product: ProductKind,
+        scheme: String?,
+        platform: PlatformKind?,
+        simulator: String?,
+        workerID: Int,
+        dryRun: Bool,
+        onlyTesting: [String],
+        skipTesting: [String],
+        outputMode: XcodeOutputMode,
+        currentDirectory: URL
+    ) {
+        self.product = product
+        self.scheme = scheme
+        self.platform = platform
+        self.simulator = simulator
+        self.workerID = workerID
+        self.dryRun = dryRun
+        self.onlyTesting = onlyTesting
+        self.skipTesting = skipTesting
+        self.outputMode = outputMode
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct RunCommandRequest: Sendable {
+    public let product: ProductKind
+    public let scheme: String?
+    public let platform: PlatformKind?
+    public let simulator: String?
+    public let workerID: Int
+    public let dryRun: Bool
+    public let serverURL: String?
+    public let host: String?
+    public let port: Int?
+    public let environment: [String: String]
+    public let outputMode: XcodeOutputMode
+    public let currentDirectory: URL
+
+    public init(
+        product: ProductKind,
+        scheme: String?,
+        platform: PlatformKind?,
+        simulator: String?,
+        workerID: Int,
+        dryRun: Bool,
+        serverURL: String?,
+        host: String?,
+        port: Int?,
+        environment: [String: String],
+        outputMode: XcodeOutputMode,
+        currentDirectory: URL
+    ) {
+        self.product = product
+        self.scheme = scheme
+        self.platform = platform
+        self.simulator = simulator
+        self.workerID = workerID
+        self.dryRun = dryRun
+        self.serverURL = serverURL
+        self.host = host
+        self.port = port
+        self.environment = environment
+        self.outputMode = outputMode
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct ArtifactsCommandRequest: Sendable {
+    public let command: BuildCommandFamily
+    public let latest: Bool
+    public let runID: String?
+    public let currentDirectory: URL
+
+    public init(command: BuildCommandFamily, latest: Bool, runID: String?, currentDirectory: URL) {
+        self.command = command
+        self.latest = latest
+        self.runID = runID
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct DoctorCommandRequest: Sendable {
+    public let strict: Bool
+    public let json: Bool
+    public let quiet: Bool
+    public let currentDirectory: URL
+
+    public init(strict: Bool, json: Bool, quiet: Bool, currentDirectory: URL) {
+        self.strict = strict
+        self.json = json
+        self.quiet = quiet
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct SimSetServerRequest: Sendable {
+    public let serverURL: String?
+    public let scheme: String?
+    public let host: String?
+    public let port: Int?
+    public let currentDirectory: URL
+
+    public init(serverURL: String?, scheme: String?, host: String?, port: Int?, currentDirectory: URL) {
+        self.serverURL = serverURL
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        self.currentDirectory = currentDirectory
+    }
+}
+
+public struct SimBootRequest: Sendable {
+    public let simulator: String?
+    public let currentDirectory: URL
+
+    public init(simulator: String?, currentDirectory: URL) {
+        self.simulator = simulator
+        self.currentDirectory = currentDirectory
+    }
+}
