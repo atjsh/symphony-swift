@@ -115,6 +115,9 @@ public struct PackageCoverageReporter {
 
     public func makeTargetViolations(report: CoverageReport, suite: String, minimumLineCoverage: Double) -> [HarnessCoverageViolation] {
         report.targets.compactMap { target in
+            guard target.executableLines > 0 else {
+                return nil
+            }
             guard target.lineCoverage + 0.000_001 < minimumLineCoverage else {
                 return nil
             }

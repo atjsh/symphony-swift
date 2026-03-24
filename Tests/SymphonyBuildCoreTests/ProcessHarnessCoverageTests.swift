@@ -151,6 +151,23 @@ import Testing
     }
 }
 
+@Test func packageCoverageReporterSkipsZeroExecutableTargetViolations() {
+    let reporter = PackageCoverageReporter()
+    let report = CoverageReport(
+        coveredLines: 10,
+        executableLines: 10,
+        lineCoverage: 1,
+        includeTestTargets: false,
+        excludedTargets: [],
+        targets: [
+            CoverageTargetReport(name: "Symphony.app", buildProductPath: nil, coveredLines: 10, executableLines: 10, lineCoverage: 1, files: nil),
+            CoverageTargetReport(name: "SymphonyRuntime", buildProductPath: nil, coveredLines: 0, executableLines: 0, lineCoverage: 0, files: nil),
+        ]
+    )
+
+    #expect(reporter.makeTargetViolations(report: report, suite: "client", minimumLineCoverage: 1).map(\.name) == [])
+}
+
 @Test func coverageReporterCoversErrorModesAndTestTargetInclusion() throws {
     try withTemporaryDirectory { directory in
         let resultBundlePath = directory.appendingPathComponent("result.xcresult")
@@ -229,6 +246,245 @@ import Testing
         ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
 
         #expect(artifacts.report.targets.map { $0.name } == ["SymphonyServer"])
+    }
+}
+
+@Test func coverageReporterRendersCommandsAndFallbackMessages() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let reporter = CoverageReporter(processRunner: StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": CommandResult(exitStatus: 0, stdout: "", stderr: ""),
+        ]))
+
+        #expect(reporter.renderedCommandLine(resultBundlePath: resultBundlePath) == "xcrun xccov view --report --json \(resultBundlePath.path)")
+
+        do {
+            _ = try reporter.export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            Issue.record("Expected empty xccov output to use the fallback coverage-export message.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_export_failed")
+            #expect(error.message == "Failed to export coverage from the xcresult bundle.")
+        }
+    }
+}
+
+@Test func coverageReporterIncludesFileListingsWhenRequested() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let json = #"""
+        {
+          "targets": [
+            {
+              "buildProductPath": "/tmp/Symphony.app",
+              "coveredLines": 3,
+              "executableLines": 4,
+              "files": [
+                { "coveredLines": 1, "executableLines": 2, "name": "Beta.swift", "path": "/tmp/Beta.swift" },
+                { "coveredLines": 2, "executableLines": 2, "name": "Alpha.swift", "path": "/tmp/Alpha.swift" }
+              ],
+              "name": "Symphony"
+            },
+            {
+              "buildProductPath": "/tmp/SymphonyTests.xctest/Contents/MacOS/SymphonyTests",
+              "coveredLines": 2,
+              "executableLines": 2,
+              "files": [
+                { "coveredLines": 2, "executableLines": 2, "name": "Ignored.swift", "path": "/tmp/Ignored.swift" }
+              ],
+              "name": "SymphonyTests.xctest"
+            }
+          ]
+        }
+        """#
+
+        let artifacts = try CoverageReporter(processRunner: StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json),
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: true)
+
+        #expect(artifacts.report.excludedTargets == ["SymphonyTests.xctest"])
+        #expect(artifacts.report.targets.count == 1)
+        #expect(artifacts.report.targets[0].files?.map(\.name) == ["Beta.swift", "Alpha.swift"])
+        #expect(artifacts.textOutput.contains("excluded_targets SymphonyTests.xctest"))
+        #expect(artifacts.textOutput.contains("file Symphony Alpha.swift 100.00% (2/2)"))
+        #expect(artifacts.textOutput.contains("file Symphony Beta.swift 50.00% (1/2)"))
+    }
+}
+
+@Test func swiftPMCoverageReporterCoversFailuresAndGroupedOutput() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyRuntime"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyServer"), withIntermediateDirectories: true)
+
+        let reporter = SwiftPMCoverageReporter()
+        let missingPath = directory.appendingPathComponent("missing-swiftpm.json")
+        #expect(reporter.renderedCoveragePathCommandLine() == "swift test --show-code-coverage-path")
+
+        do {
+            _ = try reporter.exportServerCoverage(
+                coverageJSONPath: missingPath,
+                projectRoot: repoRoot,
+                artifactRoot: directory.appendingPathComponent("artifacts-missing", isDirectory: true),
+                showFiles: false
+            )
+            Issue.record("Expected missing SwiftPM coverage JSON to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "missing_swiftpm_coverage_json")
+        }
+
+        let invalidPath = directory.appendingPathComponent("invalid-swiftpm.json")
+        try "not json".write(to: invalidPath, atomically: true, encoding: .utf8)
+        do {
+            _ = try reporter.exportServerCoverage(
+                coverageJSONPath: invalidPath,
+                projectRoot: repoRoot,
+                artifactRoot: directory.appendingPathComponent("artifacts-invalid", isDirectory: true),
+                showFiles: false
+            )
+            Issue.record("Expected undecodable SwiftPM coverage JSON to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "swiftpm_coverage_decode_failed")
+        }
+
+        let noSourcesPath = directory.appendingPathComponent("swiftpm-no-sources.json")
+        try #"""
+        {"data":[{"files":[{"filename":"__REPO__/Tests/SymphonyServerTests/Foo.swift","summary":{"lines":{"count":10,"covered":10}}},{"filename":"__REPO__/Sources/SymphonyRuntime/Zero.swift","summary":{"lines":{"count":0,"covered":0}}}]}]}
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: noSourcesPath, atomically: true, encoding: .utf8)
+        do {
+            _ = try reporter.exportServerCoverage(
+                coverageJSONPath: noSourcesPath,
+                projectRoot: repoRoot,
+                artifactRoot: directory.appendingPathComponent("artifacts-no-sources", isDirectory: true),
+                showFiles: false
+            )
+            Issue.record("Expected missing first-party SwiftPM server coverage to fail.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "swiftpm_coverage_sources_missing")
+        }
+
+        let successPath = directory.appendingPathComponent("swiftpm-success.json")
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/SymphonyRuntime/Zeta.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+                { "filename": "__REPO__/Sources/SymphonyRuntime/Alpha.swift", "summary": { "lines": { "count": 3, "covered": 2 } } },
+                { "filename": "__REPO__/Sources/SymphonyServer/main.swift", "summary": { "lines": { "count": 4, "covered": 3 } } },
+                { "filename": "__REPO__/Sources/SymphonyServer/Zero.swift", "summary": { "lines": { "count": 0, "covered": 0 } } },
+                { "filename": "__REPO__/Tests/SymphonyServerTests/Foo.swift", "summary": { "lines": { "count": 10, "covered": 10 } } }
+              ]
+            }
+          ]
+        }
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: successPath, atomically: true, encoding: .utf8)
+
+        let artifactRoot = directory.appendingPathComponent("artifacts-success", isDirectory: true)
+        let artifacts = try reporter.exportServerCoverage(
+            coverageJSONPath: successPath,
+            projectRoot: repoRoot,
+            artifactRoot: artifactRoot,
+            showFiles: true
+        )
+
+        #expect(artifacts.report.coveredLines == 7)
+        #expect(artifacts.report.executableLines == 9)
+        #expect(artifacts.report.excludedTargets == ["SymphonyServerTests"])
+        #expect(artifacts.report.targets.map(\.name) == ["SymphonyRuntime", "SymphonyServer"])
+        #expect(artifacts.report.targets[0].files?.map(\.path) == [
+            "Sources/SymphonyRuntime/Alpha.swift",
+            "Sources/SymphonyRuntime/Zeta.swift",
+        ])
+        #expect(artifacts.report.targets[1].files?.map(\.path) == ["Sources/SymphonyServer/main.swift"])
+        #expect(artifacts.textOutput.contains("target SymphonyRuntime 80.00% (4/5)"))
+        #expect(artifacts.textOutput.contains("target SymphonyServer 75.00% (3/4)"))
+        #expect(FileManager.default.fileExists(atPath: artifacts.jsonPath.path))
+        #expect(FileManager.default.fileExists(atPath: artifacts.textPath.path))
+
+        let hiddenFilesArtifacts = try reporter.exportServerCoverage(
+            coverageJSONPath: successPath,
+            projectRoot: repoRoot,
+            artifactRoot: directory.appendingPathComponent("artifacts-hidden-files", isDirectory: true),
+            showFiles: false
+        )
+        #expect(hiddenFilesArtifacts.report.targets.allSatisfy { $0.files == nil })
+    }
+}
+
+@Test func swiftPMCoverageReporterHandlesDuplicatePathsInStableSortBranch() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyRuntime"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyServer"), withIntermediateDirectories: true)
+
+        let coveragePath = directory.appendingPathComponent("swiftpm-duplicate-paths.json")
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/SymphonyRuntime/Alpha.swift", "summary": { "lines": { "count": 1, "covered": 1 } } },
+                { "filename": "__REPO__/Sources/SymphonyRuntime/Alpha.swift", "summary": { "lines": { "count": 1, "covered": 0 } } },
+                { "filename": "__REPO__/Sources/SymphonyServer/main.swift", "summary": { "lines": { "count": 1, "covered": 1 } } }
+              ]
+            }
+          ]
+        }
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let artifacts = try SwiftPMCoverageReporter().exportServerCoverage(
+            coverageJSONPath: coveragePath,
+            projectRoot: repoRoot,
+            artifactRoot: directory.appendingPathComponent("artifacts-duplicate-paths", isDirectory: true),
+            showFiles: true
+        )
+
+        #expect(artifacts.report.targets[0].files?.map(\.path) == [
+            "Sources/SymphonyRuntime/Alpha.swift",
+            "Sources/SymphonyRuntime/Alpha.swift",
+        ])
+    }
+}
+
+@Test func swiftPMCoverageReporterAllowsSingleCoveredTargetWhenServerFilesAreMissing() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyRuntime"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources/SymphonyServer"), withIntermediateDirectories: true)
+
+        let coveragePath = directory.appendingPathComponent("swiftpm-runtime-only.json")
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/SymphonyRuntime/BootstrapSupport.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+                { "filename": "__REPO__/Tests/SymphonyServerTests/Foo.swift", "summary": { "lines": { "count": 10, "covered": 10 } } }
+              ]
+            }
+          ]
+        }
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let artifacts = try SwiftPMCoverageReporter().exportServerCoverage(
+            coverageJSONPath: coveragePath,
+            projectRoot: repoRoot,
+            artifactRoot: directory.appendingPathComponent("artifacts-runtime-only", isDirectory: true),
+            showFiles: false
+        )
+
+        #expect(artifacts.report.targets.map(\.name) == ["SymphonyRuntime"])
+        #expect(artifacts.report.targets[0].files == nil)
     }
 }
 

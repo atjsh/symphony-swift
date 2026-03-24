@@ -257,7 +257,7 @@ import Testing
         "xcrun simctl help": StubProcessRunner.success(),
         "xcrun xcresulttool help": StubProcessRunner.success(),
         "which xcrun": StubProcessRunner.success(),
-        "xcodebuild -list -json -project /tmp/repo/SymphonyApps.xcodeproj": StubProcessRunner.success(#"{"project":{"schemes":["Symphony","SymphonyServer"]}}"#),
+        "xcodebuild -list -json -project /tmp/repo/SymphonyApps.xcodeproj": StubProcessRunner.success(#"{"project":{"schemes":["Symphony"]}}"#),
     ])
     let discovery = StubWorkspaceDiscovery(
         workspace: WorkspaceContext(
@@ -283,7 +283,7 @@ import Testing
         "xcrun simctl help": StubProcessRunner.success(),
         "xcrun xcresulttool help": StubProcessRunner.success(),
         "which xcrun": StubProcessRunner.success(),
-        "xcodebuild -list -json -workspace /tmp/repo/Symphony.xcworkspace": StubProcessRunner.success(#"{"workspace":{"schemes":["Symphony","SymphonyServer"]}}"#),
+        "xcodebuild -list -json -workspace /tmp/repo/Symphony.xcworkspace": StubProcessRunner.success(#"{"workspace":{"schemes":["Symphony"]}}"#),
     ])
     let discovery = StubWorkspaceDiscovery(
         workspace: WorkspaceContext(
@@ -392,7 +392,6 @@ import Testing
         #expect(report.issues.contains(where: { $0.code == "missing_simctl" }))
         #expect(report.issues.contains(where: { $0.code == "unwritable_build_state_root" }))
         #expect(report.issues.contains(where: { $0.code == "missing_scheme_symphony" }))
-        #expect(report.issues.contains(where: { $0.code == "missing_scheme_symphonyserver" }))
 
         let quiet = try doctor.render(report: DiagnosticsReport(issues: [], checkedPaths: [repoRoot.path], checkedExecutables: ["swift"]), json: false, quiet: true)
         #expect(quiet == "OK: environment is ready")

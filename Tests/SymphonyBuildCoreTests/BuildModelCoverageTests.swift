@@ -4,8 +4,14 @@ import Testing
 import SymphonyShared
 
 @Test func buildModelsExposeExpectedDefaultsAndComputedValues() throws {
+    #expect(ProductKind.server.defaultBackend == .swiftPM)
+    #expect(ProductKind.client.defaultBackend == .xcode)
     #expect(ProductKind.server.defaultScheme == "SymphonyServer")
     #expect(ProductKind.client.defaultScheme == "Symphony")
+    #expect(ProductKind.server.defaultSwiftPMProduct == "SymphonyServer")
+    #expect(ProductKind.client.defaultSwiftPMProduct == nil)
+    #expect(ProductKind.server.defaultSwiftPMTestFilter == "SymphonyServerTests")
+    #expect(ProductKind.client.defaultSwiftPMTestFilter == nil)
     #expect(ProductKind.server.defaultPlatform == .macos)
     #expect(ProductKind.client.defaultPlatform == .iosSimulator)
 
@@ -32,6 +38,20 @@ import SymphonyShared
     #expect(selector.scheme == "My Fancy Scheme")
     #expect(selector.platform == .macos)
     #expect(selector.runIdentifier == "my-fancy-scheme")
+
+    let defaultSelector = SchemeSelector(product: .server, scheme: nil, platform: nil)
+    #expect(defaultSelector.scheme == "SymphonyServer")
+    #expect(defaultSelector.platform == .macos)
+    #expect(defaultSelector.runIdentifier == "symphonyserver")
+
+    let destinationSelector = DestinationSelector(
+        platform: .iosSimulator,
+        simulatorName: "iPhone 17",
+        simulatorUDID: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+    )
+    #expect(destinationSelector.platform == .iosSimulator)
+    #expect(destinationSelector.simulatorName == "iPhone 17")
+    #expect(destinationSelector.simulatorUDID == "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
 
     let destination = ResolvedDestination(
         platform: .macos,

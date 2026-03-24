@@ -48,6 +48,111 @@ public final class SymphonyBuildTool {
         let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
         let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
         let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .build, runID: selector.runIdentifier)
+        switch selector.product.defaultBackend {
+        case .xcode:
+            return try buildXcode(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        case .swiftPM:
+            return try buildSwiftPM(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        }
+    }
+
+    public func test(_ request: TestCommandRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        let worker = try WorkerScope(id: request.workerID)
+        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
+        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
+        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .test, runID: selector.runIdentifier)
+        switch selector.product.defaultBackend {
+        case .xcode:
+            return try testXcode(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        case .swiftPM:
+            return try testSwiftPM(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        }
+    }
+
+    public func coverage(_ request: CoverageCommandRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        let worker = try WorkerScope(id: request.workerID)
+        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
+        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
+        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .coverage, runID: selector.runIdentifier)
+        switch selector.product.defaultBackend {
+        case .xcode:
+            return try coverageXcode(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        case .swiftPM:
+            return try coverageSwiftPM(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        }
+    }
+
+    public func run(_ request: RunCommandRequest) throws -> String {
+        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
+        let worker = try WorkerScope(id: request.workerID)
+        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
+        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
+        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .run, runID: selector.runIdentifier)
+        switch selector.product.defaultBackend {
+        case .xcode:
+            return try runXcode(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        case .swiftPM:
+            return try runSwiftPM(
+                request: request,
+                workspace: workspace,
+                selector: selector,
+                destination: destination,
+                executionContext: executionContext
+            )
+        }
+    }
+
+    private func buildXcode(
+        request: BuildCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
         let xcodeRequest = XcodeCommandRequest(
             action: request.buildForTesting ? .buildForTesting : .build,
             scheme: selector.scheme,
@@ -95,12 +200,56 @@ public final class SymphonyBuildTool {
         return record.run.summaryPath.path
     }
 
-    public func test(_ request: TestCommandRequest) throws -> String {
-        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let worker = try WorkerScope(id: request.workerID)
-        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
-        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .test, runID: selector.runIdentifier)
+    private func buildSwiftPM(
+        request: BuildCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
+        let productName = "SymphonyServer"
+        let invocation = renderSwiftBuildCommandLine(productName: productName)
+
+        if request.dryRun {
+            return invocation
+        }
+
+        let startedAt = Date()
+        let result = try processRunner.run(
+            command: "swift",
+            arguments: ["build", "--product", productName],
+            environment: [:],
+            currentDirectory: workspace.projectRoot,
+            observation: nil
+        )
+        let endedAt = Date()
+        let record = try artifactManager.recordSwiftPMExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .build,
+            product: request.product,
+            scheme: selector.scheme,
+            destination: destination,
+            invocation: invocation,
+            exitStatus: result.exitStatus,
+            combinedOutput: result.combinedOutput,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+
+        guard result.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(message: "swift build failed.", summaryPath: record.run.summaryPath)
+        }
+        return record.run.summaryPath.path
+    }
+
+    private func testXcode(
+        request: TestCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
         let xcodeRequest = XcodeCommandRequest(
             action: .test,
             scheme: selector.scheme,
@@ -150,12 +299,56 @@ public final class SymphonyBuildTool {
         return record.run.summaryPath.path
     }
 
-    public func coverage(_ request: CoverageCommandRequest) throws -> String {
-        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let worker = try WorkerScope(id: request.workerID)
-        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
-        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .coverage, runID: selector.runIdentifier)
+    private func testSwiftPM(
+        request: TestCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
+        let testFilter = "SymphonyServerTests"
+        let invocation = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: false)
+
+        if request.dryRun {
+            return invocation
+        }
+
+        let startedAt = Date()
+        let result = try processRunner.run(
+            command: "swift",
+            arguments: ["test", "--filter", testFilter],
+            environment: [:],
+            currentDirectory: workspace.projectRoot,
+            observation: nil
+        )
+        let endedAt = Date()
+        let record = try artifactManager.recordSwiftPMExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .test,
+            product: request.product,
+            scheme: selector.scheme,
+            destination: destination,
+            invocation: invocation,
+            exitStatus: result.exitStatus,
+            combinedOutput: result.combinedOutput,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+
+        guard result.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(message: "swift test failed.", summaryPath: record.run.summaryPath)
+        }
+        return record.run.summaryPath.path
+    }
+
+    private func coverageXcode(
+        request: CoverageCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
         let xcodeRequest = XcodeCommandRequest(
             action: .test,
             scheme: selector.scheme,
@@ -238,12 +431,100 @@ public final class SymphonyBuildTool {
         return request.json ? coverageArtifacts.jsonOutput : coverageArtifacts.textOutput
     }
 
-    public func run(_ request: RunCommandRequest) throws -> String {
-        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let worker = try WorkerScope(id: request.workerID)
-        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
-        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .run, runID: selector.runIdentifier)
+    private func coverageSwiftPM(
+        request: CoverageCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
+        let testFilter = "SymphonyServerTests"
+        let coverageCommand = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: true)
+        let coveragePathCommand = SwiftPMCoverageReporter().renderedCoveragePathCommandLine()
+
+        if request.dryRun {
+            return [coverageCommand, coveragePathCommand].joined(separator: "\n")
+        }
+
+        let startedAt = Date()
+        let result = try processRunner.run(
+            command: "swift",
+            arguments: ["test", "--enable-code-coverage", "--filter", testFilter],
+            environment: [:],
+            currentDirectory: workspace.projectRoot,
+            observation: nil
+        )
+
+        var coverageArtifacts: CoverageArtifacts?
+        var coverageAnomalies = [ArtifactAnomaly]()
+        var coveragePathOutput = ""
+        if result.exitStatus == 0 {
+            do {
+                let coveragePathResult = try processRunner.run(
+                    command: "swift",
+                    arguments: ["test", "--show-code-coverage-path"],
+                    environment: [:],
+                    currentDirectory: workspace.projectRoot,
+                    observation: nil
+                )
+                coveragePathOutput = coveragePathResult.combinedOutput
+                guard coveragePathResult.exitStatus == 0 else {
+                    throw SymphonyBuildError(
+                        code: "swiftpm_coverage_path_failed",
+                        message: coveragePathResult.combinedOutput.isEmpty ? "SwiftPM did not return a coverage JSON path." : coveragePathResult.combinedOutput
+                    )
+                }
+
+                let rawPath = coveragePathResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !rawPath.isEmpty else {
+                    throw SymphonyBuildError(code: "missing_swiftpm_coverage_path", message: "SwiftPM returned an empty coverage JSON path.")
+                }
+
+                coverageArtifacts = try SwiftPMCoverageReporter().exportServerCoverage(
+                    coverageJSONPath: URL(fileURLWithPath: rawPath),
+                    projectRoot: workspace.projectRoot,
+                    artifactRoot: executionContext.artifactRoot,
+                    showFiles: request.showFiles
+                )
+            } catch let error as SymphonyBuildError {
+                coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
+            } catch {
+                coverageAnomalies.append(ArtifactAnomaly(code: "coverage_export_failed", message: error.localizedDescription, phase: "coverage"))
+            }
+        }
+
+        let endedAt = Date()
+        let record = try artifactManager.recordSwiftPMExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .coverage,
+            product: request.product,
+            scheme: selector.scheme,
+            destination: destination,
+            invocation: [coverageCommand, coveragePathCommand].joined(separator: "\n"),
+            exitStatus: result.exitStatus == 0 && coverageAnomalies.isEmpty ? 0 : (result.exitStatus == 0 ? 1 : result.exitStatus),
+            combinedOutput: [result.combinedOutput, coveragePathOutput].filter { !$0.isEmpty }.joined(separator: "\n"),
+            startedAt: startedAt,
+            endedAt: endedAt,
+            extraAnomalies: coverageAnomalies
+        )
+
+        guard result.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(message: "swift test with code coverage failed.", summaryPath: record.run.summaryPath)
+        }
+        guard coverageAnomalies.isEmpty, let coverageArtifacts else {
+            throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
+        }
+        return request.json ? coverageArtifacts.jsonOutput : coverageArtifacts.textOutput
+    }
+
+    private func runXcode(
+        request: RunCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
         let xcodeRequest = XcodeCommandRequest(
             action: .build,
             scheme: selector.scheme,
@@ -258,7 +539,7 @@ public final class SymphonyBuildTool {
 
         let endpoint = try endpointOverrideStore.resolve(workspace: workspace, serverURL: request.serverURL, host: request.host, port: request.port)
         let launchConfiguration = LaunchConfiguration(
-            target: request.product == .server ? .server : .client,
+            target: .client,
             scheme: selector.scheme,
             destination: destination,
             endpoint: endpoint,
@@ -266,9 +547,7 @@ public final class SymphonyBuildTool {
         )
 
         if request.dryRun {
-            return try renderRunSequence(
-                workspace: workspace,
-                executionContext: executionContext,
+            return try renderXcodeRunSequence(
                 xcodeRequest: xcodeRequest,
                 configuration: launchConfiguration,
                 productDetails: nil
@@ -291,50 +570,39 @@ public final class SymphonyBuildTool {
         var anomalies = [ArtifactAnomaly]()
 
         if buildResult.exitStatus == 0 {
-            switch request.product {
-            case .server:
-                let details = try productLocator.locateProduct(workspace: workspace, scheme: selector.scheme, destination: destination, derivedDataPath: executionContext.derivedDataPath)
-                resolvedProductDetails = details
-                let executable = executableURL(for: details)
-                let processLog = executionContext.artifactRoot.appendingPathComponent("process-stdout-stderr.txt")
-                let pid = try processRunner.startDetached(
-                    executablePath: executable.path,
-                    arguments: [],
-                    environment: request.environment,
-                    currentDirectory: workspace.projectRoot,
-                    output: processLog
-                )
-                commandOutput.append("launched server pid=\(pid) executable=\(executable.path)")
-            case .client:
-                try simulatorResolver.boot(resolved: destination)
-                let details = try productLocator.locateProduct(workspace: workspace, scheme: selector.scheme, destination: destination, derivedDataPath: executionContext.derivedDataPath)
-                resolvedProductDetails = details
-                guard let bundleIdentifier = details.bundleIdentifier, let simulatorUDID = destination.simulatorUDID else {
-                    throw SymphonyBuildError(code: "missing_launch_metadata", message: "The client launch is missing the simulator destination or product bundle identifier.")
-                }
-                let install = try processRunner.run(
+            try simulatorResolver.boot(resolved: destination)
+            let details = try productLocator.locateProduct(
+                workspace: workspace,
+                scheme: selector.scheme,
+                destination: destination,
+                derivedDataPath: executionContext.derivedDataPath
+            )
+            resolvedProductDetails = details
+            guard let bundleIdentifier = details.bundleIdentifier, let simulatorUDID = destination.simulatorUDID else {
+                throw SymphonyBuildError(code: "missing_launch_metadata", message: "The client launch is missing the simulator destination or product bundle identifier.")
+            }
+            let install = try processRunner.run(
+                command: "xcrun",
+                arguments: ["simctl", "install", simulatorUDID, details.productURL.path],
+                environment: [:],
+                currentDirectory: workspace.projectRoot,
+                observation: ProcessObservation(label: "simctl install")
+            )
+            commandOutput.append(install.combinedOutput)
+            if install.exitStatus != 0 {
+                anomalies.append(ArtifactAnomaly(code: "simulator_install_failed", message: install.combinedOutput.isEmpty ? "Failed to install the app in the simulator." : install.combinedOutput, phase: "launch"))
+            } else {
+                let launchEnvironment = simctlEnvironment(endpoint: endpoint, overrides: request.environment)
+                let launch = try processRunner.run(
                     command: "xcrun",
-                    arguments: ["simctl", "install", simulatorUDID, details.productURL.path],
-                    environment: [:],
+                    arguments: ["simctl", "launch", simulatorUDID, bundleIdentifier],
+                    environment: launchEnvironment,
                     currentDirectory: workspace.projectRoot,
-                    observation: ProcessObservation(label: "simctl install")
+                    observation: ProcessObservation(label: "simctl launch")
                 )
-                commandOutput.append(install.combinedOutput)
-                if install.exitStatus != 0 {
-                    anomalies.append(ArtifactAnomaly(code: "simulator_install_failed", message: install.combinedOutput.isEmpty ? "Failed to install the app in the simulator." : install.combinedOutput, phase: "launch"))
-                } else {
-                    let launchEnvironment = simctlEnvironment(endpoint: endpoint, overrides: request.environment)
-                    let launch = try processRunner.run(
-                        command: "xcrun",
-                        arguments: ["simctl", "launch", simulatorUDID, bundleIdentifier],
-                        environment: launchEnvironment,
-                        currentDirectory: workspace.projectRoot,
-                        observation: ProcessObservation(label: "simctl launch")
-                    )
-                    commandOutput.append(launch.combinedOutput)
-                    if launch.exitStatus != 0 {
-                        anomalies.append(ArtifactAnomaly(code: "simulator_launch_failed", message: launch.combinedOutput.isEmpty ? "Failed to launch the app in the simulator." : launch.combinedOutput, phase: "launch"))
-                    }
+                commandOutput.append(launch.combinedOutput)
+                if launch.exitStatus != 0 {
+                    anomalies.append(ArtifactAnomaly(code: "simulator_launch_failed", message: launch.combinedOutput.isEmpty ? "Failed to launch the app in the simulator." : launch.combinedOutput, phase: "launch"))
                 }
             }
         }
@@ -348,9 +616,7 @@ public final class SymphonyBuildTool {
             product: request.product,
             scheme: selector.scheme,
             destination: destination,
-            invocation: try renderRunSequence(
-                workspace: workspace,
-                executionContext: executionContext,
+            invocation: try renderXcodeRunSequence(
                 xcodeRequest: xcodeRequest,
                 configuration: launchConfiguration,
                 productDetails: resolvedProductDetails
@@ -366,6 +632,87 @@ public final class SymphonyBuildTool {
             throw SymphonyBuildCommandFailure(message: "The run build step failed.", summaryPath: record.run.summaryPath)
         }
         if !anomalies.isEmpty {
+            throw SymphonyBuildCommandFailure(message: "The launch step failed.", summaryPath: record.run.summaryPath)
+        }
+        return record.run.summaryPath.path
+    }
+
+    private func runSwiftPM(
+        request: RunCommandRequest,
+        workspace: WorkspaceContext,
+        selector: SchemeSelector,
+        destination: ResolvedDestination,
+        executionContext: ExecutionContext
+    ) throws -> String {
+        let productName = "SymphonyServer"
+
+        if request.dryRun {
+            return renderSwiftPMRunSequence(productName: productName, binPath: nil)
+        }
+
+        let startedAt = Date()
+        let buildResult = try processRunner.run(
+            command: "swift",
+            arguments: ["build", "--product", productName],
+            environment: [:],
+            currentDirectory: workspace.projectRoot,
+            observation: nil
+        )
+
+        var combinedOutput = [buildResult.combinedOutput].filter { !$0.isEmpty }
+        var executablePath: String?
+        var exitStatus = buildResult.exitStatus
+        if buildResult.exitStatus == 0 {
+            let binPathResult = try processRunner.run(
+                command: "swift",
+                arguments: ["build", "--show-bin-path"],
+                environment: [:],
+                currentDirectory: workspace.projectRoot,
+                observation: nil
+            )
+            if !binPathResult.combinedOutput.isEmpty {
+                combinedOutput.append(binPathResult.combinedOutput)
+            }
+            if binPathResult.exitStatus == 0 {
+                let rawBinPath = binPathResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !rawBinPath.isEmpty {
+                    executablePath = URL(fileURLWithPath: rawBinPath).appendingPathComponent(productName).path
+                    let processLog = executionContext.artifactRoot.appendingPathComponent("process-stdout-stderr.txt")
+                    let pid = try processRunner.startDetached(
+                        executablePath: executablePath!,
+                        arguments: [],
+                        environment: request.environment,
+                        currentDirectory: workspace.projectRoot,
+                        output: processLog
+                    )
+                    combinedOutput.append("launched server pid=\(pid) executable=\(executablePath!)")
+                } else {
+                    exitStatus = 1
+                }
+            } else {
+                exitStatus = binPathResult.exitStatus
+            }
+        }
+
+        let endedAt = Date()
+        let record = try artifactManager.recordSwiftPMExecution(
+            workspace: workspace,
+            executionContext: executionContext,
+            command: .run,
+            product: request.product,
+            scheme: selector.scheme,
+            destination: destination,
+            invocation: renderSwiftPMRunSequence(productName: productName, binPath: executablePath.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }),
+            exitStatus: exitStatus,
+            combinedOutput: combinedOutput.joined(separator: "\n"),
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+
+        guard buildResult.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(message: "The run build step failed.", summaryPath: record.run.summaryPath)
+        }
+        guard exitStatus == 0 else {
             throw SymphonyBuildCommandFailure(message: "The launch step failed.", summaryPath: record.run.summaryPath)
         }
         return record.run.summaryPath.path
@@ -406,89 +753,72 @@ public final class SymphonyBuildTool {
 
     public func simList(currentDirectory: URL) throws -> String {
         _ = try workspaceDiscovery.discover(from: currentDirectory)
-        let devices = try simulatorResolverCatalog().availableDevices()
-        return devices.map { "\($0.name) (\($0.udid))" }.joined(separator: "\n")
+        return try SimctlSimulatorCatalog(processRunner: processRunner).availableDevices().map { "\($0.name) (\($0.udid))" }.joined(separator: "\n")
     }
 
     public func simBoot(_ request: SimBootRequest) throws -> String {
         _ = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: .iosSimulator, simulator: request.simulator))
-        try simulatorResolver.boot(resolved: destination)
+        let destination = try simulatorResolver.resolve(destinationSelector(platform: .iosSimulator, simulator: request.simulator)); try simulatorResolver.boot(resolved: destination)
         return destination.displayName
     }
 
     public func simSetServer(_ request: SimSetServerRequest) throws -> String {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let endpoint = try endpointOverrideStore.resolve(
-            workspace: workspace,
-            serverURL: request.serverURL,
-            scheme: request.scheme,
-            host: request.host,
-            port: request.port
-        )
+        let endpoint = try endpointOverrideStore.resolve(workspace: workspace, serverURL: request.serverURL, scheme: request.scheme, host: request.host, port: request.port)
         let path = try endpointOverrideStore.save(endpoint, in: workspace)
         return path.path
     }
 
     public func simClearServer(currentDirectory: URL) throws -> String {
         let workspace = try workspaceDiscovery.discover(from: currentDirectory)
-        let path = endpointOverrideStore.storeURL(in: workspace)
-        try endpointOverrideStore.clear(in: workspace)
+        let path = endpointOverrideStore.storeURL(in: workspace); try endpointOverrideStore.clear(in: workspace)
         return path.path
     }
 
+    private func renderSwiftBuildCommandLine(productName: String) -> String { ShellQuoting.render(command: "swift", arguments: ["build", "--product", productName]) }
+
+    private func renderSwiftTestCommandLine(filter: String, enableCodeCoverage: Bool) -> String {
+        var arguments = ["test"]; if enableCodeCoverage { arguments.append("--enable-code-coverage") }; arguments += ["--filter", filter]
+        return ShellQuoting.render(command: "swift", arguments: arguments)
+    }
+
+    private func renderSwiftPMRunSequence(productName: String, binPath: String?) -> String {
+        let resolvedBinPath = binPath.map { "\($0)/\(productName)" } ?? "<built-product>/\(productName)"
+        return [renderSwiftBuildCommandLine(productName: productName), ShellQuoting.render(command: "swift", arguments: ["build", "--show-bin-path"]), ShellQuoting.render(command: resolvedBinPath, arguments: [])].joined(separator: "\n")
+    }
+
     private func destinationSelector(platform: PlatformKind, simulator: String?) -> DestinationSelector {
-        if platform == .iosSimulator, let simulator, looksLikeUDID(simulator) {
-            return DestinationSelector(platform: platform, simulatorName: nil, simulatorUDID: simulator)
-        }
+        if platform == .iosSimulator, let simulator, looksLikeUDID(simulator) { return DestinationSelector(platform: platform, simulatorName: nil, simulatorUDID: simulator) }
         return DestinationSelector(platform: platform, simulatorName: simulator, simulatorUDID: nil)
     }
 
-    private func looksLikeUDID(_ value: String) -> Bool {
-        let pattern = /^[A-Fa-f0-9-]{36}$/
-        return value.wholeMatch(of: pattern) != nil
-    }
+    private func looksLikeUDID(_ value: String) -> Bool { value.wholeMatch(of: /^[A-Fa-f0-9-]{36}$/) != nil }
 
-    private func renderRunSequence(
-        workspace: WorkspaceContext,
-        executionContext: ExecutionContext,
+    private func renderXcodeRunSequence(
         xcodeRequest: XcodeCommandRequest,
         configuration: LaunchConfiguration,
         productDetails: ProductDetails?
     ) throws -> String {
         var commands = [try xcodeRequest.renderedCommandLine()]
 
-        switch configuration.target {
-        case .server:
-            let executable = productDetails.map(executableURL(for:))?.path ?? "<built-product>"
-            commands.append(ShellQuoting.render(command: executable, arguments: []))
-        case .client:
-            if let simulatorUDID = configuration.destination.simulatorUDID {
-                commands.append(ShellQuoting.render(command: "xcrun", arguments: ["simctl", "bootstatus", simulatorUDID, "-b"]))
-                if let productDetails, let bundleIdentifier = productDetails.bundleIdentifier {
-                    commands.append(ShellQuoting.render(command: "xcrun", arguments: ["simctl", "install", simulatorUDID, productDetails.productURL.path]))
-                    let launchEnvironment = simctlEnvironment(endpoint: configuration.endpoint, overrides: configuration.environment)
-                    let prefix = launchEnvironment
-                        .sorted(by: { $0.key < $1.key })
-                        .map { "\($0.key)=\(ShellQuoting.quote($0.value))" }
-                        .joined(separator: " ")
-                    let launch = ShellQuoting.render(command: "xcrun", arguments: ["simctl", "launch", simulatorUDID, bundleIdentifier])
-                    commands.append(prefix.isEmpty ? launch : "\(prefix) \(launch)")
-                } else {
-                    commands.append("xcrun simctl install \(simulatorUDID) <app>")
-                    commands.append("xcrun simctl launch \(simulatorUDID) <bundle-id>")
-                }
+        if let simulatorUDID = configuration.destination.simulatorUDID {
+            commands.append(ShellQuoting.render(command: "xcrun", arguments: ["simctl", "bootstatus", simulatorUDID, "-b"]))
+            if let productDetails, let bundleIdentifier = productDetails.bundleIdentifier {
+                commands.append(ShellQuoting.render(command: "xcrun", arguments: ["simctl", "install", simulatorUDID, productDetails.productURL.path]))
+                let launchEnvironment = simctlEnvironment(endpoint: configuration.endpoint, overrides: configuration.environment)
+                let prefix = launchEnvironment
+                    .sorted(by: { $0.key < $1.key })
+                    .map { "\($0.key)=\(ShellQuoting.quote($0.value))" }
+                    .joined(separator: " ")
+                let launch = ShellQuoting.render(command: "xcrun", arguments: ["simctl", "launch", simulatorUDID, bundleIdentifier])
+                commands.append("\(prefix) \(launch)")
+            } else {
+                commands.append("xcrun simctl install \(simulatorUDID) <app>")
+                commands.append("xcrun simctl launch \(simulatorUDID) <bundle-id>")
             }
         }
 
         return commands.joined(separator: "\n")
-    }
-
-    private func executableURL(for details: ProductDetails) -> URL {
-        if let executablePath = details.executablePath {
-            return details.targetBuildDirectory.appendingPathComponent(executablePath)
-        }
-        return details.productURL
     }
 
     private func simctlEnvironment(endpoint: RuntimeEndpoint, overrides: [String: String]) -> [String: String] {
@@ -504,7 +834,4 @@ public final class SymphonyBuildTool {
         return prefixed
     }
 
-    private func simulatorResolverCatalog() -> SimulatorCataloging {
-        SimctlSimulatorCatalog(processRunner: processRunner)
-    }
 }

@@ -9,8 +9,10 @@ let package = Package(
     ],
     products: [
         .library(name: "SymphonyShared", targets: ["SymphonyShared"]),
+        .library(name: "SymphonyRuntime", targets: ["SymphonyRuntime"]),
         .library(name: "SymphonyBuildCore", targets: ["SymphonyBuildCore"]),
         .library(name: "SymphonyBuildCLI", targets: ["SymphonyBuildCLI"]),
+        .executable(name: "SymphonyServer", targets: ["SymphonyServer"]),
         .executable(name: "symphony-build", targets: ["symphony-build"]),
     ],
     dependencies: [
@@ -20,6 +22,10 @@ let package = Package(
         .target(
             name: "SymphonyShared",
             path: "Sources/SymphonyShared"
+        ),
+        .target(
+            name: "SymphonyRuntime",
+            path: "Sources/SymphonyRuntime"
         ),
         .target(
             name: "SymphonyBuildCore",
@@ -35,9 +41,19 @@ let package = Package(
             path: "Sources/SymphonyBuildCLI"
         ),
         .executableTarget(
+            name: "SymphonyServer",
+            dependencies: ["SymphonyRuntime"],
+            path: "Sources/SymphonyServer"
+        ),
+        .executableTarget(
             name: "symphony-build",
             dependencies: ["SymphonyBuildCLI"],
             path: "Sources/symphony-build"
+        ),
+        .testTarget(
+            name: "SymphonyServerTests",
+            dependencies: ["SymphonyRuntime", "SymphonyServer"],
+            path: "Tests/SymphonyServerTests"
         ),
         .testTarget(
             name: "SymphonySharedTests",

@@ -1,5 +1,5 @@
 import Foundation
-import XcodeSupport
+import SymphonyRuntime
 
 @main
 struct SymphonyServerMain {

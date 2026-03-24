@@ -11,26 +11,10 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     DEVELOPMENT_TEAM: ""
+packages:
+  SymphonyPackage:
+    path: .
 targets:
-  XcodeSupport:
-    type: library.static
-    supportedDestinations:
-      - iOS
-      - macOS
-    deploymentTarget:
-      iOS: "18.0"
-      macOS: "15.0"
-    sources:
-      - path: XcodeSupport
-    settings:
-      base:
-        PRODUCT_NAME: XcodeSupport
-        PRODUCT_MODULE_NAME: XcodeSupport
-        GENERATE_INFOPLIST_FILE: YES
-        MACOSX_DEPLOYMENT_TARGET: "15.0"
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-        TARGETED_DEVICE_FAMILY: "1,2"
-
   Symphony:
     type: application
     supportedDestinations:
@@ -42,7 +26,8 @@ targets:
     sources:
       - path: Applications/Symphony
     dependencies:
-      - target: XcodeSupport
+      - package: SymphonyPackage
+        product: SymphonyRuntime
     settings:
       base:
         PRODUCT_NAME: Symphony
@@ -54,21 +39,6 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         TARGETED_DEVICE_FAMILY: "1,2"
 
-  SymphonyServer:
-    type: tool
-    platform: macOS
-    deploymentTarget: "15.0"
-    sources:
-      - path: Applications/SymphonyServer
-    dependencies:
-      - target: XcodeSupport
-    settings:
-      base:
-        PRODUCT_NAME: SymphonyServer
-        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.server
-        GENERATE_INFOPLIST_FILE: YES
-        MACOSX_DEPLOYMENT_TARGET: "15.0"
-
   SymphonyTests:
     type: bundle.unit-test
     supportedDestinations:
@@ -79,7 +49,8 @@ targets:
       - path: Applications/SymphonyTests
     dependencies:
       - target: Symphony
-      - target: XcodeSupport
+      - package: SymphonyPackage
+        product: SymphonyRuntime
     hostApplication: Symphony
     settings:
       base:
@@ -90,40 +61,13 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "15.0"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony"
 
-  SymphonyServerTests:
-    type: bundle.unit-test
-    platform: macOS
-    deploymentTarget: "15.0"
-    sources:
-      - path: Applications/SymphonyServerTests
-    dependencies:
-      - target: XcodeSupport
-    settings:
-      base:
-        PRODUCT_NAME: SymphonyServerTests
-        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.server.tests
-        GENERATE_INFOPLIST_FILE: YES
-        MACOSX_DEPLOYMENT_TARGET: "15.0"
-
 schemes:
   Symphony:
     build:
       targets:
         Symphony: all
-        XcodeSupport: [run, test, profile, analyze, archive]
     test:
       targets:
         - name: SymphonyTests
-    run:
-      config: Debug
-
-  SymphonyServer:
-    build:
-      targets:
-        SymphonyServer: all
-        XcodeSupport: [run, test, profile, analyze, archive]
-    test:
-      targets:
-        - name: SymphonyServerTests
     run:
       config: Debug

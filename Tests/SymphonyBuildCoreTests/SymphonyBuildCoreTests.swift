@@ -705,13 +705,13 @@ import Testing
     let doctor = DoctorService(workspaceDiscovery: discovery, processRunner: runner)
     let report = try doctor.makeReport(from: DoctorCommandRequest(strict: false, json: false, quiet: false, currentDirectory: URL(fileURLWithPath: "/tmp/repo")))
 
-    #expect(report.issues.map { $0.code } == ["missing_scheme_symphonyserver", "missing_xcresulttool"])
+    #expect(report.issues.map { $0.code } == ["missing_xcresulttool"])
 
     let human = try doctor.render(report: report, json: false, quiet: false)
-    #expect(human.contains("ERROR [missing_scheme_symphonyserver]"))
+    #expect(human.contains("ERROR [missing_xcresulttool]"))
 
     let json = try doctor.render(report: report, json: true, quiet: false)
-    #expect(json.contains("\"missing_scheme_symphonyserver\""))
+    #expect(json.contains("\"missing_xcresulttool\""))
 }
 
 @Test func strictDoctorThrowsWhenAnyIssuesExist() throws {
@@ -867,16 +867,15 @@ import Testing
         )
 
         #expect(!buildOutput.contains("\n"))
-        #expect(buildOutput.contains("-workspace "))
-        #expect(buildOutput.contains("Symphony.xcworkspace"))
-        #expect(buildOutput.hasSuffix(" build"))
+        #expect(buildOutput == "swift build --product SymphonyServer")
+        #expect(!buildOutput.contains("xcodebuild"))
         #expect(!testOutput.contains("\n"))
-        #expect(testOutput.hasSuffix(" test"))
+        #expect(testOutput == "swift test --filter SymphonyServerTests")
         #expect(!FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
     }
 }
 
-@Test func coverageDryRunRendersXcodeAndXccovCommandsWithoutSideEffects() throws {
+@Test func coverageDryRunRendersSwiftPMCommandsWithoutSideEffects() throws {
     try withTemporaryRepositoryFixture { repoRoot in
         let tool = makeToolForFixture(repoRoot: repoRoot)
         let output = try tool.coverage(
@@ -899,10 +898,8 @@ import Testing
 
         let lines = output.split(separator: "\n").map(String.init)
         #expect(lines.count == 2)
-        #expect(lines[0].contains("-enableCodeCoverage YES"))
-        #expect(lines[0].hasSuffix(" test"))
-        #expect(lines[1].contains("xcrun xccov view --report --json "))
-        #expect(lines[1].contains("/results/coverage/"))
+        #expect(lines[0] == "swift test --enable-code-coverage --filter SymphonyServerTests")
+        #expect(lines[1] == "swift test --show-code-coverage-path")
         #expect(!FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
     }
 }
@@ -970,7 +967,7 @@ import Testing
     #expect(fileManager.fileExists(atPath: repoRoot.appendingPathComponent("Symphony.xcworkspace/contents.xcworkspacedata").path))
     #expect(fileManager.fileExists(atPath: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/project.pbxproj").path))
     #expect(fileManager.fileExists(atPath: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/xcshareddata/xcschemes/Symphony.xcscheme").path))
-    #expect(fileManager.fileExists(atPath: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/xcshareddata/xcschemes/SymphonyServer.xcscheme").path))
+    #expect(!fileManager.fileExists(atPath: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/xcshareddata/xcschemes/SymphonyServer.xcscheme").path))
 
     let discovery = WorkspaceDiscovery(processRunner: StubProcessRunner(results: [
         "git rev-parse --show-toplevel": StubProcessRunner.success(repoRoot.path + "\n"),

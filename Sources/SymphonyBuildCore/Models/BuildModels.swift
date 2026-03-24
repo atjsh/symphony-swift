@@ -8,9 +8,23 @@ public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
     case run
 }
 
+public enum ProductBackend: String, Codable, CaseIterable, Sendable {
+    case xcode
+    case swiftPM
+}
+
 public enum ProductKind: String, Codable, CaseIterable, Sendable {
     case server
     case client
+
+    public var defaultBackend: ProductBackend {
+        switch self {
+        case .server:
+            return .swiftPM
+        case .client:
+            return .xcode
+        }
+    }
 
     public var defaultScheme: String {
         switch self {
@@ -18,6 +32,24 @@ public enum ProductKind: String, Codable, CaseIterable, Sendable {
             return "SymphonyServer"
         case .client:
             return "Symphony"
+        }
+    }
+
+    public var defaultSwiftPMProduct: String? {
+        switch self {
+        case .server:
+            return "SymphonyServer"
+        case .client:
+            return nil
+        }
+    }
+
+    public var defaultSwiftPMTestFilter: String? {
+        switch self {
+        case .server:
+            return "SymphonyServerTests"
+        case .client:
+            return nil
         }
     }
 

@@ -51,7 +51,7 @@ public struct DoctorService: DoctorServicing {
             }
 
             let schemes = try listSchemes(in: workspace)
-            for scheme in ["Symphony", "SymphonyServer"] {
+            for scheme in ["Symphony"] {
                 if !schemes.contains(scheme) {
                     issues.append(DiagnosticIssue(severity: .error, code: "missing_scheme_\(scheme.lowercased())", message: "Expected scheme '\(scheme)' was not found in the checked-in build definition.", suggestedFix: "Check in the required scheme or regenerate the Xcode project."))
                 }

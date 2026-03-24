@@ -1,5 +1,5 @@
 import XCTest
-@testable import XcodeSupport
+@testable import SymphonyRuntime
 
 final class BootstrapServerRunnerTests: XCTestCase {
     func testStartupStateUsesProvidedLaunchArguments() {

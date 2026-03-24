@@ -144,6 +144,113 @@ public struct ArtifactManager {
         return ArtifactRecord(run: run, anomalies: anomalies)
     }
 
+    public func recordSwiftPMExecution(
+        workspace: WorkspaceContext,
+        executionContext: ExecutionContext,
+        command: BuildCommandFamily,
+        product: ProductKind,
+        scheme: String,
+        destination: ResolvedDestination,
+        invocation: String,
+        exitStatus: Int32,
+        combinedOutput: String,
+        startedAt: Date,
+        endedAt: Date,
+        extraAnomalies: [ArtifactAnomaly] = []
+    ) throws -> ArtifactRecord {
+        try prepareRoots(executionContext: executionContext, command: command)
+
+        let artifactRoot = executionContext.artifactRoot
+        let summaryPath = artifactRoot.appendingPathComponent("summary.txt")
+        let indexPath = artifactRoot.appendingPathComponent("index.json")
+        let summaryJSONPath = artifactRoot.appendingPathComponent("summary.json")
+        let processLogPath = artifactRoot.appendingPathComponent("process-stdout-stderr.txt")
+        let logAliasPath = artifactRoot.appendingPathComponent("log.txt")
+
+        try combinedOutput.write(to: executionContext.logPath, atomically: true, encoding: .utf8)
+        try combinedOutput.write(to: processLogPath, atomically: true, encoding: .utf8)
+        try link(logAliasPath, to: executionContext.logPath)
+        try "{}\n".write(to: summaryJSONPath, atomically: true, encoding: .utf8)
+
+        let anomalies = extraAnomalies + [
+            ArtifactAnomaly(code: "not_applicable_result_bundle", message: "SwiftPM-backed server runs do not produce an xcresult bundle.", phase: "swiftpm"),
+            ArtifactAnomaly(code: "not_applicable_diagnostics", message: "SwiftPM-backed server runs do not export xcresult diagnostics.", phase: "swiftpm"),
+            ArtifactAnomaly(code: "not_applicable_attachments", message: "SwiftPM-backed server runs do not export xcresult attachments.", phase: "swiftpm"),
+            ArtifactAnomaly(code: "not_applicable_recording", message: "SwiftPM-backed server runs do not produce simulator recordings.", phase: "swiftpm"),
+            ArtifactAnomaly(code: "not_applicable_screen_capture", message: "SwiftPM-backed server runs do not produce simulator screenshots.", phase: "swiftpm"),
+            ArtifactAnomaly(code: "not_applicable_ui_tree", message: "SwiftPM-backed server runs do not produce simulator UI trees.", phase: "swiftpm"),
+        ]
+
+        let summaryLines = [
+            "command: \(command.rawValue)",
+            "product: \(product.rawValue)",
+            "scheme: \(scheme)",
+            "destination: \(destination.displayName)",
+            "backend: swiftpm",
+            "started_at: \(DateFormatting.iso8601(startedAt))",
+            "ended_at: \(DateFormatting.iso8601(endedAt))",
+            "exit_code: \(exitStatus)",
+            "invocation: \(invocation)",
+            "log_path: \(executionContext.logPath.path)",
+            "result_bundle_path: <not_applicable>",
+            "artifact_root: \(artifactRoot.path)",
+            anomalies.isEmpty ? "anomalies: none" : "anomalies: \(anomalies.map(\.code).joined(separator: ", "))",
+            "",
+            "stdout_stderr:",
+            combinedOutput.isEmpty ? "<empty>" : combinedOutput,
+        ]
+        try summaryLines.joined(separator: "\n").write(to: summaryPath, atomically: true, encoding: .utf8)
+
+        let createdAt = DateFormatting.iso8601(endedAt)
+        var entries = [ArtifactIndexEntry]()
+        for name in stableInspectionNames {
+            let url = artifactRoot.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: url.path) {
+                entries.append(ArtifactIndexEntry(name: name, relativePath: name, kind: kind(for: url), createdAt: createdAt))
+            } else if let anomaly = anomalies.first(where: { anomalyName($0) == name }) {
+                entries.append(ArtifactIndexEntry(name: name, relativePath: name, kind: "missing", createdAt: createdAt, anomaly: anomaly))
+            }
+        }
+
+        let knownNames = Set(entries.map(\.name))
+        let additionalEntries = try fileManager.contentsOfDirectory(
+            at: artifactRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { !knownNames.contains($0.lastPathComponent) }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        .map { url in
+            ArtifactIndexEntry(
+                name: url.lastPathComponent,
+                relativePath: url.lastPathComponent,
+                kind: kind(for: url),
+                createdAt: createdAt
+            )
+        }
+        entries.append(contentsOf: additionalEntries)
+
+        let index = ArtifactIndex(entries: entries, command: command, runID: executionContext.runID, timestamp: executionContext.timestamp, anomalies: anomalies)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(index).write(to: indexPath)
+
+        try updateLatestLink(
+            familyRoot: workspace.buildStateRoot.appendingPathComponent("artifacts/\(command.rawValue)", isDirectory: true),
+            target: artifactRoot
+        )
+
+        let run = ArtifactRun(
+            command: command,
+            runID: executionContext.runID,
+            timestamp: executionContext.timestamp,
+            artifactRoot: artifactRoot,
+            summaryPath: summaryPath,
+            indexPath: indexPath
+        )
+        return ArtifactRecord(run: run, anomalies: anomalies)
+    }
+
     public func resolveArtifacts(workspace: WorkspaceContext, request: ArtifactsCommandRequest) throws -> String {
         let familyRoot = workspace.buildStateRoot.appendingPathComponent("artifacts/\(request.command.rawValue)", isDirectory: true)
         let resolvedRoot: URL
@@ -292,11 +399,23 @@ public struct ArtifactManager {
         switch anomaly.code {
         case "missing_result_bundle":
             return "result.xcresult"
+        case "not_applicable_result_bundle":
+            return "result.xcresult"
+        case "not_applicable_diagnostics":
+            return "diagnostics"
+        case "not_applicable_attachments":
+            return "attachments"
         case "missing_recording":
+            return "recording.mp4"
+        case "not_applicable_recording":
             return "recording.mp4"
         case "missing_screen_capture":
             return "screen.png"
+        case "not_applicable_screen_capture":
+            return "screen.png"
         case "missing_ui_tree":
+            return "ui-tree.txt"
+        case "not_applicable_ui_tree":
             return "ui-tree.txt"
         default:
             return nil
