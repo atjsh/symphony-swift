@@ -3,11 +3,12 @@
 Status: Draft v2
 
 Purpose: Define Symphony as a Swift-native issue orchestration system made up of a standalone
-`Symphony Server` and a cross-platform `Symphony` SwiftUI client.
+`Symphony Server`, a cross-platform `Symphony` SwiftUI client, and the repository-local
+`SymphonyBuild` build tool.
 
 ## 1. Product Definition
 
-Symphony consists of two required products:
+Symphony consists of three required products:
 
 1. `Symphony Server`
    - A standalone Swift 6.2 server process.
@@ -22,12 +23,22 @@ Symphony consists of two required products:
    - Provides an observability-first operator UI for issue state, run history, agent sessions, and
      live Codex rollout logs.
 
+3. `SymphonyBuild`
+   - A repository-local build system consisting of the operator-facing `symphony-build`
+     executable and the `SymphonyBuildCore` library.
+   - Owns deterministic build, test, run, simulator, artifact, and diagnostics workflows for the
+     Symphony repository.
+   - Remains the canonical source of truth for worker-scoped build paths, local artifact contracts,
+     and developer-facing environment validation.
+
 Important boundaries:
 
 - The UI is not embedded in the server process.
 - GitHub issue orchestration remains the core workflow in this specification version.
 - Authentication is out of scope for v1. Operators connect directly to a trusted server endpoint.
 - The default client endpoint is `http://localhost:8080`.
+- `SymphonyBuild` is repository-specific developer tooling and is not part of the deployed
+  `Symphony Server` or `Symphony` runtime topology.
 
 ## 2. Technology Defaults
 
@@ -41,6 +52,8 @@ This specification targets the following default stack:
 
 The specification describes product behavior and contracts. It does not require a specific Swift
 HTTP framework so long as the HTTP and WebSocket behavior defined here is satisfied.
+
+`SymphonyBuild`-specific defaults, commands, and filesystem contracts are defined in Section 20.
 
 ## 3. Goals and Non-Goals
 
@@ -1131,12 +1144,24 @@ This section defines the minimum validation matrix for conformant implementation
 - trusted localhost connection works without extra setup
 - remote trusted-network connection works when host/domain and port are entered manually
 
+### 17.9 SymphonyBuild
+
+- project and workspace discovery across alternate git worktree directory names
+- worker-scoped derived data, results, logs, and artifact layout
+- deterministic `xcodebuild` request rendering for `build`, `test`, and `run`
+- server-host and client-simulator destination selection rules
+- canonical artifact export names and `latest` alias updates
+- diagnostics reporting for missing toolchain or repository prerequisites
+- local client endpoint injection defaults and override behavior
+
 ## 18. Definition of Done
 
 An implementation is conformant when all of the following are true:
 
 - `Symphony Server` is implemented in Swift 6.2.
 - `Symphony` is implemented in SwiftUI for iOS and macOS.
+- `SymphonyBuild` is implemented as a macOS-only repository-local build tool with the command,
+  artifact, and diagnostics contracts defined in Section 20.
 - GitHub issue orchestration remains server-owned and authoritative.
 - SQLite persists issue, run, session, workspace, and raw event metadata.
 - Raw Codex rollout events survive restart and are replayable by cursor.
@@ -1153,3 +1178,740 @@ An implementation is conformant when all of the following are true:
 - The server may maintain additional indexes or caches, but the raw event body remains canonical.
 - The client should prefer a thin rendering layer over server-owned behavior rather than duplicating
   orchestration rules locally.
+
+## 20. SymphonyBuild
+
+`SymphonyBuild` defines the repository-local build, test, run, simulator, artifact, and
+diagnostics workflow for Symphony development. It is developer tooling, not part of the deployed
+server or client runtime.
+
+### 20.1 Product Definition
+
+SymphonyBuild consists of two required products:
+
+1. `symphony-build`
+   - A macOS-only command-line tool for building, testing, running, inspecting, and validating the
+     Symphony repository and its development environment.
+   - Owns operator-facing workflows for Xcode execution, simulator selection, local runtime launch,
+     artifact inspection, and readiness diagnostics.
+
+2. `SymphonyBuildCore`
+   - A Swift library that defines the command, path layout, artifact, process orchestration,
+     runtime launch, and diagnostics contracts used by the executable.
+   - Remains the canonical source of truth for project discovery, worker scoping, Xcode request
+     construction, result export, simulator environment preparation, and local run configuration.
+
+Important boundaries:
+
+- The tool is repository-specific to Symphony.
+- The checked-in Xcode workspace or project is the authoritative build definition.
+- Artifact production and artifact inspection are first-class product responsibilities.
+- `SymphonyBuild` does not own GitHub issue orchestration, persisted server state, or network API
+  behavior.
+
+### 20.2 Goals and Non-Goals
+
+#### 20.2.1 Goals
+
+- Provide deterministic build, test, and run orchestration for Symphony through the checked-in
+  Xcode workspace or project.
+- Isolate derived data, result bundles, logs, and artifact roots by worker scope so parallel runs
+  do not collide.
+- Produce stable, canonical artifact inspection paths for every Xcode-backed run.
+- Support both local `Symphony Server` workflows on host macOS and `Symphony` client workflows on
+  iOS Simulator or macOS as appropriate.
+- Support simulator lifecycle and local endpoint injection needed for client development against a
+  local server.
+- Verify environment readiness through a first-class diagnostics command.
+- Keep stdout contracts simple and stable enough for both humans and scripts.
+
+#### 20.2.2 Non-Goals
+
+- Generic CI orchestration for arbitrary repositories or products.
+- Cross-platform support beyond macOS.
+- Replacing the checked-in Xcode workspace or project with an alternate build-definition system.
+- Managing production deployment of `Symphony Server`.
+- Operating as a physical-device lab controller.
+- Owning application behavior that belongs to `Symphony Server` or `Symphony`.
+
+### 20.3 System Overview
+
+#### 20.3.1 Main Components
+
+1. `CLI Command Layer`
+   - Parses root commands, validates arguments, applies defaults, and renders dry-run previews.
+
+2. `Workspace and Project Discovery`
+   - Resolves the active Symphony checkout by locating a checked-in Xcode workspace or project
+     rather than assuming a fixed checkout directory name.
+
+3. `Worker Scoping and Path Layout`
+   - Maps worker ids to stable slugs and derives build, result, log, artifact, and runtime paths
+     under `.build/symphony-build`.
+
+4. `Xcode Invocation`
+   - Builds, tests, and prepares launches with explicit destinations, worker-scoped derived data,
+     and deterministic result bundle paths.
+
+5. `Artifact Export and Indexing`
+   - Converts raw logs and result bundles into stable summaries, exported diagnostics, and
+     machine-readable indexes.
+
+6. `Runtime Launch Management`
+   - Launches `Symphony Server` on host macOS and `Symphony` on the selected simulator or host
+     platform for local development workflows.
+
+7. `Simulator Control`
+   - Resolves simulator names or UDIDs, boots simulators, and manages local endpoint injection used
+     by client launches.
+
+8. `Diagnostics`
+   - Checks toolchain availability, destination availability, and repository readiness and renders a
+     severity-sorted report.
+
+#### 20.3.2 Operational Flows
+
+1. `build`
+   - Resolve the project, product, and destination, invoke `xcodebuild`, and export a stable build
+     artifact set.
+
+2. `test`
+   - Resolve the project, product, and destination, invoke the selected Xcode test action, and
+     export a stable test artifact set.
+
+3. `run`
+   - Launch `Symphony Server` on host macOS or build, install, and launch `Symphony` on the
+     selected simulator or host platform.
+
+4. `sim`
+   - Boot or inspect a simulator and manage local server endpoint values used by client launches.
+
+5. `artifacts`
+   - Resolve the canonical `latest` artifact directory for a command family and print its stable
+     inspection contents.
+
+6. `doctor`
+   - Render a report describing toolchain availability and repository-state readiness.
+
+### 20.4 Command Surface
+
+#### 20.4.1 Root Command
+
+Executable: `symphony-build`
+
+Subcommands:
+
+- `build`
+- `test`
+- `run`
+- `sim`
+- `artifacts`
+- `doctor`
+
+Root rules:
+
+- The default subcommand is `build`.
+- The root command does not define a standalone non-subcommand workflow.
+
+#### 20.4.2 Shared Command Rules
+
+Worker scoping:
+
+- `--worker <id>` defines the worker scope for artifacts, derived data, logs, and runtime state.
+- Worker ids are non-negative and resolve to canonical slugs of the form `worker-<id>`.
+- The default worker is `0`, which resolves to `worker-0`.
+
+Dry runs:
+
+- `--dry-run` must not perform side effects.
+- Xcode-backed commands print rendered command lines only.
+- Utility commands print the resolved command sequence or canonical path they would use.
+
+Xcode output modes:
+
+- `filtered` is the default.
+- `filtered` streams timestamped high-signal `xcodebuild` lines and may summarize suppressed
+  low-signal output.
+- `full` streams full timestamped `xcodebuild` output.
+- `quiet` captures output without streaming it during execution.
+
+Product and scheme selection:
+
+- `--product server` defaults to the `SymphonyServer` scheme on host macOS.
+- `--product client` defaults to the `Symphony` scheme on iOS Simulator.
+- `--scheme <scheme>` overrides the default scheme mapping and may target any checked-in scheme.
+
+Destination selection:
+
+- `--platform <macos|ios-simulator>` selects the execution platform when the product supports more
+  than one destination.
+- `--simulator <name-or-udid>` accepts either an exact simulator UDID or a simulator name.
+- Exact-name duplicates are an error and must be rejected with guidance to use a UDID.
+- If no exact-name match exists, fuzzy name containment may be used to resolve a single available
+  simulator.
+- The default simulator target is `iPhone 17`.
+
+#### 20.4.3 `build`
+
+Purpose:
+
+- Prepare Symphony build artifacts through `xcodebuild`.
+
+Default invocation:
+
+- `symphony-build build --product client --simulator "iPhone 17" --worker 0`
+
+Options:
+
+- `--product <server|client>`
+- `--scheme <scheme>`
+- `--platform <macos|ios-simulator>`
+- `--simulator <name-or-udid>`
+- `--worker <id>`
+- `--dry-run`
+- `--build-for-testing`
+- `--xcode-output-mode <filtered|full|quiet>`
+
+Behavior:
+
+- Resolve the destination before invoking Xcode.
+- Invoke `xcodebuild build` by default.
+- Invoke `xcodebuild build-for-testing` when `--build-for-testing` is set.
+- Write result bundles, logs, summaries, indexes, and exported inspection artifacts under the
+  canonical build artifact layout.
+
+Success output contract:
+
+- Print the absolute path to the generated `summary.txt` file.
+
+Dry-run output contract:
+
+- Print exactly one rendered `xcodebuild` invocation.
+
+#### 20.4.4 `test`
+
+Purpose:
+
+- Prepare Symphony test artifacts through `xcodebuild`.
+
+Default invocation:
+
+- `symphony-build test --product client --simulator "iPhone 17" --worker 0`
+
+Options:
+
+- `--product <server|client>`
+- `--scheme <scheme>`
+- `--platform <macos|ios-simulator>`
+- `--simulator <name-or-udid>`
+- `--worker <id>`
+- `--dry-run`
+- `--only-testing <identifier>`
+- `--skip-testing <identifier>`
+- `--xcode-output-mode <filtered|full|quiet>`
+
+Behavior:
+
+- Resolve the destination before invoking Xcode.
+- Invoke `xcodebuild test` by default.
+- Host-macOS test runs are used for server-oriented targets.
+- Simulator-backed test runs are used for client-oriented targets unless `--platform macos` is
+  selected.
+- Write result bundles, logs, summaries, indexes, and exported inspection artifacts under the
+  canonical test artifact layout.
+
+Success output contract:
+
+- Print the absolute path to the generated `summary.txt` file.
+
+Dry-run output contract:
+
+- Print exactly one rendered `xcodebuild` invocation.
+
+#### 20.4.5 `run`
+
+Purpose:
+
+- Launch a local Symphony product for development using the canonical build and artifact layout.
+
+Default invocations:
+
+- `symphony-build run --product server --worker 0`
+- `symphony-build run --product client --simulator "iPhone 17" --worker 0`
+
+Options:
+
+- `--product <server|client>`
+- `--scheme <scheme>`
+- `--platform <macos|ios-simulator>`
+- `--simulator <name-or-udid>`
+- `--worker <id>`
+- `--dry-run`
+- `--server-url <url>`
+- `--host <host>`
+- `--port <port>`
+- repeated `--env KEY=VALUE`
+- `--xcode-output-mode <filtered|full|quiet>`
+
+Behavior:
+
+- `run --product server` builds the selected host-macOS scheme if needed and launches the server on
+  the local host.
+- `run --product client` resolves the destination, boots the simulator if needed, and launches the
+  app using the selected endpoint overrides.
+- `--server-url` is the canonical single-flag endpoint override.
+- `--host` and `--port` provide split endpoint overrides when a full URL is not supplied.
+- Process stdout and stderr must be captured under the canonical run artifact root.
+
+Success output contract:
+
+- Print the absolute path to the generated `summary.txt` file.
+
+Dry-run output contract:
+
+- Print the rendered command sequence that would build and launch the selected product.
+
+#### 20.4.6 `sim`
+
+Purpose:
+
+- Inspect simulator availability, boot a simulator, and manage local client endpoint injection.
+
+Subcommands:
+
+- `list`
+- `boot`
+- `set-server`
+- `clear-server`
+
+Rules:
+
+- `sim list` prints available simulator names and UDIDs.
+- `sim boot` resolves the selected simulator using the shared destination rules and ensures it is
+  booted.
+- `sim set-server` records or injects local endpoint values for future client launches without
+  modifying checked-in defaults.
+- `sim clear-server` removes the same endpoint override state.
+
+#### 20.4.7 `artifacts`
+
+Purpose:
+
+- Print stable inspection paths for the latest or selected run of a command family.
+
+Default invocation:
+
+- `symphony-build artifacts build`
+
+Options:
+
+- positional `<build|test|run>`
+- `--latest`
+- `--run <run-id>`
+
+Behavior:
+
+- Resolve the canonical artifact root for the selected command family.
+- Print the absolute path to the resolved artifact root.
+- Print stable inspection names in a predictable order for script consumption.
+
+#### 20.4.8 `doctor`
+
+Purpose:
+
+- Verify toolchain availability and Symphony repository readiness.
+
+Default invocation:
+
+- `symphony-build doctor`
+
+Options:
+
+- `--strict`
+- `--json`
+- `--quiet`
+
+Behavior:
+
+- Check for the required executables and runtimes.
+- Validate that a checked-in Xcode workspace or project can be found.
+- Validate that expected default schemes and the canonical build state root are usable.
+- Render a severity-sorted report suitable for human and script consumption.
+
+Success output contract:
+
+- Print a complete diagnostics report.
+
+Failure output contract:
+
+- Exit non-zero when required prerequisites are missing.
+- `--strict` may also fail on warnings.
+
+### 20.5 Core Interfaces and Models
+
+#### 20.5.1 Workspace and Execution Context
+
+`WorkspaceContext`
+
+- Role: describe the active Symphony checkout and canonical build-state roots.
+- Fields:
+  - `projectRoot`
+  - `buildStateRoot`
+  - `xcodeWorkspacePath`
+  - `xcodeProjectPath`
+- Required behavior:
+  - discover the active checkout dynamically,
+  - prefer a checked-in workspace over a project when both exist,
+  - reject artifact roots that escape the repository root.
+
+`WorkerScope`
+
+- Role: define one isolated worker namespace.
+- Fields:
+  - `id`
+  - `slug`
+- Required behavior:
+  - derive the stable slug `worker-<id>`,
+  - ensure worker-scoped paths are deterministic.
+
+`ExecutionContext`
+
+- Role: describe the canonical paths for one command execution.
+- Fields:
+  - `worker`
+  - `timestamp`
+  - `artifactRoot`
+  - `derivedDataPath`
+  - `resultBundlePath`
+  - `logPath`
+- Required behavior:
+  - derive paths only from repository root, command family, worker scope, and run identity.
+
+#### 20.5.2 Xcode Execution Types
+
+`XcodeAction`
+
+- Role: describe the requested Xcode action.
+- Cases:
+  - `build`
+  - `buildForTesting`
+  - `test`
+  - `launch`
+
+`SchemeSelector`
+
+- Role: describe the selected scheme source.
+- Fields:
+  - `product`
+  - `scheme`
+  - `platform`
+- Required behavior:
+  - provide deterministic defaults for `server` and `client`,
+  - preserve explicit custom scheme overrides.
+
+`DestinationSelector`
+
+- Role: describe the execution destination.
+- Fields:
+  - `platform`
+  - `simulatorName`
+  - `simulatorUDID`
+- Required behavior:
+  - support host-macOS and iOS-simulator destinations,
+  - reject ambiguous simulator-name matches.
+
+`XcodeCommandRequest`
+
+- Role: describe one rendered Xcode invocation.
+- Fields:
+  - `action`
+  - `scheme`
+  - `destination`
+  - `derivedDataPath`
+  - `resultBundlePath`
+  - `outputMode`
+  - `environment`
+- Required behavior:
+  - preserve the rendered command line used for summary and dry-run output.
+
+`XcodeRunResult`
+
+- Role: report the result of one Xcode-backed action.
+- Fields:
+  - `exitStatus`
+  - `invocation`
+  - `startedAt`
+  - `endedAt`
+  - `resultBundlePath`
+  - `logPath`
+- Required behavior:
+  - preserve canonical paths even on failure,
+  - allow degraded runs to surface partial export anomalies.
+
+#### 20.5.3 Artifact Types
+
+`ArtifactRun`
+
+- Role: describe one stable artifact root.
+- Fields:
+  - `command`
+  - `runId`
+  - `timestamp`
+  - `artifactRoot`
+  - `summaryPath`
+  - `indexPath`
+
+`ArtifactIndexEntry`
+
+- Role: describe one exported inspection entry.
+- Fields:
+  - `name`
+  - `relativePath`
+  - `kind`
+  - `createdAt`
+  - `anomaly`
+
+`ArtifactIndex`
+
+- Role: describe the machine-readable export summary for an artifact root.
+- Fields:
+  - ordered `entries`
+  - `command`
+  - `runId`
+  - `timestamp`
+  - `anomalies`
+
+`ArtifactAnomaly`
+
+- Role: describe a degraded export condition.
+- Fields:
+  - `code`
+  - `message`
+  - `phase`
+
+#### 20.5.4 Runtime Launch Types
+
+`RuntimeTarget`
+
+- Role: describe a local launch target.
+- Cases:
+  - `server`
+  - `client`
+
+`RuntimeEndpoint`
+
+- Role: describe the local server endpoint used by client launches.
+- Fields:
+  - `scheme`
+  - `host`
+  - `port`
+  - derived `url`
+- Required behavior:
+  - default to `http://localhost:8080`,
+  - preserve explicit overrides without mutating checked-in application defaults.
+
+`LaunchConfiguration`
+
+- Role: describe one local launch request.
+- Fields:
+  - `target`
+  - `scheme`
+  - `destination`
+  - `endpoint`
+  - `environment`
+- Required behavior:
+  - produce deterministic host or simulator launch commands,
+  - preserve explicit operator environment overrides.
+
+#### 20.5.5 Diagnostics Types
+
+`DiagnosticIssue`
+
+- Role: describe one readiness finding.
+- Fields:
+  - `severity`
+  - `code`
+  - `message`
+  - `suggestedFix`
+
+`DiagnosticsReport`
+
+- Role: describe the full readiness result.
+- Fields:
+  - ordered `issues`
+  - `checkedPaths`
+  - `checkedExecutables`
+  - derived `isHealthy`
+- Required behavior:
+  - sort findings by severity,
+  - support both human-readable and machine-readable rendering.
+
+### 20.6 Artifact and Filesystem Contracts
+
+#### 20.6.1 Canonical Root and Worker Layout
+
+The canonical build state root is:
+
+- `<project-root>/.build/symphony-build`
+
+The runner-generated artifact layout is the authoritative source of build, test, and local-run
+inspection data.
+
+Required subtrees:
+
+- `derived-data/<worker>`
+- `results/<command>`
+- `logs/<command>`
+- `artifacts/<command>/<timestamp>-<runId>`
+- `artifacts/<command>/latest`
+- `runtime/<worker>`
+
+Run identity rules:
+
+- `timestamp` is the run timestamp string used by the tool for that execution.
+- `runId` is the product-derived or scheme-derived stable id.
+- The stable run directory name is `<timestamp>-<runId>`.
+- The canonical raw result bundle path is `results/<command>/<timestamp>-<runId>.xcresult`.
+- The canonical raw log path is `logs/<command>/<timestamp>-<runId>.log`.
+
+#### 20.6.2 Stable Inspection Surface
+
+Every Xcode-backed artifact root must expose these stable names:
+
+- `log.txt`
+- `result.xcresult`
+- `summary.json`
+- `summary.txt`
+- `index.json`
+- `diagnostics/`
+- `attachments/`
+- `process-stdout-stderr.txt`
+- `recording.mp4`
+- `screen.png`
+- `ui-tree.txt`
+
+Inspection rules:
+
+- These names are the canonical inspection contract even when they are implemented as symlinks to
+  exported content.
+- Consumers should read the stable inspection names rather than internal export names.
+- `artifacts/<command>/latest` must be maintained as a symlink to the most recent artifact root for
+  that command family.
+
+#### 20.6.3 Result Generation Rules
+
+For each Xcode-backed `build`, `test`, or `run` preparation, the tool must:
+
+- create the worker-scoped derived data root if needed,
+- create a result bundle path under `results/<command>/`,
+- create a raw log path under `logs/<command>/`,
+- create a stable artifact root under `artifacts/<command>/<timestamp>-<runId>/`,
+- write `summary.txt`,
+- write `index.json`,
+- update the `latest` alias for that command family.
+
+The `summary.txt` contract must include:
+
+- the selected command,
+- the selected product and scheme,
+- the selected platform or simulator destination,
+- the process exit code,
+- the rendered invocation,
+- the canonical log path,
+- any export anomalies,
+- captured stdout and stderr context when available.
+
+The `index.json` contract must:
+
+- record exported entries in phase order,
+- store stable relative paths,
+- store timestamps,
+- carry anomaly information when a phase completed with degraded output.
+
+#### 20.6.4 XCResult Export Rules
+
+When a result bundle exists, the tool must export and normalize inspection data by:
+
+- retaining the result bundle as `result.xcresult`,
+- exporting `summary.json`,
+- exporting `diagnostics/`,
+- exporting `attachments/`,
+- creating stable aliases for:
+  - `process-stdout-stderr.txt` when a diagnostics log exists,
+  - `recording.mp4` when a screen recording exists,
+  - `screen.png` when a screen image exists,
+  - `ui-tree.txt` when a UI tree export exists.
+
+Failure rules:
+
+- Xcode-backed commands must still attempt to write logs, summary, index data, and available
+  exports before surfacing execution failure.
+- Missing optional exports must be represented as anomalies rather than silently rewriting the
+  inspection contract.
+- Missing result bundles must be recorded explicitly as an anomaly when an Xcode-backed action
+  fails to produce one.
+
+### 20.7 Operational Requirements
+
+#### 20.7.1 Repository Assumptions
+
+The tool assumes the Symphony checkout provides:
+
+- a checked-in Xcode workspace or project for the repository,
+- a scheme for `Symphony`,
+- a scheme for `SymphonyServer`,
+- a writable `.build/` directory under the repository root.
+
+Repository rules:
+
+- The checked-in Xcode workspace or project is the authoritative build definition for build, test,
+  and run operations.
+- Workspace discovery must tolerate alternate git worktree directory names so long as the
+  workspace or project can be found.
+- Repository-state diagnostics must validate the presence of the canonical build definition and
+  writable artifact roots above.
+
+#### 20.7.2 Toolchain and Runtime Requirements
+
+Required executables and runtimes:
+
+- `swift`
+- `xcodebuild`
+- `xcrun`
+- Simulator.app and `simctl`
+- `xcresulttool` via `xcrun xcresulttool`
+
+Runtime rules:
+
+- SymphonyBuild is specified for macOS only.
+- Xcode-backed iOS flows target Simulator destinations.
+- `Symphony Server` run flows target host macOS.
+
+#### 20.7.3 Local Endpoint Injection Contract
+
+The canonical local endpoint override keys are:
+
+- `SYMPHONY_SERVER_SCHEME`
+- `SYMPHONY_SERVER_HOST`
+- `SYMPHONY_SERVER_PORT`
+
+Environment rules:
+
+- `run --product client` and `sim set-server` must support injecting the keys above without
+  modifying checked-in client defaults.
+- `--server-url` may be used as a higher-level shorthand that derives the same structured values.
+- When endpoint overrides are absent, the client remains conformant by defaulting to
+  `http://localhost:8080`.
+
+#### 20.7.4 Destination Resolution Rules
+
+- `client` defaults to the `iPhone 17` simulator unless overridden.
+- `server` defaults to host macOS.
+- Simulator boot should be lazy and only occur for flows that require it.
+- Ambiguous simulator-name matches must fail with a clear remediation message.
+
+#### 20.7.5 Dependency Materialization Rules
+
+- No mandatory external dependency materialization flow is defined for `SymphonyBuild` v1.
+- If future local prerequisites need explicit preparation, they must be surfaced through a
+  first-class `deps` namespace rather than undocumented support scripts.
