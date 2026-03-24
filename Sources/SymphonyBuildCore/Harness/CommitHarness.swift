@@ -4,15 +4,37 @@ public struct CommitHarness {
     private let processRunner: ProcessRunning
     private let coverageReporter: PackageCoverageReporter
     private let statusSink: @Sendable (String) -> Void
+    private let clientCoverageLoader: @Sendable (WorkspaceContext) throws -> CoverageReport
+    private let serverCoverageLoader: @Sendable (WorkspaceContext) throws -> CoverageReport
 
     public init(
         processRunner: ProcessRunning = SystemProcessRunner(),
         coverageReporter: PackageCoverageReporter = PackageCoverageReporter(),
-        statusSink: @escaping @Sendable (String) -> Void = { _ in }
+        statusSink: @escaping @Sendable (String) -> Void = { _ in },
+        clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil,
+        serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil
     ) {
         self.processRunner = processRunner
         self.coverageReporter = coverageReporter
         self.statusSink = statusSink
+        self.clientCoverageLoader = clientCoverageLoader ?? { workspace in
+            try Self.runCoverageSuite(
+                processRunner: processRunner,
+                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+                arguments: ["coverage", "--product", "client", "--platform", "macos", "--json"],
+                currentDirectory: workspace.projectRoot,
+                statusSink: statusSink
+            )
+        }
+        self.serverCoverageLoader = serverCoverageLoader ?? { workspace in
+            try Self.runCoverageSuite(
+                processRunner: processRunner,
+                executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+                arguments: ["coverage", "--product", "server", "--json"],
+                currentDirectory: workspace.projectRoot,
+                statusSink: statusSink
+            )
+        }
     }
 
     public func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws -> HarnessReport {
@@ -55,24 +77,42 @@ public struct CommitHarness {
             at: URL(fileURLWithPath: rawPath),
             projectRoot: workspace.projectRoot
         )
+        let clientCoverageInvocation = ShellQuoting.render(
+            command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+            arguments: ["coverage", "--product", "client", "--platform", "macos", "--json"]
+        )
+        let serverCoverageInvocation = ShellQuoting.render(
+            command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
+            arguments: ["coverage", "--product", "server", "--json"]
+        )
+        let clientCoverage = try clientCoverageLoader(workspace)
+        let serverCoverage = try serverCoverageLoader(workspace)
 
         let report = HarnessReport(
             minimumCoveragePercent: request.minimumCoveragePercent,
             testsInvocation: testsInvocation,
             coveragePathInvocation: coveragePathInvocation,
-            packageCoverage: coverageReport
+            packageCoverage: coverageReport,
+            clientCoverageInvocation: clientCoverageInvocation,
+            clientCoverage: clientCoverage,
+            serverCoverageInvocation: serverCoverageInvocation,
+            serverCoverage: serverCoverage
         )
 
         guard report.meetsCoverageThreshold else {
             throw SymphonyBuildCommandFailure(
                 message: """
-                Commit harness failed because first-party package coverage is below the required threshold.
+                Commit harness failed because one or more required coverage suites are below the required threshold.
                 \(coverageReporter.renderHuman(report: report))
                 """
             )
         }
 
         return report
+    }
+
+    public func renderHuman(report: HarnessReport) -> String {
+        coverageReporter.renderHuman(report: report)
     }
 
     private func forwardingObservation(label: String) -> ProcessObservation {
@@ -89,6 +129,61 @@ public struct CommitHarness {
                 statusSink(trimmed)
             }
         )
+    }
+
+    private static func runCoverageSuite(
+        processRunner: ProcessRunning,
+        executablePath: String,
+        arguments: [String],
+        currentDirectory: URL,
+        statusSink: @escaping @Sendable (String) -> Void
+    ) throws -> CoverageReport {
+        let label = "symphony-build " + arguments.joined(separator: " ")
+        let result = try processRunner.run(
+            command: executablePath,
+            arguments: arguments,
+            environment: [:],
+            currentDirectory: currentDirectory,
+            observation: ProcessObservation(
+                label: label,
+                onStaleSignal: { message in
+                    statusSink(message)
+                },
+                onLine: { stream, line in
+                    guard stream == .stderr else {
+                        return
+                    }
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        return
+                    }
+                    statusSink(trimmed)
+                }
+            )
+        )
+
+        guard result.exitStatus == 0 else {
+            throw SymphonyBuildCommandFailure(
+                message: "Commit harness failed because `\(ShellQuoting.render(command: executablePath, arguments: arguments))` did not pass."
+            )
+        }
+        guard !result.stdout.isEmpty else {
+            throw SymphonyBuildError(code: "missing_bootstrap_coverage_json", message: "The coverage command did not emit JSON output.")
+        }
+
+        do {
+            return try JSONDecoder().decode(CoverageReport.self, from: Data(result.stdout.utf8))
+        } catch {
+            throw SymphonyBuildError(code: "bootstrap_coverage_decode_failed", message: "The coverage command JSON output could not be decoded.")
+        }
+    }
+
+    private static func currentExecutablePath(workingDirectory: URL) -> String {
+        let raw = CommandLine.arguments.first ?? "symphony-build"
+        if raw.hasPrefix("/") {
+            return raw
+        }
+        return URL(fileURLWithPath: raw, relativeTo: workingDirectory).standardizedFileURL.path
     }
 }
 

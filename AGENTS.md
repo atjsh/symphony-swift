@@ -32,8 +32,14 @@ This repository uses a test-first workflow for all changes.
 - The commit harness is the canonical gate for package-level changes:
   - It runs `swift test --enable-code-coverage`.
   - It measures first-party code coverage from SwiftPM’s exported coverage JSON, filtered to tracked files under `Sources/`.
+  - It also runs Xcode-backed coverage passes for the bootstrap client and server products on macOS:
+    - `swift run symphony-build coverage --product client --platform macos --json`
+    - `swift run symphony-build coverage --product server --json`
   - Test files, generated runners, and checked-out dependency sources are excluded from the threshold calculation.
-  - Commits must not proceed if the measured first-party source coverage is below `50.00%`.
+  - Commits must not proceed if any of the following fall below `50.00%`:
+    - first-party SwiftPM source coverage
+    - bootstrap client product coverage
+    - bootstrap server product coverage
   - The current threshold is intentionally lower than the long-term goal; treat regressions below the current floor as hard failures.
 - If the change touches `SymphonyBuildCore`, `SymphonyBuildCLI`, `project.yml`, `Symphony.xcworkspace`, `SymphonyApps.xcodeproj`, or the bootstrap app/server targets, run the dry-run command surface as well:
   - `swift run symphony-build build --product server --dry-run --xcode-output-mode filtered`
@@ -42,7 +48,7 @@ This repository uses a test-first workflow for all changes.
   - `swift run symphony-build coverage --product server --dry-run --xcode-output-mode filtered`
 - If the change touches commit gating, validation plumbing, or agent harness behavior, validate the harness explicitly:
   - `swift run symphony-build harness`
-  - `swift run symphony-build harness --minimum-coverage 100` must fail unless first-party source coverage is already at `100.00%`
+  - `swift run symphony-build harness --minimum-coverage 100` must fail unless every required coverage suite is already at `100.00%`
   - `swift run symphony-build hooks install`
 - If the change touches simulator resolution, destination defaults, runtime endpoint injection, or the client bootstrap target, also validate the client path:
   - `swift run symphony-build build --dry-run`

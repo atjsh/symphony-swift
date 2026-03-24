@@ -68,8 +68,9 @@ public struct PackageCoverageReporter {
         let threshold = String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), report.minimumCoveragePercent)
         var lines = [
             "tests passed",
-            "coverage scope \(report.packageCoverage.scope)",
-            "coverage \(percentage(report.packageCoverage.lineCoverage)) (\(report.packageCoverage.coveredLines)/\(report.packageCoverage.executableLines))",
+            "package coverage \(percentage(report.packageCoverage.lineCoverage)) (\(report.packageCoverage.coveredLines)/\(report.packageCoverage.executableLines))",
+            "client coverage \(percentage(report.clientCoverage.lineCoverage)) (\(report.clientCoverage.coveredLines)/\(report.clientCoverage.executableLines))",
+            "server coverage \(percentage(report.serverCoverage.lineCoverage)) (\(report.serverCoverage.coveredLines)/\(report.serverCoverage.executableLines))",
             "threshold \(threshold)",
             "coverage_json \(report.packageCoverage.coverageJSONPath)",
         ]
@@ -79,6 +80,16 @@ public struct PackageCoverageReporter {
             for file in report.packageCoverage.files.prefix(10) {
                 lines.append("file \(file.path) \(percentage(file.lineCoverage)) (\(file.coveredLines)/\(file.executableLines))")
             }
+        }
+
+        lines.append("client_targets")
+        for target in report.clientCoverage.targets {
+            lines.append("target \(target.name) \(percentage(target.lineCoverage)) (\(target.coveredLines)/\(target.executableLines))")
+        }
+
+        lines.append("server_targets")
+        for target in report.serverCoverage.targets {
+            lines.append("target \(target.name) \(percentage(target.lineCoverage)) (\(target.coveredLines)/\(target.executableLines))")
         }
 
         return lines.joined(separator: "\n")

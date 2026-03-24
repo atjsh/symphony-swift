@@ -399,21 +399,35 @@ public struct HarnessReport: Codable, Hashable, Sendable {
     public let testsInvocation: String
     public let coveragePathInvocation: String
     public let packageCoverage: PackageCoverageReport
+    public let clientCoverageInvocation: String
+    public let clientCoverage: CoverageReport
+    public let serverCoverageInvocation: String
+    public let serverCoverage: CoverageReport
 
     public init(
         minimumCoveragePercent: Double,
         testsInvocation: String,
         coveragePathInvocation: String,
-        packageCoverage: PackageCoverageReport
+        packageCoverage: PackageCoverageReport,
+        clientCoverageInvocation: String,
+        clientCoverage: CoverageReport,
+        serverCoverageInvocation: String,
+        serverCoverage: CoverageReport
     ) {
         self.minimumCoveragePercent = minimumCoveragePercent
         self.testsInvocation = testsInvocation
         self.coveragePathInvocation = coveragePathInvocation
         self.packageCoverage = packageCoverage
+        self.clientCoverageInvocation = clientCoverageInvocation
+        self.clientCoverage = clientCoverage
+        self.serverCoverageInvocation = serverCoverageInvocation
+        self.serverCoverage = serverCoverage
     }
 
     public var meetsCoverageThreshold: Bool {
-        (packageCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent
+        (packageCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent &&
+        (clientCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent &&
+        (serverCoverage.lineCoverage * 100) + 0.000_001 >= minimumCoveragePercent
     }
 }
 

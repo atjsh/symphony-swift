@@ -459,22 +459,71 @@ import Testing
             "swift test --enable-code-coverage": StubProcessRunner.success("tests passed\n"),
             "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
         ])
-        let tool = SymphonyBuildTool(workspaceDiscovery: discovery, processRunner: runner)
+        let passingCoverage = CoverageReport(
+            coveredLines: 60,
+            executableLines: 100,
+            lineCoverage: 0.6,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: [
+                CoverageTargetReport(name: "Symphony.app", buildProductPath: nil, coveredLines: 20, executableLines: 40, lineCoverage: 0.5, files: nil),
+                CoverageTargetReport(name: "libXcodeSupport.a", buildProductPath: nil, coveredLines: 40, executableLines: 60, lineCoverage: 0.6666666667, files: nil),
+            ]
+        )
+        let failingCoverage = CoverageReport(
+            coveredLines: 20,
+            executableLines: 100,
+            lineCoverage: 0.2,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: [
+                CoverageTargetReport(name: "SymphonyServer", buildProductPath: nil, coveredLines: 20, executableLines: 100, lineCoverage: 0.2, files: nil),
+            ]
+        )
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: discovery,
+            processRunner: runner,
+            commitHarness: CommitHarness(
+                processRunner: runner,
+                statusSink: { _ in },
+                clientCoverageLoader: { _ in passingCoverage },
+                serverCoverageLoader: { _ in passingCoverage }
+            )
+        )
 
         let output = try tool.harness(
             HarnessCommandRequest(minimumCoveragePercent: 50, json: false, currentDirectory: repoRoot)
         )
-        #expect(output.contains("coverage 60.00% (60/100)"))
+        #expect(output.contains("package coverage 60.00% (60/100)"))
+        #expect(output.contains("client coverage 60.00% (60/100)"))
+        #expect(output.contains("server coverage 60.00% (60/100)"))
         #expect(output.contains("file Sources/Foo.swift 60.00% (60/100)"))
+        #expect(output.contains("target Symphony.app 50.00% (20/40)"))
+
+        let jsonOutput = try tool.harness(
+            HarnessCommandRequest(minimumCoveragePercent: 50, json: true, currentDirectory: repoRoot)
+        )
+        #expect(jsonOutput.contains("\"clientCoverage\""))
+        #expect(jsonOutput.contains("\"serverCoverage\""))
 
         do {
-            _ = try tool.harness(
+            let failingTool = SymphonyBuildTool(
+                workspaceDiscovery: discovery,
+                processRunner: runner,
+                commitHarness: CommitHarness(
+                    processRunner: runner,
+                    statusSink: { _ in },
+                    clientCoverageLoader: { _ in passingCoverage },
+                    serverCoverageLoader: { _ in failingCoverage }
+                )
+            )
+            _ = try failingTool.harness(
                 HarnessCommandRequest(minimumCoveragePercent: 80, json: false, currentDirectory: repoRoot)
             )
             Issue.record("Expected the harness to fail when coverage is below threshold.")
         } catch let error as SymphonyBuildCommandFailure {
             #expect(error.message.contains("below the required threshold"))
-            #expect(error.message.contains("coverage 60.00% (60/100)"))
+            #expect(error.message.contains("server coverage 20.00% (20/100)"))
         }
     }
 }

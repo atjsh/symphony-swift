@@ -4,5 +4,5 @@ set -eu
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-echo "[symphony-build] pre-commit: running tests and first-party coverage gate" >&2
+echo "[symphony-build] pre-commit: running tests plus package, client, and server coverage gates" >&2
 exec swift run --package-path "$repo_root" symphony-build harness

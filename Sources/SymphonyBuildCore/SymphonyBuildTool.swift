@@ -399,7 +399,7 @@ public final class SymphonyBuildTool {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             return String(decoding: try encoder.encode(report), as: UTF8.self)
         }
-        return PackageCoverageReporter().renderHuman(report: report)
+        return commitHarness.renderHuman(report: report)
     }
 
     public func hooksInstall(_ request: HooksInstallRequest) throws -> String {

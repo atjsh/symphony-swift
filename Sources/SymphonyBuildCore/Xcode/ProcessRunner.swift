@@ -42,7 +42,7 @@ public struct ProcessObservation: Sendable {
     }
 }
 
-public protocol ProcessRunning {
+public protocol ProcessRunning: Sendable {
     func run(
         command: String,
         arguments: [String],
