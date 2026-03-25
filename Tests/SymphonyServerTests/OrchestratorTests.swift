@@ -547,7 +547,7 @@ private func makeIssue(
   #expect(result.dispatched == 1)
   #expect(result.candidatesFetched == 1)
   #expect(delegate.dispatched.count == 1)
-  #expect(delegate.dispatched[0].0 == IssueID("1"))
+  #expect(delegate.dispatched[0].id == IssueID("1"))
 }
 
 @Test func orchestratorTickRespectsSlotLimit() async throws {
@@ -617,11 +617,13 @@ private func makeIssue(
   let delegate = StubOrchestratorDelegate()
   let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
 
-  orchestrator.markRunning(issueID: IssueID("running-1"), state: "In Progress")
-  tracker.setStatesByIDs([IssueID("running-1"): "Done"])
+  let issue = try makeIssue(id: "running-1", state: "In Progress", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setStatesByIDs([IssueID("running-1"): "OPEN"])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
+  #expect(delegate.refreshed.count == 1)
 }
 
 @Test func orchestratorTickReconcileErrorReturnsZero() async throws {
@@ -670,6 +672,145 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 0)
   #expect(result.candidatesFetched == 0)
+}
+
+// MARK: - Reconciliation Delegation Tests
+
+@Test func reconcileCancelsClosedIssue() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "r1", state: "In Progress", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setStatesByIDs([IssueID("r1"): "CLOSED"])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  #expect(delegate.canceled.count == 1)
+  #expect(delegate.canceled[0].0 == IssueID("r1"))
+  #expect(delegate.canceled[0].2 == "Issue closed")
+  #expect(delegate.canceled[0].3 == true)
+  #expect(orchestrator.runningIssueIDs.isEmpty)
+}
+
+@Test func reconcileCancelsTerminalProjectState() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let config = WorkflowConfig(
+    tracker: TrackerConfig(activeStates: ["In Progress"], terminalStates: ["Done"]))
+  let orchestrator = Orchestrator(tracker: tracker, config: config, delegate: delegate)
+
+  let issue = try makeIssue(id: "r2", state: "Done", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setStatesByIDs([IssueID("r2"): "OPEN"])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  #expect(delegate.canceled.count == 1)
+  #expect(delegate.canceled[0].2 == "Terminal project state: Done")
+  #expect(delegate.canceled[0].3 == true)
+  #expect(orchestrator.runningIssueIDs.isEmpty)
+}
+
+@Test func reconcileCancelsNonActiveProjectState() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "r3", state: "Backlog", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setStatesByIDs([IssueID("r3"): "OPEN"])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  #expect(delegate.canceled.count == 1)
+  #expect(delegate.canceled[0].2 == "Non-active project state: Backlog")
+  #expect(delegate.canceled[0].3 == false)
+  #expect(orchestrator.runningIssueIDs.isEmpty)
+}
+
+@Test func reconcileRefreshesActiveIssue() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "r4", state: "In Progress", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setStatesByIDs([IssueID("r4"): "OPEN"])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  #expect(delegate.refreshed.count == 1)
+  #expect(delegate.refreshed[0].id == IssueID("r4"))
+  #expect(orchestrator.runningIssueIDs.contains(IssueID("r4")))
+}
+
+@Test func reconcileSkipsUncachedIssues() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  // Use old markRunning without issue cache
+  orchestrator.markRunning(issueID: IssueID("r5"), state: "In Progress")
+  tracker.setStatesByIDs([IssueID("r5"): "CLOSED"])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  // No delegate action since issue is not cached
+  #expect(delegate.canceled.isEmpty)
+  #expect(delegate.refreshed.isEmpty)
+}
+
+@Test func reconcileMultipleIssuesMixedActions() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let active = try makeIssue(id: "a1", number: 1, state: "In Progress", issueState: "OPEN")
+  let closed = try makeIssue(id: "c1", number: 2, state: "In Progress", issueState: "OPEN")
+  orchestrator.markRunning(issue: active)
+  orchestrator.markRunning(issue: closed)
+  tracker.setStatesByIDs([
+    IssueID("a1"): "OPEN",
+    IssueID("c1"): "CLOSED",
+  ])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 2)
+  #expect(delegate.canceled.count == 1)
+  #expect(delegate.refreshed.count == 1)
+  #expect(orchestrator.runningIssueIDs.count == 1)
+  #expect(orchestrator.runningIssueIDs.contains(IssueID("a1")))
+}
+
+@Test func reconcilerEvaluateWithStateStrings() {
+  let config = TrackerConfig.defaults
+  #expect(
+    Reconciler.evaluate(issueState: "CLOSED", projectState: "In Progress", config: config)
+      == .cancelAndCleanup(reason: "Issue closed"))
+  #expect(
+    Reconciler.evaluate(issueState: "OPEN", projectState: "Done", config: config)
+      == .cancelAndCleanup(reason: "Terminal project state: Done"))
+  #expect(
+    Reconciler.evaluate(issueState: "OPEN", projectState: "Backlog", config: config)
+      == .cancelWithoutCleanup(reason: "Non-active project state: Backlog"))
+  #expect(
+    Reconciler.evaluate(issueState: "OPEN", projectState: "In Progress", config: config)
+      == .refreshSnapshot)
+}
+
+@Test func markRunningWithIssue() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "i1", state: "Todo")
+  orchestrator.markRunning(issue: issue)
+  #expect(orchestrator.runningIssueIDs.contains(IssueID("i1")))
+
+  orchestrator.markCompleted(issueID: IssueID("i1"), state: "Todo")
+  #expect(!orchestrator.runningIssueIDs.contains(IssueID("i1")))
 }
 
 // MARK: - StubTracker Tests
@@ -731,14 +872,13 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
 @Test func stubOrchestratorDelegateRecords() async throws {
   let delegate = StubOrchestratorDelegate()
 
-  await delegate.orchestratorDidDispatch(
-    issueID: IssueID("1"),
-    issueIdentifier: try IssueIdentifier(validating: "org/repo#1")
-  )
+  let dispatchIssue = try makeIssue(id: "1", number: 1)
+  await delegate.orchestratorDidDispatch(issue: dispatchIssue)
   #expect(delegate.dispatched.count == 1)
 
   await delegate.orchestratorDidCancel(
     issueID: IssueID("2"),
+    issueIdentifier: try IssueIdentifier(validating: "org/repo#2"),
     reason: "canceled",
     cleanup: true
   )

@@ -1411,6 +1411,126 @@ import Testing
     manager.recursiveFiles(in: [URL(fileURLWithPath: "/tmp/missing", isDirectory: true)]).isEmpty)
 }
 
+@Test func renderHumanIncludesUncoveredFunctionNamesInViolations() {
+  let reporter = PackageCoverageReporter()
+  let packageReport = PackageCoverageReport(
+    scope: "first_party_sources", coveredLines: 9, executableLines: 10, lineCoverage: 0.9,
+    coverageJSONPath: "/tmp/coverage.json", files: [])
+  let serverCoverage = CoverageReport(
+    coveredLines: 10, executableLines: 10, lineCoverage: 1,
+    includeTestTargets: false, excludedTargets: [], targets: [])
+  let human = reporter.renderHuman(
+    report: HarnessReport(
+      minimumCoveragePercent: 100,
+      testsInvocation: "swift test",
+      coveragePathInvocation: "swift test --show-code-coverage-path",
+      packageCoverage: packageReport,
+      clientCoverageInvocation: nil,
+      clientCoverage: nil,
+      serverCoverageInvocation: "server",
+      serverCoverage: serverCoverage,
+      packageFileViolations: [
+        HarnessCoverageViolation(
+          suite: "package", kind: "file", name: "Sources/Foo.swift",
+          coveredLines: 9, executableLines: 10, lineCoverage: 0.9,
+          uncoveredFunctions: ["reconcile()", "tick()"])
+      ],
+      clientTargetViolations: [],
+      clientFileViolations: [],
+      serverTargetViolations: [],
+      serverFileViolations: []
+    )
+  )
+  #expect(human.contains("package file Sources/Foo.swift 90.00% (9/10)"))
+  #expect(human.contains("  function reconcile()"))
+  #expect(human.contains("  function tick()"))
+}
+
+@Test func renderHumanOmitsFunctionsWhenNilOrEmpty() {
+  let reporter = PackageCoverageReporter()
+  let packageReport = PackageCoverageReport(
+    scope: "first_party_sources", coveredLines: 9, executableLines: 10, lineCoverage: 0.9,
+    coverageJSONPath: "/tmp/coverage.json", files: [])
+  let serverCoverage = CoverageReport(
+    coveredLines: 10, executableLines: 10, lineCoverage: 1,
+    includeTestTargets: false, excludedTargets: [], targets: [])
+  let humanNil = reporter.renderHuman(
+    report: HarnessReport(
+      minimumCoveragePercent: 100,
+      testsInvocation: "swift test",
+      coveragePathInvocation: "swift test --show-code-coverage-path",
+      packageCoverage: packageReport,
+      clientCoverageInvocation: nil,
+      clientCoverage: nil,
+      serverCoverageInvocation: "server",
+      serverCoverage: serverCoverage,
+      packageFileViolations: [
+        HarnessCoverageViolation(
+          suite: "package", kind: "file", name: "Sources/Foo.swift",
+          coveredLines: 9, executableLines: 10, lineCoverage: 0.9)
+      ],
+      clientTargetViolations: [],
+      clientFileViolations: [],
+      serverTargetViolations: [],
+      serverFileViolations: []
+    )
+  )
+  #expect(!humanNil.contains("function"))
+}
+
+@Test func harnessCoverageViolationDecodesWithoutUncoveredFunctions() throws {
+  let json = #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9}"#
+  let data = Data(json.utf8)
+  let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
+  #expect(violation.suite == "package")
+  #expect(violation.uncoveredFunctions == nil)
+}
+
+@Test func harnessCoverageViolationDecodesWithUncoveredFunctions() throws {
+  let json = #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9,"uncoveredFunctions":["bar()"]}"#
+  let data = Data(json.utf8)
+  let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
+  #expect(violation.uncoveredFunctions == ["bar()"])
+}
+
+@Test func enrichViolationsWithFunctionsReturnsEnrichedViolations() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let coveragePath = directory.appendingPathComponent("coverage.json")
+    try "{}".write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let violations = [
+      HarnessCoverageViolation(
+        suite: "package", kind: "file", name: "Sources/Foo/Bar.swift",
+        coveredLines: 9, executableLines: 10, lineCoverage: 0.9)
+    ]
+
+    let resolver = StubToolchainCapabilitiesResolver(
+      capabilities: ToolchainCapabilities(
+        swiftAvailable: true, xcodebuildAvailable: false, xcrunAvailable: false,
+        simctlAvailable: false, xcresulttoolAvailable: false, llvmCovCommand: nil))
+
+    do {
+      _ = try CommitHarness.enrichViolationsWithFunctions(
+        violations: violations,
+        coverageJSONPath: coveragePath,
+        projectRoot: repoRoot,
+        processRunner: StubProcessRunner(),
+        toolchainCapabilitiesResolver: resolver
+      )
+      Issue.record("Expected enrichment to throw when llvm-cov is unavailable.")
+    } catch {
+      // Expected: no llvm-cov available
+    }
+  }
+}
+
 private struct CoverageCommandProcessRunner: ProcessRunning {
   let packageCoveragePath: String
   let coverageResult: CommandResult

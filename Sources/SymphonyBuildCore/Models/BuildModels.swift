@@ -541,6 +541,7 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
   public let coveredLines: Int
   public let executableLines: Int
   public let lineCoverage: Double
+  public let uncoveredFunctions: [String]?
 
   public init(
     suite: String,
@@ -548,7 +549,8 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     name: String,
     coveredLines: Int,
     executableLines: Int,
-    lineCoverage: Double
+    lineCoverage: Double,
+    uncoveredFunctions: [String]? = nil
   ) {
     self.suite = suite
     self.kind = kind
@@ -556,6 +558,22 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     self.coveredLines = coveredLines
     self.executableLines = executableLines
     self.lineCoverage = lineCoverage
+    self.uncoveredFunctions = uncoveredFunctions
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case suite, kind, name, coveredLines, executableLines, lineCoverage, uncoveredFunctions
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    suite = try container.decode(String.self, forKey: .suite)
+    kind = try container.decode(String.self, forKey: .kind)
+    name = try container.decode(String.self, forKey: .name)
+    coveredLines = try container.decode(Int.self, forKey: .coveredLines)
+    executableLines = try container.decode(Int.self, forKey: .executableLines)
+    lineCoverage = try container.decode(Double.self, forKey: .lineCoverage)
+    uncoveredFunctions = try container.decodeIfPresent([String].self, forKey: .uncoveredFunctions)
   }
 }
 

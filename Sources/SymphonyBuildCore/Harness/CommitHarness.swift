@@ -164,8 +164,21 @@ public struct CommitHarness {
     let clientCoverage = clientExecution?.report
     let serverCoverage = serverExecution.report
     let threshold = request.minimumCoveragePercent / 100
-    let packageFileViolations = coverageReporter.makePackageFileViolations(
+    let rawPackageFileViolations = coverageReporter.makePackageFileViolations(
       report: coverageReport, minimumLineCoverage: threshold)
+    let packageFileViolations: [HarnessCoverageViolation]
+    if rawPackageFileViolations.isEmpty {
+      packageFileViolations = rawPackageFileViolations
+    } else {
+      packageFileViolations =
+        (try? Self.enrichViolationsWithFunctions(
+          violations: rawPackageFileViolations,
+          coverageJSONPath: URL(fileURLWithPath: coverageReport.coverageJSONPath),
+          projectRoot: workspace.projectRoot,
+          processRunner: processRunner,
+          toolchainCapabilitiesResolver: toolchainCapabilitiesResolver
+        )) ?? rawPackageFileViolations
+    }
     let clientTargetViolations =
       clientCoverage.map {
         coverageReporter.makeTargetViolations(
@@ -319,6 +332,53 @@ public struct CommitHarness {
       arguments.append(contentsOf: ["--xcode-output-mode", outputMode.rawValue])
     }
     return arguments
+  }
+
+  static func enrichViolationsWithFunctions(
+    violations: [HarnessCoverageViolation],
+    coverageJSONPath: URL,
+    projectRoot: URL,
+    processRunner: ProcessRunning,
+    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
+  ) throws -> [HarnessCoverageViolation] {
+    let llvmCovCommand = try toolchainCapabilitiesResolver.resolve().llvmCovCommand
+    let inspector = SwiftPMCoverageInspector(
+      processRunner: processRunner,
+      llvmCovCommand: llvmCovCommand
+    )
+    let candidates = violations.map { violation in
+      let components = violation.name.split(separator: "/")
+      let targetName = components.count > 2 ? String(components[1]) : "Sources"
+      return CoverageInspectionFileCandidate(
+        targetName: targetName,
+        path: violation.name,
+        coveredLines: violation.coveredLines,
+        executableLines: violation.executableLines,
+        lineCoverage: violation.lineCoverage
+      )
+    }
+    let result = try inspector.inspect(
+      coverageJSONPath: coverageJSONPath,
+      projectRoot: projectRoot,
+      candidates: candidates,
+      includeFunctions: true,
+      includeMissingLines: false
+    )
+    return violations.map { violation in
+      let functions = result.files
+        .first { $0.path == violation.name }?
+        .functions
+        .map(\.name)
+      return HarnessCoverageViolation(
+        suite: violation.suite,
+        kind: violation.kind,
+        name: violation.name,
+        coveredLines: violation.coveredLines,
+        executableLines: violation.executableLines,
+        lineCoverage: violation.lineCoverage,
+        uncoveredFunctions: functions?.isEmpty == false ? functions : nil
+      )
+    }
   }
 }
 

@@ -1023,11 +1023,18 @@ public final class SymphonyBuildTool {
   }
 
   private func compactHarnessFailureMessage(report: HarnessReport, artifactRoot: URL) -> String {
-    let preview = report.violations.prefix(3).map { violation in
+    let preview = report.violations.prefix(3).flatMap { violation -> [String] in
       let percentage = String(
         format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), violation.lineCoverage * 100)
-      return
+      var result = [
         "\(violation.suite) \(violation.kind) \(violation.name) \(percentage) (\(violation.coveredLines)/\(violation.executableLines))"
+      ]
+      if let functions = violation.uncoveredFunctions, !functions.isEmpty {
+        for function in functions {
+          result.append("  function \(function)")
+        }
+      }
+      return result
     }
     let previewLines = preview.isEmpty ? [] : preview
     return

@@ -60,6 +60,106 @@ public struct ProviderSessionMetadata: Equatable, Sendable {
   }
 }
 
+// MARK: - Event Kind Inference
+
+enum EventKindInference {
+  static func infer(from rawJSON: String, provider: ProviderName) -> NormalizedEventKind {
+    guard let data = rawJSON.data(using: .utf8),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return .unknown }
+
+    switch provider {
+    case .codex:
+      return inferCodex(json)
+    case .claudeCode:
+      return inferClaudeCode(json)
+    case .copilotCLI:
+      return inferCopilotCLI(json)
+    }
+  }
+
+  private static func inferCodex(_ json: [String: Any]) -> NormalizedEventKind {
+    guard let type = json["type"] as? String else { return .unknown }
+    switch type {
+    case "message", "text": return .message
+    case "tool_call": return .toolCall
+    case "tool_result": return .toolResult
+    case "status": return .status
+    case "usage": return .usage
+    case "approval_request": return .approvalRequest
+    case "error": return .error
+    default: return .unknown
+    }
+  }
+
+  private static func inferClaudeCode(_ json: [String: Any]) -> NormalizedEventKind {
+    guard let type = json["type"] as? String else { return .unknown }
+    switch type {
+    case "assistant", "text", "message", "result": return .message
+    case "tool_use": return .toolCall
+    case "tool_result": return .toolResult
+    case "system", "status": return .status
+    case "usage": return .usage
+    case "error": return .error
+    default: return .unknown
+    }
+  }
+
+  private static func inferCopilotCLI(_ json: [String: Any]) -> NormalizedEventKind {
+    guard let type = json["type"] as? String ?? json["event"] as? String else { return .unknown }
+    switch type {
+    case "message", "update", "text": return .message
+    case "tool_call": return .toolCall
+    case "tool_result": return .toolResult
+    case "status": return .status
+    case "usage": return .usage
+    case "error": return .error
+    default: return .unknown
+    }
+  }
+}
+
+// MARK: - Session Sequence Counter
+
+final class SessionSequenceCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _value: Int = 0
+
+  func next() -> EventSequence {
+    lock.lock()
+    let current = _value
+    _value += 1
+    lock.unlock()
+    return EventSequence(current)
+  }
+}
+
+// MARK: - Session Store
+
+public final class SessionStore: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _sessions: [SessionID: LaunchedProcess] = [:]
+
+  public init() {}
+
+  public func store(sessionID: SessionID, process: LaunchedProcess) {
+    lock.withLock { _sessions[sessionID] = process }
+  }
+
+  @discardableResult
+  public func remove(sessionID: SessionID) -> LaunchedProcess? {
+    lock.withLock { _sessions.removeValue(forKey: sessionID) }
+  }
+
+  public func process(for sessionID: SessionID) -> LaunchedProcess? {
+    lock.withLock { _sessions[sessionID] }
+  }
+
+  public var count: Int {
+    lock.withLock { _sessions.count }
+  }
+}
+
 // MARK: - Codex Adapter (Section 10.7)
 
 public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
@@ -76,6 +176,7 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
 
   private let config: CodexProviderConfig
   private let processLauncher: ProcessLaunching
+  private let activeSessions = SessionStore()
 
   public init(config: CodexProviderConfig, processLauncher: ProcessLaunching? = nil) {
     self.config = config
@@ -93,6 +194,7 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
+    activeSessions.store(sessionID: sessionID, process: process)
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -104,14 +206,19 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
   }
 
   public func cancelSession(sessionID: SessionID) async throws {
-    // Cancel handled by process termination
+    guard let process = activeSessions.remove(sessionID: sessionID) else {
+      throw ProviderAdapterError.sessionNotFound(sessionID)
+    }
+    process.terminate()
   }
 
   func makeEventStream(
     from process: LaunchedProcess,
     sessionID: SessionID
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
-    AsyncThrowingStream { continuation in
+    let counter = SessionSequenceCounter()
+    let activeSessions = self.activeSessions
+    return AsyncThrowingStream { continuation in
       process.onOutput { data in
         guard
           let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
@@ -119,18 +226,20 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
           !line.isEmpty
         else { return }
 
+        let kind = EventKindInference.infer(from: line, provider: .codex)
         let event = AgentRawEvent(
           sessionID: sessionID,
           provider: "codex",
-          sequence: EventSequence(0),
+          sequence: counter.next(),
           timestamp: ISO8601DateFormatter().string(from: Date()),
           rawJSON: line,
           providerEventType: "codex_event",
-          normalizedEventKind: NormalizedEventKind.message.rawValue
+          normalizedEventKind: kind.rawValue
         )
         continuation.yield(event)
       }
       process.onTermination { exitCode in
+        activeSessions.remove(sessionID: sessionID)
         if exitCode == 0 {
           continuation.finish()
         } else {
@@ -158,6 +267,7 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
 
   private let config: ClaudeCodeProviderConfig
   private let processLauncher: ProcessLaunching
+  private let activeSessions = SessionStore()
 
   public init(config: ClaudeCodeProviderConfig, processLauncher: ProcessLaunching? = nil) {
     self.config = config
@@ -181,6 +291,7 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
+    activeSessions.store(sessionID: sessionID, process: process)
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -188,19 +299,40 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
     sessionID: SessionID,
     guidance: String
   ) async throws -> AsyncThrowingStream<AgentRawEvent, Error> {
-    // Claude Code supports --continue for session continuation
-    throw ProviderAdapterError.unsupportedProvider(.claudeCode)
+    guard let existingProcess = activeSessions.remove(sessionID: sessionID) else {
+      throw ProviderAdapterError.sessionNotFound(sessionID)
+    }
+    existingProcess.terminate()
+
+    var args = config.command
+    args += " -p --output-format stream-json --continue"
+    if let permissionMode = config.permissionMode {
+      args += " --permission-mode \(permissionMode)"
+    }
+
+    let process = try processLauncher.launch(
+      command: args,
+      workspacePath: "/tmp",
+      environment: [:]
+    )
+    activeSessions.store(sessionID: sessionID, process: process)
+    return makeEventStream(from: process, sessionID: sessionID)
   }
 
   public func cancelSession(sessionID: SessionID) async throws {
-    // Cancel handled by process termination
+    guard let process = activeSessions.remove(sessionID: sessionID) else {
+      throw ProviderAdapterError.sessionNotFound(sessionID)
+    }
+    process.terminate()
   }
 
   func makeEventStream(
     from process: LaunchedProcess,
     sessionID: SessionID
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
-    AsyncThrowingStream { continuation in
+    let counter = SessionSequenceCounter()
+    let activeSessions = self.activeSessions
+    return AsyncThrowingStream { continuation in
       process.onOutput { data in
         guard
           let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
@@ -208,18 +340,20 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
           !line.isEmpty
         else { return }
 
+        let kind = EventKindInference.infer(from: line, provider: .claudeCode)
         let event = AgentRawEvent(
           sessionID: sessionID,
           provider: "claude_code",
-          sequence: EventSequence(0),
+          sequence: counter.next(),
           timestamp: ISO8601DateFormatter().string(from: Date()),
           rawJSON: line,
           providerEventType: "stream_json",
-          normalizedEventKind: NormalizedEventKind.message.rawValue
+          normalizedEventKind: kind.rawValue
         )
         continuation.yield(event)
       }
       process.onTermination { exitCode in
+        activeSessions.remove(sessionID: sessionID)
         if exitCode == 0 {
           continuation.finish()
         } else {
@@ -247,6 +381,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
 
   private let config: CopilotCLIProviderConfig
   private let processLauncher: ProcessLaunching
+  private let activeSessions = SessionStore()
 
   public init(config: CopilotCLIProviderConfig, processLauncher: ProcessLaunching? = nil) {
     self.config = config
@@ -264,6 +399,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
+    activeSessions.store(sessionID: sessionID, process: process)
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -275,14 +411,19 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
   }
 
   public func cancelSession(sessionID: SessionID) async throws {
-    // Cancel handled by process termination
+    guard let process = activeSessions.remove(sessionID: sessionID) else {
+      throw ProviderAdapterError.sessionNotFound(sessionID)
+    }
+    process.terminate()
   }
 
   func makeEventStream(
     from process: LaunchedProcess,
     sessionID: SessionID
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
-    AsyncThrowingStream { continuation in
+    let counter = SessionSequenceCounter()
+    let activeSessions = self.activeSessions
+    return AsyncThrowingStream { continuation in
       process.onOutput { data in
         guard
           let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
@@ -290,18 +431,20 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
           !line.isEmpty
         else { return }
 
+        let kind = EventKindInference.infer(from: line, provider: .copilotCLI)
         let event = AgentRawEvent(
           sessionID: sessionID,
           provider: "copilot_cli",
-          sequence: EventSequence(0),
+          sequence: counter.next(),
           timestamp: ISO8601DateFormatter().string(from: Date()),
           rawJSON: line,
           providerEventType: "acp_event",
-          normalizedEventKind: NormalizedEventKind.message.rawValue
+          normalizedEventKind: kind.rawValue
         )
         continuation.yield(event)
       }
       process.onTermination { exitCode in
+        activeSessions.remove(sessionID: sessionID)
         if exitCode == 0 {
           continuation.finish()
         } else {

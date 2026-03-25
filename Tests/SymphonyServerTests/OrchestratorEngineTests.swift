@@ -425,9 +425,15 @@ struct EngineOrchestratorDelegateTests {
     let delegate = EngineOrchestratorDelegate(
       engine: nil, workspaceManager: wsManager, observer: observer)
 
-    await delegate.orchestratorDidDispatch(
-      issueID: IssueID("I_1"),
-      issueIdentifier: try IssueIdentifier(validating: "o/r#1"))
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r", number: 1, title: "Test", description: nil,
+      priority: nil, state: "In Progress", issueState: "OPEN",
+      projectItemID: nil, url: nil, labels: [], blockedBy: [],
+      createdAt: nil, updatedAt: nil
+    )
+    await delegate.orchestratorDidDispatch(issue: issue)
 
     #expect(observer.dispatches.count == 1)
     #expect(observer.dispatches[0].issueID == IssueID("I_1"))
@@ -441,8 +447,11 @@ struct EngineOrchestratorDelegateTests {
       engine: nil, workspaceManager: wsManager, observer: observer)
 
     await delegate.orchestratorDidCancel(
-      issueID: IssueID("I_1"), reason: "closed", cleanup: true)
+      issueID: IssueID("I_1"),
+      issueIdentifier: try IssueIdentifier(validating: "o/r#1"),
+      reason: "closed", cleanup: true)
     // Should not crash even though workspace doesn't exist
+    #expect(observer.completions.count == 1)
   }
 
   @Test func delegateCancelWithoutCleanup() async throws {
@@ -453,11 +462,14 @@ struct EngineOrchestratorDelegateTests {
       engine: nil, workspaceManager: wsManager, observer: observer)
 
     await delegate.orchestratorDidCancel(
-      issueID: IssueID("I_1"), reason: "paused", cleanup: false)
+      issueID: IssueID("I_1"),
+      issueIdentifier: try IssueIdentifier(validating: "o/r#1"),
+      reason: "paused", cleanup: false)
     // No cleanup attempted
+    #expect(observer.completions.count == 1)
   }
 
-  @Test func delegateRefreshSnapshotDoesNotCrash() async throws {
+  @Test func delegateRefreshSnapshotNotifiesObserver() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_refresh_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
@@ -483,9 +495,10 @@ struct EngineOrchestratorDelegateTests {
     )
 
     await delegate.orchestratorDidRefreshSnapshot(issue: issue)
+    #expect(observer.dispatches.count == 1)
   }
 
-  @Test func delegateRetryDoesNotCrash() async throws {
+  @Test func delegateRetryNotifiesObserver() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_retry_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
@@ -501,5 +514,6 @@ struct EngineOrchestratorDelegateTests {
     )
 
     await delegate.orchestratorDidRetry(record: record)
+    #expect(observer.dispatches.count == 1)
   }
 }

@@ -212,26 +212,39 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     self.observer = observer
   }
 
-  func orchestratorDidDispatch(issueID: IssueID, issueIdentifier: IssueIdentifier) async {
+  func orchestratorDidDispatch(issue: Issue) async {
     let runID = RunID(UUID().uuidString)
     let context = RunContext(
-      issueID: issueID, issueIdentifier: issueIdentifier, runID: runID, attempt: 1)
+      issueID: issue.id, issueIdentifier: issue.identifier, runID: runID, attempt: 1)
     await observer.engineDispatchStarted(context)
   }
 
-  func orchestratorDidCancel(issueID: IssueID, reason: String, cleanup: Bool) async {
+  func orchestratorDidCancel(
+    issueID: IssueID, issueIdentifier: IssueIdentifier, reason: String, cleanup: Bool
+  ) async {
     if cleanup {
-      let key = WorkspaceKey(reason)
+      let key = WorkspaceKey(issueIdentifier.rawValue)
       try? workspaceManager.removeWorkspace(for: key, hooks: HooksConfig.defaults)
     }
+    let runID = RunID(UUID().uuidString)
+    let context = RunContext(
+      issueID: issueID, issueIdentifier: issueIdentifier, runID: runID, attempt: 1)
+    await observer.engineRunCompleted(context, success: false)
   }
 
   func orchestratorDidRefreshSnapshot(issue: Issue) async {
-    // Future: update persisted issue snapshot
+    let runID = RunID(UUID().uuidString)
+    let context = RunContext(
+      issueID: issue.id, issueIdentifier: issue.identifier, runID: runID, attempt: 1)
+    await observer.engineDispatchStarted(context)
   }
 
   func orchestratorDidRetry(record: RetryRecord) async {
-    // Future: re-dispatch the issue
+    let runID = RunID(UUID().uuidString)
+    let context = RunContext(
+      issueID: record.issueID, issueIdentifier: record.issueIdentifier,
+      runID: runID, attempt: record.attempt)
+    await observer.engineDispatchStarted(context)
   }
 }
 
