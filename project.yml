@@ -32,6 +32,11 @@ targets:
       base:
         PRODUCT_NAME: Symphony
         PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGNING_REQUIRED: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: D3GFBGHCB7
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Symphony
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools

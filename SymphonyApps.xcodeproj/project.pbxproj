@@ -40,13 +40,13 @@
 		6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupportTests.swift; sourceTree = "<group>"; };
 		706D16BB2EDD06B285EE65B4 /* SymphonyUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyApp.swift; sourceTree = "<group>"; };
-		8A9E81D68C6FE8F10DD38067 /* symphony-swift-ui */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "symphony-swift-ui"; path = .; sourceTree = SOURCE_ROOT; };
 		97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupport.swift; sourceTree = "<group>"; };
 		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D41F51113E5586F70F705846 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D880A8D055B9530E178CE171 /* SymphonyOperatorModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorModelTests.swift; sourceTree = "<group>"; };
 		F381ACE864C406E51967E02E /* SymphonyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyUITests.swift; sourceTree = "<group>"; };
+		FC72EB26FCE346CEC8C6A5F0 /* symphony-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "symphony-swift"; path = .; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,7 +110,7 @@
 		B6D433E99BA0FDDD859BD595 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				8A9E81D68C6FE8F10DD38067 /* symphony-swift-ui */,
+				FC72EB26FCE346CEC8C6A5F0 /* symphony-swift */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -222,7 +222,8 @@
 						DevelopmentTeam = "";
 					};
 					2299CB2884BEEF9AA816D6F8 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = D3GFBGHCB7;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -493,7 +494,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = D3GFBGHCB7;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Symphony;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -546,7 +551,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = D3GFBGHCB7;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Symphony;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";

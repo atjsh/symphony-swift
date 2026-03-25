@@ -1134,12 +1134,12 @@ import Testing
 
     let result = try runner.run(
         command: "sh",
-        arguments: ["-c", "sleep 2"],
+        arguments: ["-c", "sleep 3"],
         environment: [:],
         currentDirectory: nil,
         observation: ProcessObservation(
             label: "test command",
-            staleInterval: 0.2,
+            staleInterval: 0.5,
             onStaleSignal: { message in
                 messages.append(message)
             }

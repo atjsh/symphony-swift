@@ -52,7 +52,7 @@ import SymphonyShared
     }
     defer { allowReturn.signal() }
 
-    try await waitUntil("bootstrap runner enters keepAlive") {
+    try await waitUntil("bootstrap runner enters keepAlive", timeout: .seconds(5)) {
         keepAliveEntered.value
     }
 

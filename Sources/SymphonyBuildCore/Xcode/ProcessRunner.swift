@@ -284,8 +284,10 @@ final class StaleSignalController: @unchecked Sendable {
         self.collector = collector
     }
 
+    private let queue = DispatchQueue(label: "com.symphony.stale-signal")
+
     func start() {
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + observation.staleInterval, repeating: observation.staleInterval)
         timer.setEventHandler { [weak self] in
             self?.signalIfNeeded()

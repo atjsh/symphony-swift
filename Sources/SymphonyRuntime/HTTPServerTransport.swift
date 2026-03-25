@@ -52,7 +52,7 @@ final class SymphonyHTTPServer: @unchecked Sendable {
 
     static func makeWebSocketRouter(
         store: SQLiteServerStateStore,
-        liveLogHub _: LiveLogHub
+        liveLogHub: LiveLogHub
     ) -> Router<BasicWebSocketRequestContext> {
         let router = Router(context: BasicWebSocketRequestContext.self)
 
@@ -69,26 +69,65 @@ final class SymphonyHTTPServer: @unchecked Sendable {
             let initialCursor = cursor(query: context.request.uri.query)
             var lastDeliveredSequence = initialCursor?.lastDeliveredSequence ?? EventSequence(0)
 
-            do {
-                while true {
-                    try Task.checkCancellation()
+            let subscription = await liveLogHub.subscribe(to: sessionID)
 
-                    let pollingCursor = lastDeliveredSequence.rawValue > 0
-                        ? EventCursor(sessionID: sessionID, lastDeliveredSequence: lastDeliveredSequence)
-                        : nil
-                    let page = try store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100)!
+            while true {
+                try Task.checkCancellation()
 
-                    guard !page.items.isEmpty else {
-                        try await Task.sleep(for: .milliseconds(100))
-                        continue
+                let pollingCursor = lastDeliveredSequence.rawValue > 0
+                    ? EventCursor(sessionID: sessionID, lastDeliveredSequence: lastDeliveredSequence)
+                    : nil
+                let page = try store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100)!
+
+                guard !page.items.isEmpty else {
+                    break
+                }
+
+                for event in page.items {
+                    try await outbound.write(.text(String(decoding: try encoder.encode(event), as: UTF8.self)))
+                    lastDeliveredSequence = event.sequence
+                }
+            }
+
+            let (mergedStream, mergedContinuation) = AsyncStream<AgentRawEvent>.makeStream()
+
+            let subscriptionForwarder = Task {
+                for await event in subscription {
+                    mergedContinuation.yield(event)
+                }
+            }
+
+            let backlogEndSequence = lastDeliveredSequence
+            let pollForwarder = Task {
+                var lastPolledSequence = backlogEndSequence
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                    } catch {
+                        break
                     }
-
-                    for event in page.items {
-                        try await outbound.write(.text(String(decoding: try encoder.encode(event), as: UTF8.self)))
-                        lastDeliveredSequence = event.sequence
+                    let pollingCursor = EventCursor(sessionID: sessionID, lastDeliveredSequence: lastPolledSequence)
+                    if let page = try? store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100) {
+                        for event in page.items {
+                            mergedContinuation.yield(event)
+                            lastPolledSequence = event.sequence
+                        }
                     }
                 }
-            } catch is CancellationError {}
+            }
+
+            defer {
+                subscriptionForwarder.cancel()
+                pollForwarder.cancel()
+                mergedContinuation.finish()
+            }
+
+            for await event in mergedStream {
+                try Task.checkCancellation()
+                guard event.sequence > lastDeliveredSequence else { continue }
+                try await outbound.write(.text(String(decoding: try encoder.encode(event), as: UTF8.self)))
+                lastDeliveredSequence = event.sequence
+            }
         }
 
         return router

@@ -181,6 +181,66 @@ import SymphonyShared
     ])
 }
 
+@Test func inProcessWebSocketSubscribesToLiveLogHub() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let serverTask = try launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let websocket = try WebSocketProbe(
+        endpoint: fixture.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: nil
+    )
+    defer { websocket.cancel() }
+
+    _ = try await websocket.nextEvent()
+
+    try await waitUntil("LiveLogHub has a subscriber for the active WebSocket session") {
+        await fixture.liveLogHub.subscriberCount(for: fixture.session.sessionID) > 0
+    }
+}
+
+@Test func pollForwarderDeliversCrossProcessWriteAndDeduplicatesOverlap() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let serverTask = try launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let websocket = try WebSocketProbe(
+        endpoint: fixture.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: nil
+    )
+    defer { websocket.cancel() }
+
+    let firstEvent = try await websocket.nextEvent()
+    #expect(firstEvent == fixture.firstEvent)
+
+    _ = try fixture.store.appendEvent(
+        sessionID: fixture.session.sessionID,
+        provider: fixture.session.provider,
+        timestamp: fixture.secondEvent.timestamp,
+        rawJSON: fixture.secondEvent.rawJSON,
+        providerEventType: fixture.secondEvent.providerEventType,
+        normalizedEventKind: fixture.secondEvent.normalizedEventKind
+    )
+    let secondEvent = try await websocket.nextEvent()
+    #expect(secondEvent == fixture.secondEvent)
+
+    let separateStore = try SQLiteServerStateStore(databaseURL: fixture.databaseURL)
+    _ = try separateStore.appendEvent(
+        sessionID: fixture.session.sessionID,
+        provider: fixture.session.provider,
+        timestamp: "2026-03-24T03:00:03Z",
+        rawJSON: #"{"type":"tool_call","payload":{"name":"ls"}}"#,
+        providerEventType: "tool_call",
+        normalizedEventKind: "tool_call"
+    )
+
+    let thirdEvent = try await websocket.nextEvent(timeout: .seconds(3))
+    #expect(thirdEvent.sequence == EventSequence(3))
+    #expect(thirdEvent.providerEventType == "tool_call")
+}
+
 @Test func liveLogHubPublishesToSubscribersAndRemovesTerminatedStreams() async throws {
     let hub = LiveLogHub()
     let sessionID = SessionID("session-42")
@@ -271,7 +331,7 @@ import SymphonyShared
     }
     defer { appendTask.cancel() }
 
-    let secondEvent = try await websocket.nextEvent()
+    let secondEvent = try await websocket.nextEvent(timeout: .seconds(5))
     let appendedEvent = try await appendTask.value
     #expect(secondEvent == fixture.secondEvent)
     #expect(appendedEvent == fixture.secondEvent)
