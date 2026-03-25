@@ -272,13 +272,14 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
 @Test func builtServerExecutableServesHealthEndpointUntilTerminated() async throws {
   let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
+  let port = try availableLoopbackPort()
 
   let process = Process()
   let output = Pipe()
   process.executableURL = executable
   var environment = ProcessInfo.processInfo.environment
   environment[BootstrapEnvironment.serverHostKey] = "127.0.0.1"
-  environment[BootstrapEnvironment.serverPortKey] = "9556"
+  environment[BootstrapEnvironment.serverPortKey] = String(port)
   process.environment = environment
   process.standardOutput = output
   process.standardError = output
@@ -290,7 +291,7 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
     }
   }
 
-  let url = try #require(URL(string: "http://127.0.0.1:9556/api/v1/health"))
+  let url = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/health"))
   let session = URLSession(configuration: .ephemeral)
   var responseData: Data?
 

@@ -929,7 +929,7 @@ extension SQLiteServerStateStore {
     private func bindValueOnFinalizedStatementProbe() throws {
       let statement = try store.prepare("SELECT ?;")
       defer { sqlite3_finalize(statement) }
-      try store.bind([.text("value"), .text("overflow")], to: statement)
+      return try store.bind([.text("value"), .text("overflow")], to: statement)
     }
 
     private func unexpectedAutoclosureProbe() throws -> Int { throw ProbeError.rowFailure }

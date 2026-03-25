@@ -638,6 +638,40 @@ private func makeIssue(
   #expect(result.candidatesFetched == 0)
 }
 
+private struct ReconcileOnlyErrorTracker: TrackerAdapting {
+  func fetchCandidateIssues() async throws -> [SymphonyShared.Issue] { [] }
+  func fetchIssuesByStates(_ stateNames: [String]) async throws -> [SymphonyShared.Issue] { [] }
+  func fetchIssueStatesByIDs(_ issueIDs: [IssueID]) async throws -> [IssueID: String] {
+    throw OrchestratorError.noTrackerConfigured
+  }
+}
+
+@Test func orchestratorTickReconcileErrorStillReturnsCandidates() async throws {
+  let tracker = ReconcileOnlyErrorTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  orchestrator.markRunning(issueID: IssueID("running-1"), state: "In Progress")
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 0)
+  #expect(result.candidatesFetched == 0)
+  #expect(result.dispatched == 0)
+}
+
+@Test func orchestratorTickReconciliationWithNoReturnedStates() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  orchestrator.markRunning(issueID: IssueID("running-1"), state: "In Progress")
+  tracker.setStatesByIDs([:])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 0)
+  #expect(result.candidatesFetched == 0)
+}
+
 // MARK: - StubTracker Tests
 
 @Test func stubTrackerSetAndFetch() async throws {
