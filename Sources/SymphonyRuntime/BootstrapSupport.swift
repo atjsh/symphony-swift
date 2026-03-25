@@ -164,6 +164,24 @@ public enum BootstrapEnvironment {
 
     return WorkflowParser.discover(workingDirectory: workingDirectory)
   }
+
+  public static func requiredWorkflowURL(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    workingDirectory: String = FileManager.default.currentDirectoryPath
+  ) throws -> URL {
+    if let workflowURL = effectiveWorkflowURL(
+      environment: environment,
+      workingDirectory: workingDirectory
+    ) {
+      return workflowURL
+    }
+
+    throw WorkflowConfigError.missingWorkflowFile(
+      URL(fileURLWithPath: workingDirectory)
+        .appendingPathComponent("WORKFLOW.md", isDirectory: false)
+        .path
+    )
+  }
 }
 
 public protocol BootstrapEngineRunning: Sendable {
@@ -363,6 +381,7 @@ public enum BootstrapServerRunner {
   public static func run(
     componentName: String = "SymphonyServer",
     environment: [String: String] = ProcessInfo.processInfo.environment,
+    workingDirectory: String = FileManager.default.currentDirectoryPath,
     processIdentifier: Int32 = getpid(),
     launchArguments: [String] = ProcessInfo.processInfo.arguments,
     startedAt: Date = Date(),
@@ -401,13 +420,26 @@ public enum BootstrapServerRunner {
         eventObserver: makeEventObserver(liveLogHub: liveLogHub)
       )
 
-      if shouldStartOrchestrator,
-        let workflowURL = BootstrapEnvironment.effectiveWorkflowURL(environment: environment)
-      {
-        let workflow = try workflowLoader(workflowURL)
-        let engine = try engineFactory(workflow, environment, store)
-        try engine.start()
-        orchestratorEngine = engine
+      if shouldStartOrchestrator {
+        let workflowURL: URL?
+        if startOrchestrator == true {
+          workflowURL = try BootstrapEnvironment.requiredWorkflowURL(
+            environment: environment,
+            workingDirectory: workingDirectory
+          )
+        } else {
+          workflowURL = BootstrapEnvironment.effectiveWorkflowURL(
+            environment: environment,
+            workingDirectory: workingDirectory
+          )
+        }
+
+        if let workflowURL {
+          let workflow = try workflowLoader(workflowURL)
+          let engine = try engineFactory(workflow, environment, store)
+          try engine.start()
+          orchestratorEngine = engine
+        }
       }
 
       if startServer {

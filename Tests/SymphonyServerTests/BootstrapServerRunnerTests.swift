@@ -250,6 +250,26 @@ import Testing
   }
 }
 
+@Test func bootstrapServerRunnerRequiresWorkflowWhenStartingOrchestrator() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-missing-workflow.sqlite3")
+  let expectedWorkflowPath = root.resolvingSymlinksInPath().appendingPathComponent("WORKFLOW.md")
+    .path
+
+  #expect(throws: WorkflowConfigError.missingWorkflowFile(expectedWorkflowPath)) {
+    try BootstrapServerRunner.run(
+      environment: [
+        BootstrapEnvironment.serverSQLitePathKey: databaseURL.path
+      ],
+      workingDirectory: root.path,
+      output: { _ in },
+      keepAlive: {},
+      startServer: false,
+      startOrchestrator: true
+    )
+  }
+}
+
 @Test func bootstrapTrackerFactoryBuildsGitHubTrackerAdapter() throws {
   let factory = BootstrapTrackerFactory(environment: ["GITHUB_TOKEN": "test-token"])
   let tracker = try factory.make(
