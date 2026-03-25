@@ -12,7 +12,7 @@ Symphony consists of three required products:
 
 1. `Symphony Server`
    - A standalone Swift 6.2 server process.
-   - Owns GitHub issue polling, orchestration state, workspace lifecycle, Codex integration,
+   - Owns GitHub issue polling, orchestration state, workspace lifecycle, provider integration,
      persistence, and network APIs.
    - Remains the single authoritative runtime for dispatch, retries, reconciliation, and
      observability data.
@@ -21,7 +21,7 @@ Symphony consists of three required products:
    - A SwiftUI client that supports iOS and macOS by default.
    - Connects to a `Symphony Server` by host/domain and port.
    - Provides an observability-first operator UI for issue state, run history, agent sessions, and
-     live Codex rollout logs.
+     live provider event logs.
 
 3. `SymphonyBuild`
    - A repository-local build system consisting of the operator-facing `symphony-build`
@@ -62,11 +62,11 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
 - Poll GitHub Projects v2 on a fixed cadence and dispatch eligible issues with bounded concurrency.
 - Keep one authoritative orchestrator state inside `Symphony Server`.
 - Reuse deterministic per-issue workspaces across runs.
-- Run Codex in per-issue workspaces only.
+- Run configured agent providers in per-issue workspaces only.
 - Persist logs and execution metadata so history survives server restarts.
 - Expose a required HTTP/JSON and WebSocket API for the native client.
 - Let the SwiftUI client view current work, replay prior logs, and live-tail active sessions.
-- Preserve raw Codex rollout event fidelity end-to-end.
+- Preserve raw provider-event fidelity end-to-end.
 - Support restart recovery for historical state and observability without requiring active session
   resumption.
 
@@ -76,8 +76,8 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
 - Replacing GitHub issue orchestration with a generic task runner in v1.
 - Embedding orchestration logic in the UI client.
 - Requiring a web dashboard in addition to the native client.
-- Defining a single mandatory Codex sandbox or approval posture for every deployment.
-- Resuming interrupted Codex turns after process restart.
+- Defining a single mandatory provider sandbox, tool, or approval posture for every deployment.
+- Resuming interrupted provider sessions after process restart.
 
 ## 4. System Overview
 
@@ -89,7 +89,7 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
 
 2. `Configuration Layer`
    - Applies defaults and environment indirection.
-   - Validates tracker, workspace, agent, server, and persistence settings.
+   - Validates tracker, workspace, agent, provider, server, and persistence settings.
 
 3. `Issue Tracker Client`
    - Talks to GitHub GraphQL for Projects v2.
@@ -102,13 +102,13 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
    - Maps issue identifiers to deterministic filesystem workspaces.
    - Enforces root containment and hook execution.
 
-6. `Codex Runner`
-   - Starts Codex app-server sessions in the issue workspace.
-   - Streams raw rollout events back to the server.
+6. `Agent Runner`
+   - Starts provider-backed agent sessions in the issue workspace.
+   - Streams raw provider events back to the server.
 
 7. `Persistence Layer`
    - Uses SQLite for durable metadata.
-   - Persists append-only raw rollout events and indexed server state.
+   - Persists append-only raw provider events and indexed server state.
 
 8. `API Layer`
    - Serves required HTTP/JSON endpoints and WebSocket log streams.
@@ -116,14 +116,15 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
 
 9. `Symphony` Client
    - Connects to the server.
-   - Displays issue lists, run details, session details, and a raw-event-aware log viewer.
+   - Displays issue lists, run details, session details, and a provider-aware raw-event log
+     viewer.
 
 ### 4.2 Data Flow
 
 1. `Symphony Server` loads `WORKFLOW.md` and validates config.
 2. The orchestrator polls GitHub for active issues.
 3. Eligible issues are claimed and dispatched into deterministic workspaces.
-4. Codex runs in the workspace and emits rollout events.
+4. The configured provider runs in the workspace and emits raw provider events.
 5. The server persists those events and updates indexed runtime metadata.
 6. The API exposes current state, historical state, and log replay/streaming.
 7. `Symphony` fetches baseline data over HTTP and uses WebSocket for live log tails.
@@ -179,6 +180,9 @@ Fields:
 - `issue_identifier` (string)
 - `attempt` (integer)
 - `status` (string)
+- `provider` (string)
+- `provider_session_id` (string or null)
+- `provider_run_id` (string or null)
 - `started_at` (timestamp)
 - `ended_at` (timestamp or null)
 - `workspace_path` (string)
@@ -194,8 +198,8 @@ Fields:
 - all `RunSummary` fields
 - `issue` (`Issue`)
 - `turn_count` (integer)
-- `last_codex_event` (string or null)
-- `last_codex_message` (string or null)
+- `last_agent_event_type` (string or null)
+- `last_agent_message` (string or null)
 - `tokens`
   - `input_tokens` (integer)
   - `output_tokens` (integer)
@@ -204,17 +208,20 @@ Fields:
   - `event_count` (integer)
   - `latest_sequence` (integer or null)
 
-### 5.5 CodexSession
+### 5.5 AgentSession
 
-Session metadata tracked while a Codex worker is active and retained after it ends.
+Session metadata tracked while a provider-backed worker is active and retained after it ends.
 
 Fields:
 
 - `session_id` (string)
-- `thread_id` (string)
-- `turn_id` (string)
+- `provider` (string)
+- `provider_session_id` (string or null)
+- `provider_thread_id` (string or null)
+- `provider_turn_id` (string or null)
+- `provider_run_id` (string or null)
 - `run_id` (string)
-- `codex_app_server_pid` (string or null)
+- `provider_process_pid` (string or null)
 - `status` (string)
 - `last_event_type` (string or null)
 - `last_event_at` (timestamp or null)
@@ -223,24 +230,26 @@ Fields:
   - `input_tokens` (integer)
   - `output_tokens` (integer)
   - `total_tokens` (integer)
+- `latest_rate_limit_payload` (string or null)
 
-### 5.6 CodexRolloutEvent
+### 5.6 AgentRawEvent
 
 Canonical persisted and streamed event record.
 
 Fields:
 
 - `session_id` (string)
+- `provider` (string)
 - `sequence` (integer)
 - `timestamp` (timestamp)
 - `raw_json` (string)
-- `top_level_type` (string)
-- `payload_type` (string or null)
+- `provider_event_type` (string)
+- `normalized_event_kind` (string or null)
 
 Notes:
 
 - `raw_json` is the canonical payload.
-- `top_level_type` and `payload_type` are indexed helpers only.
+- `provider_event_type` and `normalized_event_kind` are indexed helpers only.
 - The server must not normalize away, rewrite, or lossy-transform the raw body.
 
 ### 5.7 EventCursor
@@ -274,7 +283,15 @@ Fields:
 - `Run ID`
   - Server-generated unique identifier for one worker attempt.
 - `Session ID`
-  - `<thread_id>-<turn_id>`.
+  - Symphony-generated stable identifier for one provider-backed session.
+- `Provider Session ID`
+  - Provider-defined primary session identifier when available.
+- `Provider Thread ID`
+  - Optional provider-defined thread identifier.
+- `Provider Turn ID`
+  - Optional provider-defined turn identifier.
+- `Provider Run ID`
+  - Optional provider-defined run identifier.
 - `Event Sequence`
   - Server-assigned, strictly increasing per-session sequence number.
 
@@ -313,7 +330,7 @@ Top-level keys:
 - `workspace`
 - `hooks`
 - `agent`
-- `codex`
+- `providers`
 - `server`
 - `storage`
 
@@ -361,12 +378,23 @@ Fields:
 
 Fields:
 
+- `default_provider` (default `codex`)
 - `max_concurrent_agents` (default `10`)
 - `max_turns` (default `20`)
 - `max_retry_backoff_ms` (default `300000`)
 - `max_concurrent_agents_by_state` (default empty map)
 
-#### 6.3.6 `codex`
+#### 6.3.6 `providers`
+
+Provider blocks are keyed by provider name. Supported provider keys for v1:
+
+- `codex`
+- `claude_code`
+- `copilot_cli`
+
+Unknown provider blocks should be ignored for forward compatibility.
+
+##### 6.3.6.1 `providers.codex`
 
 Fields:
 
@@ -374,6 +402,27 @@ Fields:
 - `approval_policy` (implementation-defined Codex value)
 - `thread_sandbox` (implementation-defined Codex value)
 - `turn_sandbox_policy` (implementation-defined Codex value)
+- `turn_timeout_ms` (default `3600000`)
+- `read_timeout_ms` (default `5000`)
+- `stall_timeout_ms` (default `300000`)
+
+##### 6.3.6.2 `providers.claude_code`
+
+Fields:
+
+- `command` (default `claude`)
+- `permission_mode` (implementation-defined Claude Code CLI value)
+- `allowed_tools` (optional list of strings)
+- `disallowed_tools` (optional list of strings)
+- `turn_timeout_ms` (default `3600000`)
+- `read_timeout_ms` (default `5000`)
+- `stall_timeout_ms` (default `300000`)
+
+##### 6.3.6.3 `providers.copilot_cli`
+
+Fields:
+
+- `command` (default `copilot --acp --stdio`)
 - `turn_timeout_ms` (default `3600000`)
 - `read_timeout_ms` (default `5000`)
 - `stall_timeout_ms` (default `300000`)
@@ -433,13 +482,14 @@ Reload applies to:
 - polling cadence
 - issue-state policy
 - workspace hooks
+- default provider selection
 - concurrency settings
-- Codex launch settings
+- provider launch settings
 - future prompt renders
 
 Reload does not require:
 
-- restarting in-flight Codex sessions
+- restarting in-flight provider sessions
 - hot-rebinding server ports
 - mutating historical persisted records
 
@@ -550,7 +600,7 @@ Retry queue records:
 
 ### 8.6 Stall Detection
 
-- Stall timeout uses `codex.stall_timeout_ms`.
+- Stall timeout uses the active provider's `stall_timeout_ms`.
 - When `<= 0`, stall detection is disabled.
 - Stalled sessions are terminated and retried.
 
@@ -569,7 +619,7 @@ Rules:
 
 ### 9.2 Safety Invariants
 
-- Codex must run with `cwd == workspace_path`.
+- The configured provider command must run with `cwd == workspace_path`.
 - `workspace_path` must remain within the configured workspace root.
 - Workspace keys must be sanitized.
 
@@ -595,57 +645,164 @@ Failure semantics:
 - `after_run` failure is logged and ignored.
 - `before_remove` failure is logged and ignored.
 
-## 10. Codex Execution Contract
+## 10. Agent Provider Contracts
 
-### 10.1 Launch Contract
+### 10.1 Core Launch Contract
 
-The server launches Codex using:
+The server launches the configured provider using:
 
-- command: `codex.command`
-- invocation: `bash -lc <codex.command>`
+- provider: `agent.default_provider` unless a future workflow override is defined
+- command: `providers.<provider>.command`
+- invocation: `bash -lc <providers.<provider>.command>`
 - working directory: absolute workspace path
 
-### 10.2 Session Startup
+Provider transports may differ internally, but the Symphony adapter must treat stderr as
+diagnostics only and must never parse stderr as protocol data.
 
-The client side of `Symphony Server` must speak the Codex app-server protocol and issue:
+### 10.2 Core Session Contract
 
-1. `initialize`
-2. `initialized`
-3. `thread/start`
-4. `turn/start`
+The provider adapter inside `Symphony Server` must:
 
-The first turn uses the rendered workflow prompt. Continuation turns reuse the thread and send only
-continuation guidance.
+1. start a provider-backed session for the run
+2. submit the rendered workflow prompt for the first turn
+3. submit continuation guidance for later turns
+4. assign a stable Symphony `session_id`
+5. persist raw provider events in receive order
+6. detect terminal completion, failure, cancellation, timeout, or subprocess exit
 
-### 10.3 Completion Conditions
+If a provider supports native continuation or resume semantics, the adapter should use them.
+Otherwise, the adapter may emulate continuation while preserving Symphony's run/session model.
 
-A turn is terminal on:
+### 10.3 Provider Capability Model
 
-- `turn/completed`
-- `turn/failed`
-- `turn/cancelled`
-- turn timeout
-- subprocess exit
+Each provider adapter must document or expose these capability flags:
+
+- `supports_resume`
+  - provider can resume a prior provider-backed session
+- `supports_interrupt`
+  - provider can cancel or interrupt in-flight work without killing the whole process
+- `supports_usage_totals`
+  - provider exposes absolute token or usage totals
+- `supports_rate_limits`
+  - provider exposes rate-limit metadata suitable for persistence
+- `supports_explicit_approvals`
+  - provider exposes approval or permission events in a structured way
+- `supports_structured_tool_events`
+  - provider emits machine-readable tool call and tool result events
+- `tool_execution_mode`
+  - one of `provider_managed`, `orchestrator_managed`, or `mixed`
+
+`tool_execution_mode` semantics:
+
+- `provider_managed`
+  - the provider executes tools internally and Symphony observes results
+- `orchestrator_managed`
+  - Symphony executes provider-requested tools and returns outputs
+- `mixed`
+  - some tools or approvals are provider-managed and others require external participation
 
 ### 10.4 Session Metadata Extraction
 
 The server must extract and track:
 
-- `thread_id`
-- `turn_id`
 - `session_id`
+- `provider`
+- `provider_session_id` when available
+- `provider_thread_id` when available
+- `provider_turn_id` when available
+- `provider_run_id` when available
 - token usage totals when available
 - latest rate-limit payload when available
 
-### 10.5 User Input and Tool Calls
+Missing provider metadata is represented as `null` or omission where the API already models the
+field as optional.
 
-Approval, sandbox, and user-input handling are deployment-defined, but must be documented.
+### 10.5 Tool Calls, Approvals, and Input
+
+Approval, sandbox, tool, and user-input handling are provider-specific, but must be documented.
 
 Required behavior:
 
-- Unsupported tool calls must fail without stalling the session.
-- User-input-required flows must not hang indefinitely.
-- The deployment must either resolve them, expose them, or fail the run.
+- Symphony must not stall indefinitely on provider approval or user-input flows.
+- If a provider emits structured tool events, Symphony must persist them and expose them to the UI.
+- If a provider manages tools internally, Symphony observes and records tool activity but does not
+  claim to execute those tools itself.
+- If a provider requires external tool execution in the future, unsupported tools must fail
+  deterministically without deadlocking the session.
+- A deployment must either resolve, expose, or fail user-input-required flows.
+
+### 10.6 Capability Degradation Rules
+
+- Providers that do not expose absolute usage totals may leave usage fields null.
+- Providers that do not expose rate-limit data may omit it entirely.
+- Providers that do not expose structured approvals must still avoid indefinite hangs.
+- Providers that do not support resume are still conformant because restart-time session resumption
+  is not required in v1.
+
+### 10.7 Codex Adapter
+
+Normative target:
+
+- `codex app-server` over stdio
+
+Required adapter behavior:
+
+- speak the Codex app-server protocol and issue:
+  1. `initialize`
+  2. `initialized`
+  3. `thread/start`
+  4. `turn/start`
+- treat `turn/completed`, `turn/failed`, `turn/cancelled`, timeout, or subprocess exit as
+  terminal
+- treat Codex `thread_id` and `turn_id` as provider-specific identifiers
+- persist raw Codex app-server notifications and rollout events as provider events
+
+Codex-specific notes:
+
+- the wire protocol is JSON-RPC-like but not strict JSON-RPC 2.0
+- Codex may require deployment-defined approval, sandbox, or tool participation
+- `tool_execution_mode` is `mixed`
+
+### 10.8 Claude Code CLI Adapter
+
+Normative target:
+
+- Claude Code CLI non-interactive print mode using structured JSON streaming
+
+Required adapter behavior:
+
+- launch Claude Code CLI in a machine-readable mode such as `-p --output-format stream-json`
+- use the first rendered workflow prompt as the initial request
+- use provider-native continuation via `--continue`, `--resume`, `--session-id`, or equivalent
+  documented session controls when available
+- treat CLI stream JSON records as raw provider events
+- treat built-in Claude Code tools as provider-managed tool execution
+
+Claude-specific notes:
+
+- raw provider events are the CLI's stream-json event records
+- `tool_execution_mode` is `provider_managed`
+- `tmux` is not part of the normative contract; if used at all, it is only an implementation-level
+  supervision mechanism for a local CLI wrapper
+
+### 10.9 Copilot CLI Adapter
+
+Normative target:
+
+- Copilot CLI ACP over stdio
+
+Required adapter behavior:
+
+- initialize the ACP session and start a Copilot session using the provider's documented ACP flow
+- submit prompts through ACP session methods and treat ACP session updates as raw provider events
+- support terminal detection from ACP completion, cancellation, timeout, or subprocess exit
+- persist ACP updates without lossy normalization
+
+Copilot-specific notes:
+
+- raw provider events are ACP notifications and updates
+- `tool_execution_mode` is `provider_managed` unless a future ACP integration externalizes tool
+  execution
 
 ## 11. Persistence and Restart Recovery
 
@@ -661,11 +818,11 @@ The persistence layer must store enough information to reconstruct:
 
 - issues seen by the server
 - run attempts
-- Codex sessions
+- provider-backed agent sessions
 - workspace paths associated with runs
 - retry/error history
 - indexed event metadata
-- append-only raw rollout events
+- append-only raw provider events
 
 Logical tables:
 
@@ -673,21 +830,22 @@ Logical tables:
    - latest normalized issue snapshot per `issue_id`
 2. `runs`
    - one row per worker attempt
-3. `codex_sessions`
-   - one row per Codex session
+3. `agent_sessions`
+   - one row per provider-backed session
 4. `workspaces`
    - issue-to-workspace mapping and lifecycle timestamps
-5. `rollout_events`
+5. `agent_events`
    - one row per persisted raw event with `session_id`, `sequence`, and `raw_json`
 
 Exact SQL names may differ if the schema preserves the same behavior.
 
 ### 11.3 Event Persistence Contract
 
-- Raw Codex rollout events are append-only.
+- Raw provider events are append-only.
 - Every persisted event must have a server-assigned per-session sequence.
 - The raw JSON body must be stored losslessly.
-- The server may additionally index event timestamp, top-level type, and payload type.
+- The server may additionally index event timestamp, provider, provider event type, and normalized
+  event kind.
 - The server may maintain a JSONL export view, but SQLite remains required.
 
 ### 11.4 Restart Recovery
@@ -697,7 +855,7 @@ After server restart:
 - Historical issues, runs, sessions, and logs must remain queryable.
 - Log replay must continue to work using persisted sequences and cursors.
 - In-flight retry timers do not need to survive restart.
-- In-flight Codex sessions do not need to resume.
+- In-flight provider sessions do not need to resume.
 - The orchestrator should recover by:
   - loading persisted historical metadata,
   - re-running startup workspace cleanup,
@@ -711,41 +869,42 @@ Conformant behavior guarantees:
 - no historical event loss after a clean shutdown,
 - historical log availability after restart,
 - stable event ordering for replay,
-- no claim that partially executed Codex work was resumed if it was not.
+- no claim that partially executed provider work was resumed if it was not.
 
-## 12. Raw Codex Log Contract
+## 12. Raw Provider Event Contract
 
 ### 12.1 Canonical Format
 
-The canonical stored and streamed observability format is the raw Codex rollout JSON event.
+The canonical stored and streamed observability format is the raw provider event.
 
-The server may attach transport metadata such as `session_id` and `sequence`, but the event body is
-the raw Codex payload.
+The server may attach transport metadata such as `session_id`, `provider`, and `sequence`, but the
+event body is the raw provider payload.
 
-### 12.2 Required Renderable Event Classes
+### 12.2 Required Normalized Event Kinds
 
-The UI must correctly render at least these event kinds:
+The UI must correctly render at least these normalized event kinds:
 
-- `session_meta`
-- `response_item.message`
-- `response_item.function_call`
-- `response_item.function_call_output`
-- `event_msg.agent_message`
-- `event_msg.token_count`
-- `event_msg.task_complete`
+- `message`
+- `tool_call`
+- `tool_result`
+- `status`
+- `usage`
+- `approval_request`
+- `error`
+- `unknown`
 
 Rendering expectations:
 
-- assistant, user, system, and developer message content should remain distinguishable
-- tool/function calls must show name and arguments
-- tool/function outputs must show output text with truncation policy defined by the client
-- agent commentary messages should remain readable as timeline entries
-- token-count events should be shown as usage metadata, not normal chat content
-- task completion should be rendered as terminal session summary state
+- provider, role, and message content should remain distinguishable
+- tool calls must show tool name and arguments when available
+- tool outputs must show output text with truncation policy defined by the client
+- usage events should be shown as metadata, not normal chat content
+- approval requests should be rendered distinctly from normal messages
+- terminal status should be rendered as session summary state
 
 ### 12.3 Unknown Event Handling
 
-- Unknown event types must not crash the server or UI.
+- Unknown provider event types must not crash the server or UI.
 - The UI must provide a raw JSON fallback presentation for unknown records.
 - The server must still persist and stream those unknown events.
 
@@ -828,8 +987,9 @@ Suggested response:
       "state": "In Progress",
       "issue_state": "OPEN",
       "priority": 1,
+      "current_provider": "codex",
       "current_run_id": "run_001",
-      "current_session_id": "thread-1-turn-7"
+      "current_session_id": "sess_001"
     }
   ]
 }
@@ -844,7 +1004,7 @@ Returns:
 - `IssueDetail`
 - latest run summary if present
 - workspace path
-- recent sessions
+- recent agent sessions
 
 ### 13.6 Run Detail
 
@@ -854,7 +1014,7 @@ Returns:
 
 - `RunDetail`
 - associated issue snapshot
-- session summary
+- agent session summary
 - aggregate token usage
 - latest log counters
 
@@ -873,13 +1033,15 @@ Suggested response:
 
 ```json
 {
-  "session_id": "thread-1-turn-7",
+  "session_id": "sess_001",
+  "provider": "codex",
   "items": [
     {
       "sequence": 1,
       "timestamp": "2026-03-24T12:00:01Z",
-      "top_level_type": "session_meta",
-      "payload_type": null,
+      "provider": "codex",
+      "provider_event_type": "session_meta",
+      "normalized_event_kind": "status",
       "raw_json": "{\"timestamp\":\"2026-03-24T12:00:01Z\",\"type\":\"session_meta\",\"payload\":{}}"
     }
   ],
@@ -921,10 +1083,11 @@ Behavior:
 - Once backlog is exhausted, the stream transitions into live tail mode.
 - Each event frame carries:
   - `session_id`
+  - `provider`
   - `sequence`
   - `timestamp`
-  - `top_level_type`
-  - `payload_type`
+  - `provider_event_type`
+  - `normalized_event_kind`
   - `raw_json`
 
 Client expectations:
@@ -942,8 +1105,8 @@ The required API surface must expose or imply these types:
 - `IssueDetail`
 - `RunSummary`
 - `RunDetail`
-- `CodexSession`
-- `CodexRolloutEvent`
+- `AgentSession`
+- `AgentRawEvent`
 - `EventCursor`
 
 ## 14. Symphony Native Client
@@ -987,8 +1150,9 @@ Default values:
 - inspect persisted run metadata
 - replay historical logs from HTTP
 - live-tail logs from WebSocket
-- correctly render required Codex event classes
-- show raw JSON fallback for unknown event types
+- show provider badge on runs and sessions
+- correctly render the normalized event kinds defined in Section 12
+- show raw JSON fallback for unknown provider event types
 - trigger manual refresh via `POST /api/v1/refresh`
 
 ### 14.5 Out of Scope for v1
@@ -1011,6 +1175,8 @@ Recommended fields:
 - `issue_identifier`
 - `run_id`
 - `session_id`
+- `provider`
+- `provider_session_id`
 - `event`
 - `error`
 
@@ -1021,15 +1187,16 @@ The server should be able to derive:
 - active runs
 - retry queue
 - aggregate token usage
-- latest rate-limit snapshot
+- latest provider rate-limit snapshot when available
 
 This may be served through the required APIs rather than a separate dashboard-only surface.
 
 ### 15.3 Token Accounting
 
-- Prefer absolute totals when available from Codex events.
+- Prefer absolute totals when available from provider events.
 - Track deltas carefully to avoid double-counting.
-- Preserve latest seen rate-limit payload separately from aggregate token totals.
+- Preserve latest seen rate-limit payload separately from aggregate token totals when the provider
+  exposes it.
 
 ## 16. Failure Model and Security
 
@@ -1038,7 +1205,7 @@ This may be served through the required APIs rather than a separate dashboard-on
 1. workflow/config failures
 2. tracker failures
 3. workspace failures
-4. Codex startup/turn failures
+4. provider startup/session failures
 5. persistence failures
 6. API/streaming failures
 
@@ -1057,7 +1224,7 @@ Baseline requirements:
 - workspace root containment
 - secret redaction in logs
 - trusted-network-only deployment
-- explicit documentation of Codex approval and sandbox posture
+- explicit documentation of provider approval, tool, and sandbox posture
 
 Because no auth exists in v1:
 
@@ -1073,7 +1240,7 @@ This section defines the minimum validation matrix for conformant implementation
 - `WORKFLOW.md` load success and failure paths
 - YAML front matter parsing
 - non-map front matter rejection
-- defaults for tracker, polling, workspace, server, and storage
+- defaults for tracker, polling, workspace, agent, providers, server, and storage
 - `$VAR` resolution
 - `~` path expansion
 - strict prompt render behavior
@@ -1087,20 +1254,21 @@ This section defines the minimum validation matrix for conformant implementation
 - reconciliation updates
 - continuation retry and failure backoff
 
-### 17.3 Workspace and Codex Launch
+### 17.3 Workspace and Provider Launch
 
 - deterministic workspace paths
 - root containment enforcement
 - hook execution and timeout behavior
-- Codex launch with workspace `cwd`
-- session startup handshake
+- provider launch with workspace `cwd`
+- provider session startup and continuation behavior
+- per-provider capability downgrade handling
 - timeout and malformed-event handling
 
 ### 17.4 SQLite Durability
 
 - schema creation and migration bootstrap
 - persisted issue/run/session writes
-- append-only rollout event persistence
+- append-only raw provider event persistence
 - event sequence monotonicity
 - restart recovery of historical state
 
@@ -1111,6 +1279,7 @@ This section defines the minimum validation matrix for conformant implementation
 - log pagination
 - cursor encoding and decoding
 - historical replay ordering
+- provider field exposure on run/session/event payloads
 - refresh trigger semantics
 
 ### 17.6 WebSocket Streaming
@@ -1126,21 +1295,24 @@ This section defines the minimum validation matrix for conformant implementation
 - manual remote host/domain entry
 - issue list loading
 - run detail loading
+- provider badge rendering
 - correct rendering of:
-  - `session_meta`
-  - `response_item.message`
-  - `response_item.function_call`
-  - `response_item.function_call_output`
-  - `event_msg.agent_message`
-  - `event_msg.token_count`
-  - `event_msg.task_complete`
+  - `message`
+  - `tool_call`
+  - `tool_result`
+  - `status`
+  - `usage`
+  - `approval_request`
+  - `error`
+  - `unknown`
 - unknown event raw JSON fallback
 
 ### 17.8 Acceptance Scenarios
 
 - server restart preserves logs and run history
 - client reconnect replays missed events from a cursor
-- unknown raw Codex event types do not break persistence or rendering
+- provider-managed tool activity is persisted and rendered when structured events are available
+- unknown raw provider event types do not break persistence or rendering
 - trusted localhost connection works without extra setup
 - remote trusted-network connection works when host/domain and port are entered manually
 
@@ -1164,11 +1336,11 @@ An implementation is conformant when all of the following are true:
   artifact, and diagnostics contracts defined in Section 20.
 - GitHub issue orchestration remains server-owned and authoritative.
 - SQLite persists issue, run, session, workspace, and raw event metadata.
-- Raw Codex rollout events survive restart and are replayable by cursor.
+- Raw provider events survive restart and are replayable by cursor.
 - HTTP/JSON endpoints required by Section 13 are implemented.
 - WebSocket log streaming required by Section 13 is implemented.
 - The client defaults to `localhost:8080` and allows manual host/domain entry.
-- The client can render the required event classes and unknown-event raw fallback.
+- The client can render the required normalized event kinds and unknown-event raw fallback.
 - The Swift Testing matrix in Section 17 is satisfied.
 
 ## 19. Implementation Notes
@@ -1178,6 +1350,8 @@ An implementation is conformant when all of the following are true:
 - The server may maintain additional indexes or caches, but the raw event body remains canonical.
 - The client should prefer a thin rendering layer over server-owned behavior rather than duplicating
   orchestration rules locally.
+- `tmux` may be used as a local supervision technique for a CLI wrapper, but it is not part of the
+  normative provider contract.
 
 ## 20. SymphonyBuild
 

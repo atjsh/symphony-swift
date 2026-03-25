@@ -1,3 +1,7 @@
+**English** | [한국어](README-ko.md)
+
+---
+
 # [A Swift implementation of Symphony](https://github.com/atjsh/symphony-swift)
 
 Symphony turns project work into isolated, autonomous implementation runs, allowing teams to manage work instead of supervising coding agents.
