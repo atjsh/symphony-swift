@@ -67,6 +67,8 @@ public final class OrchestratorEngine: @unchecked Sendable {
   private var _loopTask: Task<Void, Never>?
   private let trackerFactory: @Sendable (TrackerConfig) throws -> any TrackerAdapting
   private let workspaceManagerFactory: @Sendable (WorkspaceConfig) -> any WorkspaceManaging
+  private let agentRunnerFactory: (@Sendable (any WorkspaceManaging) -> any AgentRunning)?
+  private let promptTemplate: String
   private let observer: any EngineEventObserving
 
   public var state: OrchestratorEngineState {
@@ -83,11 +85,15 @@ public final class OrchestratorEngine: @unchecked Sendable {
     workspaceManagerFactory: @escaping @Sendable (WorkspaceConfig) -> any WorkspaceManaging = {
       WorkspaceManager(root: $0.root)
     },
+    agentRunnerFactory: (@Sendable (any WorkspaceManaging) -> any AgentRunning)? = nil,
+    promptTemplate: String = "",
     observer: any EngineEventObserving = NoOpEngineEventObserver()
   ) {
     self._config = config
     self.trackerFactory = trackerFactory
     self.workspaceManagerFactory = workspaceManagerFactory
+    self.agentRunnerFactory = agentRunnerFactory
+    self.promptTemplate = promptTemplate
     self.observer = observer
   }
 
@@ -108,6 +114,8 @@ public final class OrchestratorEngine: @unchecked Sendable {
     let observer = self.observer
     let trackerFactory = self.trackerFactory
     let workspaceManagerFactory = self.workspaceManagerFactory
+    let agentRunnerFactory = self.agentRunnerFactory
+    let promptTemplate = self.promptTemplate
 
     let task = Task { [weak self] in
       await observer.engineStateChanged(.starting)
@@ -115,8 +123,13 @@ public final class OrchestratorEngine: @unchecked Sendable {
       do {
         let tracker = try trackerFactory(currentConfig.tracker)
         let workspaceManager = workspaceManagerFactory(currentConfig.workspace)
+        let agentRunner = agentRunnerFactory?(workspaceManager)
         let delegate = EngineOrchestratorDelegate(
-          engine: self, workspaceManager: workspaceManager, observer: observer)
+          workspaceManager: workspaceManager,
+          observer: observer,
+          agentRunner: agentRunner,
+          config: currentConfig,
+          promptTemplate: promptTemplate)
         let orchestrator = Orchestrator(
           tracker: tracker, config: currentConfig, delegate: delegate)
 
@@ -198,18 +211,24 @@ public final class OrchestratorEngine: @unchecked Sendable {
 // MARK: - Engine Orchestrator Delegate
 
 final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
-  private weak var engine: OrchestratorEngine?
   private let workspaceManager: any WorkspaceManaging
   private let observer: any EngineEventObserving
+  private let agentRunner: (any AgentRunning)?
+  private let config: WorkflowConfig
+  private let promptTemplate: String
 
   init(
-    engine: OrchestratorEngine?,
     workspaceManager: any WorkspaceManaging,
-    observer: any EngineEventObserving
+    observer: any EngineEventObserving,
+    agentRunner: (any AgentRunning)? = nil,
+    config: WorkflowConfig = .defaults,
+    promptTemplate: String = ""
   ) {
-    self.engine = engine
     self.workspaceManager = workspaceManager
     self.observer = observer
+    self.agentRunner = agentRunner
+    self.config = config
+    self.promptTemplate = promptTemplate
   }
 
   func orchestratorDidDispatch(issue: Issue) async {
@@ -217,6 +236,13 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     let context = RunContext(
       issueID: issue.id, issueIdentifier: issue.identifier, runID: runID, attempt: 1)
     await observer.engineDispatchStarted(context)
+
+    if let agentRunner {
+      let result = await agentRunner.executeRun(
+        context: context, issue: issue, config: config, promptTemplate: promptTemplate)
+      let success = result.finalState == .succeeded
+      await observer.engineRunCompleted(context, success: success)
+    }
   }
 
   func orchestratorDidCancel(

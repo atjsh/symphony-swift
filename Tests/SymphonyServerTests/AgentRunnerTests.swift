@@ -735,6 +735,180 @@ struct AgentRunningProtocolTests {
   }
 }
 
+// MARK: - AgentRunner Stall Detection Tests
+
+@Suite("AgentRunner Stall Detection")
+struct AgentRunnerStallDetectionTests {
+  @Test func stallDetectionDisabledWithZeroTimeout() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    // Config with stall detection disabled (0ms)
+    let config = WorkflowConfig(
+      providers: ProvidersConfig(
+        codex: CodexProviderConfig(stallTimeoutMS: 0)))
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: config, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.succeeded)
+  }
+
+  @Test func stallDetectedProducesStallState() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    // Use a short stall timeout and wait for the first event before going idle.
+    let config = WorkflowConfig(
+      providers: ProvidersConfig(
+        codex: CodexProviderConfig(stallTimeoutMS: 120)))
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: config, promptTemplate: "")
+    }
+
+    // Wait for streaming to begin, send one event, then go silent to trigger stall.
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput("{\"type\":\"message\"}\n")
+
+    while sink.events.isEmpty {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    try await Task.sleep(nanoseconds: 250_000_000)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.stalled)
+    #expect(result.error?.contains("Stall detected") == true)
+    #expect(result.eventCount == 1)
+  }
+
+  @Test func noStallWhenEventsArriveRegularly() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    // Stall timeout 500ms - events arrive within that window
+    let config = WorkflowConfig(
+      providers: ProvidersConfig(
+        codex: CodexProviderConfig(stallTimeoutMS: 500)))
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: config, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput("{\"type\":\"message\"}\n")
+    try await Task.sleep(nanoseconds: 20_000_000)
+    stubProcess.simulateOutput("{\"type\":\"tool_call\"}\n")
+    try await Task.sleep(nanoseconds: 20_000_000)
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.succeeded)
+    #expect(result.eventCount == 2)
+    #expect(result.error == nil)
+  }
+
+  @Test func stallTimeoutResolvedForClaudeCode() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    // Claude code provider with short stall timeout.
+    let config = WorkflowConfig(
+      agent: AgentConfig(defaultProvider: .claudeCode),
+      providers: ProvidersConfig(
+        claudeCode: ClaudeCodeProviderConfig(stallTimeoutMS: 120)))
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: config, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput("{\"type\":\"message\"}\n")
+
+    while sink.events.isEmpty {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    try await Task.sleep(nanoseconds: 250_000_000)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.stalled)
+  }
+}
+
+// MARK: - ProvidersConfig stallTimeoutMS Tests
+
+@Suite("ProvidersConfig StallTimeout")
+struct ProvidersConfigStallTimeoutTests {
+  @Test func resolvesCodexStallTimeout() {
+    let config = ProvidersConfig(codex: CodexProviderConfig(stallTimeoutMS: 100))
+    #expect(config.stallTimeoutMS(for: .codex) == 100)
+  }
+
+  @Test func resolvesClaudeCodeStallTimeout() {
+    let config = ProvidersConfig(claudeCode: ClaudeCodeProviderConfig(stallTimeoutMS: 200))
+    #expect(config.stallTimeoutMS(for: .claudeCode) == 200)
+  }
+
+  @Test func resolvesCopilotCLIStallTimeout() {
+    let config = ProvidersConfig(copilotCLI: CopilotCLIProviderConfig(stallTimeoutMS: 300))
+    #expect(config.stallTimeoutMS(for: .copilotCLI) == 300)
+  }
+
+  @Test func defaultStallTimeout() {
+    let config = ProvidersConfig.defaults
+    #expect(config.stallTimeoutMS(for: .codex) == 300_000)
+    #expect(config.stallTimeoutMS(for: .claudeCode) == 300_000)
+    #expect(config.stallTimeoutMS(for: .copilotCLI) == 300_000)
+  }
+}
+
 // MARK: - Collecting Event Sink Tests
 
 @Suite("CollectingEventSink")

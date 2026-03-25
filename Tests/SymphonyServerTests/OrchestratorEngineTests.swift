@@ -213,6 +213,49 @@ struct OrchestratorEngineTests {
 
     #expect(observer.errors.contains { $0.context == "startupCleanup" })
   }
+
+  @Test func engineDispatchCanExecuteInjectedAgentRunner() async throws {
+    let observer = CollectingEngineObserver()
+    let config = makeConfig(pollingIntervalMS: 50)
+
+    let tracker = StubTracker()
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "owner/repo#1"),
+      repository: "owner/repo",
+      number: 1,
+      title: "Dispatch me",
+      description: nil,
+      priority: nil,
+      state: "In Progress",
+      issueState: "OPEN",
+      projectItemID: nil,
+      url: nil,
+      labels: [],
+      blockedBy: [],
+      createdAt: nil,
+      updatedAt: nil
+    )
+    tracker.setCandidates([issue])
+
+    let stubRunner = StubAgentRunner()
+    let engine = OrchestratorEngine(
+      config: config,
+      trackerFactory: { _ in tracker },
+      agentRunnerFactory: { _ in stubRunner },
+      promptTemplate: "Test prompt",
+      observer: observer
+    )
+
+    try engine.start()
+    try await Task.sleep(nanoseconds: 250_000_000)
+    engine.stop()
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    #expect(!observer.dispatches.isEmpty)
+    #expect(!observer.completions.isEmpty)
+    #expect(stubRunner.executeRunCount > 0)
+  }
 }
 
 // MARK: - OrchestratorEngineState Tests
@@ -423,7 +466,7 @@ struct EngineOrchestratorDelegateTests {
     let wsRoot = NSTemporaryDirectory() + "delegate_test_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
     let delegate = EngineOrchestratorDelegate(
-      engine: nil, workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager, observer: observer)
 
     let issue = Issue(
       id: IssueID("I_1"),
@@ -444,7 +487,7 @@ struct EngineOrchestratorDelegateTests {
     let wsRoot = NSTemporaryDirectory() + "delegate_cancel_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
     let delegate = EngineOrchestratorDelegate(
-      engine: nil, workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager, observer: observer)
 
     await delegate.orchestratorDidCancel(
       issueID: IssueID("I_1"),
@@ -459,7 +502,7 @@ struct EngineOrchestratorDelegateTests {
     let wsRoot = NSTemporaryDirectory() + "delegate_noclean_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
     let delegate = EngineOrchestratorDelegate(
-      engine: nil, workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager, observer: observer)
 
     await delegate.orchestratorDidCancel(
       issueID: IssueID("I_1"),
@@ -474,7 +517,7 @@ struct EngineOrchestratorDelegateTests {
     let wsRoot = NSTemporaryDirectory() + "delegate_refresh_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
     let delegate = EngineOrchestratorDelegate(
-      engine: nil, workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager, observer: observer)
 
     let issue = Issue(
       id: IssueID("I_1"),
@@ -503,7 +546,7 @@ struct EngineOrchestratorDelegateTests {
     let wsRoot = NSTemporaryDirectory() + "delegate_retry_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
     let delegate = EngineOrchestratorDelegate(
-      engine: nil, workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager, observer: observer)
 
     let record = RetryRecord(
       issueID: IssueID("I_1"),
@@ -516,4 +559,112 @@ struct EngineOrchestratorDelegateTests {
     await delegate.orchestratorDidRetry(record: record)
     #expect(observer.dispatches.count == 1)
   }
+
+  @Test func delegateDispatchWithAgentRunnerExecutesRun() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_runner_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+
+    let stubRunner = StubAgentRunner()
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager, observer: observer,
+      agentRunner: stubRunner, config: .defaults, promptTemplate: "Test prompt")
+
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r", number: 1, title: "Test", description: nil,
+      priority: nil, state: "In Progress", issueState: "OPEN",
+      projectItemID: nil, url: nil, labels: [], blockedBy: [],
+      createdAt: nil, updatedAt: nil
+    )
+
+    await delegate.orchestratorDidDispatch(issue: issue)
+
+    // Both dispatch and completion should be observed
+    #expect(observer.dispatches.count == 1)
+    #expect(observer.completions.count == 1)
+    #expect(observer.completions[0].1 == true)
+
+    // AgentRunner should have been called
+    #expect(stubRunner.executeRunCount == 1)
+  }
+
+  @Test func delegateDispatchWithFailingRunnerReportsFailure() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_fail_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+
+    let stubRunner = StubAgentRunner(finalState: .failed)
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager, observer: observer,
+      agentRunner: stubRunner, config: .defaults, promptTemplate: "")
+
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r", number: 1, title: "Test", description: nil,
+      priority: nil, state: "In Progress", issueState: "OPEN",
+      projectItemID: nil, url: nil, labels: [], blockedBy: [],
+      createdAt: nil, updatedAt: nil
+    )
+
+    await delegate.orchestratorDidDispatch(issue: issue)
+
+    #expect(observer.completions.count == 1)
+    #expect(observer.completions[0].1 == false)
+  }
+
+  @Test func delegateDispatchWithoutAgentRunnerDoesNotComplete() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_norunner_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+
+    // No agent runner provided
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager, observer: observer)
+
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r", number: 1, title: "Test", description: nil,
+      priority: nil, state: "In Progress", issueState: "OPEN",
+      projectItemID: nil, url: nil, labels: [], blockedBy: [],
+      createdAt: nil, updatedAt: nil
+    )
+
+    await delegate.orchestratorDidDispatch(issue: issue)
+
+    // Dispatch event should fire but no completion (no runner)
+    #expect(observer.dispatches.count == 1)
+    #expect(observer.completions.isEmpty)
+  }
+}
+
+// MARK: - Stub Agent Runner for Engine Tests
+
+private final class StubAgentRunner: AgentRunning, @unchecked Sendable {
+  private let lock = NSLock()
+  private var _executeRunCount = 0
+  private let finalState: RunLifecycleState
+
+  init(finalState: RunLifecycleState = .succeeded) {
+    self.finalState = finalState
+  }
+
+  var executeRunCount: Int {
+    lock.withLock { _executeRunCount }
+  }
+
+  func executeRun(
+    context: RunContext, issue: SymphonyShared.Issue, config: WorkflowConfig,
+    promptTemplate: String
+  ) async -> AgentRunResult {
+    lock.withLock { _executeRunCount += 1 }
+    return AgentRunResult(
+      context: context, sessionID: SessionID("stub_session"),
+      finalState: finalState, eventCount: 0, error: finalState == .failed ? "stub error" : nil)
+  }
+
+  func cancelRun(runID: RunID) async throws {}
 }

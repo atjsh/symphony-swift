@@ -200,6 +200,14 @@ public struct ProvidersConfig: Equatable, Sendable {
   }
 
   public static let defaults = ProvidersConfig()
+
+  public func stallTimeoutMS(for provider: ProviderName) -> Int {
+    switch provider {
+    case .codex: return codex.stallTimeoutMS
+    case .claudeCode: return claudeCode.stallTimeoutMS
+    case .copilotCLI: return copilotCLI.stallTimeoutMS
+    }
+  }
 }
 
 public struct CodexProviderConfig: Equatable, Sendable {

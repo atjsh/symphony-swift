@@ -56,6 +56,34 @@ public protocol AgentRunning: Sendable {
   func cancelRun(runID: RunID) async throws
 }
 
+private final class StallWatchState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _lastEventAt: Date
+  private var _stallError: String?
+
+  init(lastEventAt: Date) {
+    _lastEventAt = lastEventAt
+  }
+
+  var lastEventAt: Date {
+    lock.withLock { _lastEventAt }
+  }
+
+  var stallError: String? {
+    lock.withLock { _stallError }
+  }
+
+  func recordEvent(at date: Date) {
+    lock.withLock { _lastEventAt = date }
+  }
+
+  func markStalled(timeoutMS: Int) {
+    lock.withLock {
+      _stallError = "Stall detected: no events for \(timeoutMS)ms"
+    }
+  }
+}
+
 // MARK: - Agent Runner
 
 public final class AgentRunner: AgentRunning, @unchecked Sendable {
@@ -161,25 +189,63 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       return result
     }
 
-    // Step 5: Stream events
+    // Step 5: Stream events with stall detection
     await eventSink.runDidTransition(context, to: .streamingTurn)
     var eventCount = 0
     var streamError: String?
 
+    let stallTimeoutMS = config.providers.stallTimeoutMS(for: config.agent.defaultProvider)
+    let stallDetector = StallDetector(stallTimeoutMS: stallTimeoutMS)
+    let stallState = StallWatchState(lastEventAt: Date())
+    let stallWatchdog: Task<Void, Never>? = if stallDetector.isEnabled {
+      Task {
+        while !Task.isCancelled {
+          do {
+            try await Task.sleep(nanoseconds: UInt64(stallTimeoutMS) * 1_000_000)
+          } catch {
+            break
+          }
+
+          if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
+            stallState.markStalled(timeoutMS: stallTimeoutMS)
+            try? await adapter.cancelSession(sessionID: sessionID)
+            break
+          }
+        }
+      }
+    } else {
+      nil
+    }
+
     do {
       for try await event in eventStream {
+        stallState.recordEvent(at: Date())
         eventCount += 1
         await eventSink.runDidReceiveEvent(event)
       }
     } catch {
-      streamError = String(describing: error)
+      if stallState.stallError == nil {
+        streamError = String(describing: error)
+      }
+    }
+
+    stallWatchdog?.cancel()
+    if let stallError = stallState.stallError {
+      streamError = stallError
     }
 
     // Step 6: Finishing
+    let finalState: RunLifecycleState
+    if streamError?.hasPrefix("Stall detected") == true {
+      finalState = .stalled
+    } else if streamError == nil {
+      finalState = .succeeded
+    } else {
+      finalState = .failed
+    }
+
     await eventSink.runDidTransition(context, to: .finishing)
     removeActiveRun(for: context.runID)
-
-    let finalState: RunLifecycleState = streamError == nil ? .succeeded : .failed
     let result = AgentRunResult(
       context: context, sessionID: sessionID, finalState: finalState,
       eventCount: eventCount, error: streamError)

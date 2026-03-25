@@ -588,6 +588,7 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   private let lock = NSLock()
   private var _outputHandler: (@Sendable (Data) -> Void)?
   private var _terminationHandler: (@Sendable (Int32) -> Void)?
+  private var _terminated = false
 
   public init() {}
 
@@ -603,7 +604,17 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
     lock.unlock()
   }
 
-  public func terminate() {}
+  public func terminate() {
+    lock.lock()
+    guard !_terminated else {
+      lock.unlock()
+      return
+    }
+    _terminated = true
+    let handler = _terminationHandler
+    lock.unlock()
+    handler?(15)
+  }
 
   public func simulateOutput(_ string: String) {
     lock.lock()
@@ -616,6 +627,11 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
 
   public func simulateTermination(exitCode: Int32) {
     lock.lock()
+    guard !_terminated else {
+      lock.unlock()
+      return
+    }
+    _terminated = true
     let handler = _terminationHandler
     lock.unlock()
     handler?(exitCode)

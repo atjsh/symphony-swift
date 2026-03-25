@@ -349,8 +349,13 @@ import Testing
 
 @Test func stubLaunchedProcessTerminate() {
   let process = StubLaunchedProcess()
-  // Just verify it doesn't crash
+  let captured = Mutex<[Int32]>([])
+  process.onTermination { code in captured.withLock { $0.append(code) } }
+
   process.terminate()
+  process.terminate()
+
+  #expect(captured.withLock { $0 } == [15])
 }
 
 // MARK: - ProviderAdapterFactory Tests
