@@ -1,4 +1,5 @@
 import XCTest
+import SymphonyShared
 @testable import Symphony
 
 final class BootstrapSupportTests: XCTestCase {
@@ -201,5 +202,44 @@ final class BootstrapSupportTests: XCTestCase {
 
         let defaultApp = SymphonyApp()
         _ = defaultApp.body
+    }
+
+    func testUITestingSymphonyAPIClientReturnsFixtureData() async throws {
+        let client = UITestingSymphonyAPIClient()
+        let endpoint = try ServerEndpoint()
+
+        XCTAssertNil(SymphonyApp.resolveClient(arguments: ["Symphony"]))
+        XCTAssertNotNil(SymphonyApp.resolveClient(arguments: ["Symphony", "--ui-testing"]))
+
+        let healthResponse = try await client.health(endpoint: endpoint)
+        XCTAssertEqual(healthResponse.status, "ok")
+
+        let issuesResponse = try await client.issues(endpoint: endpoint)
+        XCTAssertEqual(issuesResponse.items.count, 1)
+        XCTAssertEqual(issuesResponse.items[0].title, "Implement feature")
+
+        let issueDetail = try await client.issueDetail(endpoint: endpoint, issueID: IssueID("issue-1"))
+        XCTAssertEqual(issueDetail.issue.title, "Implement feature")
+        XCTAssertEqual(issueDetail.issue.labels, ["feature", "ui"])
+        XCTAssertEqual(issueDetail.recentSessions.count, 1)
+
+        let runDetail = try await client.runDetail(endpoint: endpoint, runID: RunID("run-1"))
+        XCTAssertEqual(runDetail.status, "running")
+        XCTAssertEqual(runDetail.tokens.inputTokens, 100)
+        XCTAssertEqual(runDetail.turnCount, 3)
+
+        let logsResponse = try await client.logs(endpoint: endpoint, sessionID: SessionID("session-1"), cursor: nil, limit: 50)
+        XCTAssertEqual(logsResponse.items.count, 2)
+        XCTAssertFalse(logsResponse.hasMore)
+
+        let refreshResponse = try await client.refresh(endpoint: endpoint)
+        XCTAssertTrue(refreshResponse.queued)
+
+        let stream = try client.logStream(endpoint: endpoint, sessionID: SessionID("session-1"), cursor: nil)
+        var streamEvents = [AgentRawEvent]()
+        for try await event in stream {
+            streamEvents.append(event)
+        }
+        XCTAssertTrue(streamEvents.isEmpty)
     }
 }
