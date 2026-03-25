@@ -4,7 +4,6 @@ import SymphonyShared
 public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
   case build
   case test
-  case coverage
   case run
   case harness
 }
@@ -496,42 +495,6 @@ public struct CoverageInspectionRawReport: Codable, Hashable, Sendable {
   }
 }
 
-public enum CoverageInspectionPayload: Hashable, Sendable {
-  case normalized(CoverageInspectionReport)
-  case raw(CoverageInspectionRawReport)
-}
-
-extension CoverageInspectionPayload: Codable {
-  public init(from decoder: any Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    if let normalized = try? container.decode(CoverageInspectionReport.self) {
-      self = .normalized(normalized)
-      return
-    }
-    self = .raw(try container.decode(CoverageInspectionRawReport.self))
-  }
-
-  public func encode(to encoder: any Encoder) throws {
-    var container = encoder.singleValueContainer()
-    switch self {
-    case .normalized(let report):
-      try container.encode(report)
-    case .raw(let report):
-      try container.encode(report)
-    }
-  }
-}
-
-public struct CoverageInspectionResponse: Codable, Hashable, Sendable {
-  public let coverage: CoverageReport
-  public let inspection: CoverageInspectionPayload
-
-  public init(coverage: CoverageReport, inspection: CoverageInspectionPayload) {
-    self.coverage = coverage
-    self.inspection = inspection
-  }
-}
-
 public struct PackageCoverageFileReport: Codable, Hashable, Sendable {
   public let path: String
   public let coveredLines: Int
@@ -954,61 +917,6 @@ public struct RunCommandRequest: Sendable {
     self.environment = environment
     self.outputMode = outputMode
     self.currentDirectory = currentDirectory
-  }
-}
-
-public struct CoverageCommandRequest: Sendable {
-  public let product: ProductKind
-  public let scheme: String?
-  public let platform: PlatformKind?
-  public let simulator: String?
-  public let workerID: Int
-  public let dryRun: Bool
-  public let onlyTesting: [String]
-  public let skipTesting: [String]
-  public let json: Bool
-  public let showFiles: Bool
-  public let includeTestTargets: Bool
-  public let outputMode: XcodeOutputMode
-  public let currentDirectory: URL
-  public let showFunctions: Bool
-  public let showMissingLines: Bool
-  public let rawOutput: Bool
-
-  public init(
-    product: ProductKind,
-    scheme: String?,
-    platform: PlatformKind?,
-    simulator: String?,
-    workerID: Int,
-    dryRun: Bool,
-    onlyTesting: [String],
-    skipTesting: [String],
-    json: Bool,
-    showFiles: Bool,
-    includeTestTargets: Bool,
-    outputMode: XcodeOutputMode,
-    currentDirectory: URL,
-    showFunctions: Bool = false,
-    showMissingLines: Bool = false,
-    rawOutput: Bool = false
-  ) {
-    self.product = product
-    self.scheme = scheme
-    self.platform = platform
-    self.simulator = simulator
-    self.workerID = workerID
-    self.dryRun = dryRun
-    self.onlyTesting = onlyTesting
-    self.skipTesting = skipTesting
-    self.json = json
-    self.showFiles = showFiles
-    self.includeTestTargets = includeTestTargets
-    self.outputMode = outputMode
-    self.currentDirectory = currentDirectory
-    self.showFunctions = showFunctions
-    self.showMissingLines = showMissingLines
-    self.rawOutput = rawOutput
   }
 }
 

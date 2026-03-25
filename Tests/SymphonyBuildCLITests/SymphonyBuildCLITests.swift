@@ -21,48 +21,6 @@ import Testing
   #expect(command.skipTesting.isEmpty)
 }
 
-@Test func coverageCommandUsesSpecDefaults() throws {
-  let command = try SymphonyBuildCommand.Coverage.parseAsRoot([]) as! SymphonyBuildCommand.Coverage
-
-  #expect(command.product == .client)
-  #expect(command.worker == 0)
-  #expect(command.onlyTesting.isEmpty)
-  #expect(command.skipTesting.isEmpty)
-  #expect(command.json == false)
-  #expect(command.showFiles == false)
-  #expect(command.showFunctions == false)
-  #expect(command.showMissingLines == false)
-  #expect(command.rawOutput == false)
-  #expect(command.includeTestTargets == false)
-  #expect(command.xcodeOutputMode == .filtered)
-}
-
-@Test func coverageCommandParsesInspectionFlags() throws {
-  let command =
-    try SymphonyBuildCommand.Coverage.parseAsRoot([
-      "--show-files",
-      "--show-functions",
-      "--show-missing-lines",
-      "--raw-output",
-    ]) as! SymphonyBuildCommand.Coverage
-
-  #expect(command.showFiles == true)
-  #expect(command.showFunctions == true)
-  #expect(command.showMissingLines == true)
-  #expect(command.rawOutput == true)
-}
-
-@Test func coverageCommandRejectsRawOutputWithoutInspectionSelection() throws {
-  do {
-    _ =
-      try SymphonyBuildCommand.Coverage.parseAsRoot(["--raw-output"])
-      as! SymphonyBuildCommand.Coverage
-    Issue.record("Expected --raw-output without inspection flags to fail.")
-  } catch {
-    #expect(String(describing: error).contains("--show-functions"))
-  }
-}
-
 @Test func harnessCommandUsesSpecDefaults() throws {
   let command = try SymphonyBuildCommand.Harness.parseAsRoot([]) as! SymphonyBuildCommand.Harness
 
@@ -86,16 +44,12 @@ import Testing
   let test =
     try SymphonyBuildCommand.Test.parseAsRoot(["--xcode-output-mode", "quiet"])
     as! SymphonyBuildCommand.Test
-  let coverage =
-    try SymphonyBuildCommand.Coverage.parseAsRoot(["--xcode-output-mode", "full"])
-    as! SymphonyBuildCommand.Coverage
   let run =
     try SymphonyBuildCommand.Run.parseAsRoot(["--xcode-output-mode", "full"])
     as! SymphonyBuildCommand.Run
 
   #expect(build.xcodeOutputMode == .full)
   #expect(test.xcodeOutputMode == .quiet)
-  #expect(coverage.xcodeOutputMode == .full)
   #expect(run.xcodeOutputMode == .full)
 }
 
@@ -149,11 +103,10 @@ import Testing
 
 @Test func artifactsCommandAllowsExplicitRunSelection() throws {
   let command =
-    try SymphonyBuildCommand.Artifacts.parseAsRoot([
-      "coverage", "--run", "20260324-120000-symphony",
-    ]) as! SymphonyBuildCommand.Artifacts
+    try SymphonyBuildCommand.Artifacts.parseAsRoot(["test", "--run", "20260324-120000-symphony"])
+    as! SymphonyBuildCommand.Artifacts
 
-  #expect(command.command == .coverage)
+  #expect(command.command == .test)
   #expect(command.runID == "20260324-120000-symphony")
   #expect(command.latest == false)
 }
@@ -224,16 +177,6 @@ import Testing
       ]) as! SymphonyBuildCommand.Test
     try test.run()
 
-    var coverage =
-      try SymphonyBuildCommand.Coverage.parseAsRoot([
-        "--product", "server",
-        "--show-files",
-        "--show-functions",
-        "--show-missing-lines",
-        "--json",
-      ]) as! SymphonyBuildCommand.Coverage
-    try coverage.run()
-
     var run =
       try SymphonyBuildCommand.Run.parseAsRoot([
         "--env", "FOO=bar", "--host", "example.com", "--port", "9443",
@@ -287,13 +230,6 @@ import Testing
   #expect(tool.testRequests[0].onlyTesting == ["Suite/testThing"])
   #expect(tool.testRequests[0].currentDirectory == currentDirectory)
 
-  #expect(tool.coverageRequests.count == 1)
-  #expect(tool.coverageRequests[0].showFiles == true)
-  #expect(tool.coverageRequests[0].showFunctions == true)
-  #expect(tool.coverageRequests[0].showMissingLines == true)
-  #expect(tool.coverageRequests[0].rawOutput == false)
-  #expect(tool.coverageRequests[0].json == true)
-
   #expect(tool.runRequests.count == 1)
   #expect(tool.runRequests[0].environment == ["FOO": "bar"])
   #expect(tool.runRequests[0].host == "example.com")
@@ -320,7 +256,6 @@ import Testing
     output.values == [
       "build-output",
       "test-output",
-      "coverage-output",
       "run-output",
       "harness-output",
       "sim-list-output",
@@ -356,7 +291,6 @@ import Testing
 private final class RecordingCLITool: SymphonyBuildTooling {
   var buildRequests = [BuildCommandRequest]()
   var testRequests = [TestCommandRequest]()
-  var coverageRequests = [CoverageCommandRequest]()
   var runRequests = [RunCommandRequest]()
   var harnessRequests = [HarnessCommandRequest]()
   var hooksInstallRequests = [HooksInstallRequest]()
@@ -375,11 +309,6 @@ private final class RecordingCLITool: SymphonyBuildTooling {
   func test(_ request: TestCommandRequest) throws -> String {
     testRequests.append(request)
     return "test-output"
-  }
-
-  func coverage(_ request: CoverageCommandRequest) throws -> String {
-    coverageRequests.append(request)
-    return "coverage-output"
   }
 
   func run(_ request: RunCommandRequest) throws -> String {

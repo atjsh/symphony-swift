@@ -87,6 +87,16 @@ import Testing
     #expect(String(describing: error).contains("unable to open database file"))
   }
 
+  let missingParentURL = try makeTemporaryDirectory()
+  do {
+    _ = try SQLiteServerStateStore(databaseURL: missingParentURL)
+    Issue.record("Expected a missing parent directory to fail during SQLite open.")
+  } catch let error as SymphonyRuntimeError {
+    #expect(
+      String(describing: error).contains(
+        "Failed to open SQLite database at \(missingParentURL.path)."))
+  }
+
   let databaseURL = try makeTemporaryDirectory().appendingPathComponent("missing.sqlite3")
   let store = try SQLiteServerStateStore(databaseURL: databaseURL)
   let issue = try makeFixtureRecords().issue

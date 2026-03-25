@@ -5,7 +5,6 @@ import SymphonyBuildCore
 protocol SymphonyBuildTooling {
   func build(_ request: BuildCommandRequest) throws -> String
   func test(_ request: TestCommandRequest) throws -> String
-  func coverage(_ request: CoverageCommandRequest) throws -> String
   func run(_ request: RunCommandRequest) throws -> String
   func harness(_ request: HarnessCommandRequest) throws -> String
   func hooksInstall(_ request: HooksInstallRequest) throws -> String
@@ -74,11 +73,10 @@ public struct SymphonyBuildCommand: ParsableCommand {
   public static let configuration = CommandConfiguration(
     commandName: "symphony-build",
     abstract:
-      "Repository-local build, test, coverage, run, simulator, artifact, and diagnostics workflows for Symphony.",
+      "Repository-local build, test, run, simulator, artifact, and diagnostics workflows for Symphony.",
     subcommands: [
       Build.self,
       Test.self,
-      Coverage.self,
       Run.self,
       Harness.self,
       Hooks.self,
@@ -191,59 +189,6 @@ extension SymphonyBuildCommand {
           environment: try parseEnvironment(env),
           outputMode: xcodeOutputMode,
           currentDirectory: CLIContext.currentDirectory()
-        )
-      )
-      CLIContext.emit(output)
-    }
-  }
-
-  struct Coverage: ParsableCommand {
-    static let configuration = CommandConfiguration(
-      abstract: "Run a coverage-enabled test pass and report filtered line coverage.")
-
-    @Option var product: ProductKind = .client
-    @Option var scheme: String?
-    @Option var platform: PlatformKind?
-    @Option var simulator: String?
-    @Option(name: .long) var worker: Int = 0
-    @Flag(name: .long) var dryRun = false
-    @Option(name: .long, parsing: .upToNextOption) var onlyTesting: [String] = []
-    @Option(name: .long, parsing: .upToNextOption) var skipTesting: [String] = []
-    @Flag(name: .long) var json = false
-    @Flag(name: .long) var showFiles = false
-    @Flag(name: .long) var showFunctions = false
-    @Flag(name: .long) var showMissingLines = false
-    @Flag(name: .long) var rawOutput = false
-    @Flag(name: .long) var includeTestTargets = false
-    @Option(name: .long) var xcodeOutputMode: XcodeOutputMode = .filtered
-
-    mutating func validate() throws {
-      guard !rawOutput || showFunctions || showMissingLines else {
-        throw ValidationError(
-          "`--raw-output` requires `--show-functions` or `--show-missing-lines`.")
-      }
-    }
-
-    mutating func run() throws {
-      let tool = CLIContext.makeTool()
-      let output = try tool.coverage(
-        CoverageCommandRequest(
-          product: product,
-          scheme: scheme,
-          platform: platform,
-          simulator: simulator,
-          workerID: worker,
-          dryRun: dryRun,
-          onlyTesting: onlyTesting,
-          skipTesting: skipTesting,
-          json: json,
-          showFiles: showFiles,
-          includeTestTargets: includeTestTargets,
-          outputMode: xcodeOutputMode,
-          currentDirectory: CLIContext.currentDirectory(),
-          showFunctions: showFunctions,
-          showMissingLines: showMissingLines,
-          rawOutput: rawOutput
         )
       )
       CLIContext.emit(output)

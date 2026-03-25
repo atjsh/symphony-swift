@@ -503,6 +503,117 @@ import Testing
   }
 }
 
+@Test func artifactManagerIndexesSupplementalFilesAcrossBackendsAndHandlesNilEnumerators() throws {
+  try withTemporaryDirectory { directory in
+    let workspace = WorkspaceContext(
+      projectRoot: directory,
+      buildStateRoot: directory.appendingPathComponent(".build/symphony-build", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+
+    let xcodeContext = try ExecutionContextBuilder().make(
+      workspace: workspace,
+      worker: WorkerScope(id: 0),
+      command: .test,
+      runID: "xcode-extra",
+      date: Date(timeIntervalSince1970: 1_700_000_450)
+    )
+    try FileManager.default.createDirectory(
+      at: xcodeContext.artifactRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: xcodeContext.resultBundlePath, withIntermediateDirectories: true)
+    let xcodeExtra = xcodeContext.artifactRoot.appendingPathComponent("custom-note.txt")
+    try "note\n".write(to: xcodeExtra, atomically: true, encoding: .utf8)
+
+    let xcodeRunner = StubProcessRunner(results: [
+      "xcrun xcresulttool get object --legacy --path \(xcodeContext.resultBundlePath.path) --format json":
+        StubProcessRunner.success(#"{"kind":"ActionsInvocationRecord"}"#),
+      "xcrun xcresulttool export diagnostics --path \(xcodeContext.resultBundlePath.path) --output-path \(xcodeContext.artifactRoot.appendingPathComponent("diagnostics").path)":
+        StubProcessRunner.success(),
+      "xcrun xcresulttool export attachments --path \(xcodeContext.resultBundlePath.path) --output-path \(xcodeContext.artifactRoot.appendingPathComponent("attachments").path)":
+        StubProcessRunner.success(),
+    ])
+    let xcodeManager = ArtifactManager(processRunner: xcodeRunner)
+    let xcodeRecord = try xcodeManager.recordXcodeExecution(
+      workspace: workspace,
+      executionContext: xcodeContext,
+      command: .test,
+      product: .client,
+      scheme: "Symphony",
+      destination: ResolvedDestination(
+        platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil,
+        xcodeDestination: expectedHostMacOSDestination()),
+      invocation: "xcodebuild test",
+      exitStatus: 0,
+      combinedOutput: "tests passed",
+      startedAt: Date(timeIntervalSince1970: 1_700_000_450),
+      endedAt: Date(timeIntervalSince1970: 1_700_000_460)
+    )
+    let xcodeIndex = try JSONDecoder().decode(
+      ArtifactIndex.self, from: Data(contentsOf: xcodeRecord.run.indexPath))
+    #expect(
+      xcodeIndex.entries.contains(where: { $0.name == "custom-note.txt" && $0.kind == "file" }))
+
+    let swiftPMContext = try ExecutionContextBuilder().make(
+      workspace: workspace,
+      worker: WorkerScope(id: 1),
+      command: .test,
+      runID: "swiftpm-extra",
+      date: Date(timeIntervalSince1970: 1_700_000_470)
+    )
+    try FileManager.default.createDirectory(
+      at: swiftPMContext.artifactRoot, withIntermediateDirectories: true)
+    let swiftPMExtra = swiftPMContext.artifactRoot.appendingPathComponent("manual-log.txt")
+    try "manual\n".write(to: swiftPMExtra, atomically: true, encoding: .utf8)
+
+    let swiftPMRecord = try ArtifactManager(processRunner: StubProcessRunner())
+      .recordSwiftPMExecution(
+        workspace: workspace,
+        executionContext: swiftPMContext,
+        command: .test,
+        product: .server,
+        scheme: "SymphonyServer",
+        destination: ResolvedDestination(
+          platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil,
+          xcodeDestination: expectedHostMacOSDestination()),
+        invocation: "swift test --enable-code-coverage --filter SymphonyServerTests",
+        exitStatus: 0,
+        combinedOutput: "ok",
+        startedAt: Date(timeIntervalSince1970: 1_700_000_470),
+        endedAt: Date(timeIntervalSince1970: 1_700_000_480)
+      )
+    let swiftPMIndex = try JSONDecoder().decode(
+      ArtifactIndex.self, from: Data(contentsOf: swiftPMRecord.run.indexPath))
+    #expect(
+      swiftPMIndex.entries.contains(where: { $0.name == "manual-log.txt" && $0.kind == "file" }))
+
+    let nilEnumeratorManager = ArtifactManager(
+      processRunner: StubProcessRunner(), enumeratorFactory: { _ in nil })
+    #expect(nilEnumeratorManager.recursiveFiles(in: [directory]).isEmpty)
+  }
+}
+
+@Test func artifactManagerAdditionalEntriesMapsUnknownFilesIntoIndexEntries() throws {
+  try withTemporaryDirectory { directory in
+    let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+    try "alpha\n".write(
+      to: artifactRoot.appendingPathComponent("alpha.txt"), atomically: true, encoding: .utf8)
+    try FileManager.default.createDirectory(
+      at: artifactRoot.appendingPathComponent("nested", isDirectory: true),
+      withIntermediateDirectories: true)
+
+    let manager = ArtifactManager(processRunner: StubProcessRunner())
+    let entries = try manager.additionalEntries(
+      in: artifactRoot, excluding: [], createdAt: "2026-03-25T00:00:00Z")
+
+    #expect(entries.map(\.name) == ["alpha.txt", "nested"])
+    #expect(entries.first?.kind == "file")
+    #expect(entries.last?.kind == "directory")
+  }
+}
+
 @Test func artifactManagerWritesHarnessArtifactsAndResolvesHarnessFamily() throws {
   try withTemporaryDirectory { directory in
     let workspace = WorkspaceContext(
@@ -648,7 +759,7 @@ import Testing
     let swiftPMExecution = try ExecutionContextBuilder().make(
       workspace: workspace,
       worker: swiftPMWorker,
-      command: .coverage,
+      command: .test,
       runID: "swiftpm",
       date: Date(timeIntervalSince1970: 1_700_000_610)
     )
@@ -656,7 +767,7 @@ import Testing
       .recordSwiftPMExecution(
         workspace: workspace,
         executionContext: swiftPMExecution,
-        command: .coverage,
+        command: .test,
         product: .server,
         scheme: "SymphonyServer",
         destination: ResolvedDestination(
@@ -733,7 +844,7 @@ import Testing
     let executionContext = try ExecutionContextBuilder().make(
       workspace: workspace,
       worker: worker,
-      command: .coverage,
+      command: .test,
       runID: "symphony",
       date: Date(timeIntervalSince1970: 1_700_000_260)
     )
@@ -765,7 +876,7 @@ import Testing
     _ = try manager.recordXcodeExecution(
       workspace: workspace,
       executionContext: executionContext,
-      command: .coverage,
+      command: .test,
       product: .server,
       scheme: "SymphonyServer",
       destination: ResolvedDestination(
@@ -785,7 +896,7 @@ import Testing
     let rendered = try manager.resolveArtifacts(
       workspace: workspace,
       request: ArtifactsCommandRequest(
-        command: .coverage, latest: true, runID: nil, currentDirectory: directory)
+        command: .test, latest: true, runID: nil, currentDirectory: directory)
     )
 
     #expect(
@@ -1070,22 +1181,31 @@ import Testing
         )
       ]
     )
-    let clientWrapper = String(
-      decoding: try JSONEncoder().encode(
-        CoverageInspectionResponse(
-          coverage: coverageReport, inspection: .normalized(clientInspection))), as: UTF8.self)
-    let serverWrapper = String(
-      decoding: try JSONEncoder().encode(
-        CoverageInspectionResponse(
-          coverage: coverageReport, inspection: .normalized(serverInspection))), as: UTF8.self)
+    // Create artifact directories with coverage files for client and server
+    let clientArtifactRoot = directory.appendingPathComponent("client-artifacts", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: clientArtifactRoot, withIntermediateDirectories: true)
+    try JSONEncoder().encode(coverageReport).write(
+      to: clientArtifactRoot.appendingPathComponent("coverage.json"))
+    try JSONEncoder().encode(clientInspection).write(
+      to: clientArtifactRoot.appendingPathComponent("coverage-inspection.json"))
+
+    let serverArtifactRoot = directory.appendingPathComponent("server-artifacts", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: serverArtifactRoot, withIntermediateDirectories: true)
+    try JSONEncoder().encode(coverageReport).write(
+      to: serverArtifactRoot.appendingPathComponent("coverage.json"))
+    try JSONEncoder().encode(serverInspection).write(
+      to: serverArtifactRoot.appendingPathComponent("coverage-inspection.json"))
+
     let packageShowCommand =
       "xcrun llvm-cov show -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(repoRoot.appendingPathComponent("Sources/Foo.swift").path)"
     let packageFunctionsCommand =
       "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(repoRoot.appendingPathComponent("Sources/Foo.swift").path)"
     let runner = HarnessInspectionProcessRunner(
       packageCoveragePath: coveragePath.path,
-      clientJSON: clientWrapper,
-      serverJSON: serverWrapper,
+      clientArtifactRoot: clientArtifactRoot.path,
+      serverArtifactRoot: serverArtifactRoot.path,
       extraResults: [
         packageShowCommand: StubProcessRunner.success(
           """
@@ -1391,19 +1511,21 @@ import Testing
     #expect(!buildOutput.contains("\n"))
     #expect(buildOutput == "swift build --product SymphonyServer")
     #expect(!buildOutput.contains("xcodebuild"))
-    #expect(!testOutput.contains("\n"))
-    #expect(testOutput == "swift test --filter SymphonyServerTests")
+    let testLines = testOutput.split(separator: "\n").map(String.init)
+    #expect(testLines.count == 2)
+    #expect(testLines[0] == "swift test --enable-code-coverage --filter SymphonyServerTests")
+    #expect(testLines[1] == "swift test --show-code-coverage-path")
     #expect(
       !FileManager.default.fileExists(
         atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
   }
 }
 
-@Test func coverageDryRunRendersSwiftPMCommandsWithoutSideEffects() throws {
+@Test func testDryRunRendersSwiftPMCommandsWithCoverageEnabled() throws {
   try withTemporaryRepositoryFixture { repoRoot in
     let tool = makeToolForFixture(repoRoot: repoRoot)
-    let output = try tool.coverage(
-      CoverageCommandRequest(
+    let output = try tool.test(
+      TestCommandRequest(
         product: .server,
         scheme: nil,
         platform: nil,
@@ -1412,9 +1534,6 @@ import Testing
         dryRun: true,
         onlyTesting: [],
         skipTesting: [],
-        json: false,
-        showFiles: false,
-        includeTestTargets: false,
         outputMode: .filtered,
         currentDirectory: repoRoot
       )
@@ -1722,17 +1841,17 @@ func expectedHostMacOSDestination() -> String {
 
 final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable {
   let packageCoveragePath: String
-  let clientJSON: String
-  let serverJSON: String
+  let clientArtifactRoot: String
+  let serverArtifactRoot: String
   let extraResults: [String: CommandResult]
 
   init(
-    packageCoveragePath: String, clientJSON: String, serverJSON: String,
+    packageCoveragePath: String, clientArtifactRoot: String, serverArtifactRoot: String,
     extraResults: [String: CommandResult]
   ) {
     self.packageCoveragePath = packageCoveragePath
-    self.clientJSON = clientJSON
-    self.serverJSON = serverJSON
+    self.clientArtifactRoot = clientArtifactRoot
+    self.serverArtifactRoot = serverArtifactRoot
     self.extraResults = extraResults
   }
 
@@ -1750,11 +1869,11 @@ final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable 
     if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
-    if arguments.prefix(3) == ["coverage", "--product", "client"] {
-      return StubProcessRunner.success(clientJSON)
+    if arguments.prefix(3) == ["test", "--product", "client"] {
+      return StubProcessRunner.success(clientArtifactRoot + "\n")
     }
-    if arguments.prefix(3) == ["coverage", "--product", "server"] {
-      return StubProcessRunner.success(serverJSON)
+    if arguments.prefix(3) == ["test", "--product", "server"] {
+      return StubProcessRunner.success(serverArtifactRoot + "\n")
     }
     return StubProcessRunner.success()
   }
