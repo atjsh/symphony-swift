@@ -420,6 +420,97 @@ import Testing
     }
 }
 
+@Test func artifactManagerIndexesSupplementalFilesAcrossBackendsAndHandlesNilEnumerators() throws {
+    try withTemporaryDirectory { directory in
+        let workspace = WorkspaceContext(
+            projectRoot: directory,
+            buildStateRoot: directory.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+
+        let xcodeContext = try ExecutionContextBuilder().make(
+            workspace: workspace,
+            worker: WorkerScope(id: 0),
+            command: .test,
+            runID: "xcode-extra",
+            date: Date(timeIntervalSince1970: 1_700_000_450)
+        )
+        try FileManager.default.createDirectory(at: xcodeContext.artifactRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: xcodeContext.resultBundlePath, withIntermediateDirectories: true)
+        let xcodeExtra = xcodeContext.artifactRoot.appendingPathComponent("custom-note.txt")
+        try "note\n".write(to: xcodeExtra, atomically: true, encoding: .utf8)
+
+        let xcodeRunner = StubProcessRunner(results: [
+            "xcrun xcresulttool get object --legacy --path \(xcodeContext.resultBundlePath.path) --format json": StubProcessRunner.success(#"{"kind":"ActionsInvocationRecord"}"#),
+            "xcrun xcresulttool export diagnostics --path \(xcodeContext.resultBundlePath.path) --output-path \(xcodeContext.artifactRoot.appendingPathComponent("diagnostics").path)": StubProcessRunner.success(),
+            "xcrun xcresulttool export attachments --path \(xcodeContext.resultBundlePath.path) --output-path \(xcodeContext.artifactRoot.appendingPathComponent("attachments").path)": StubProcessRunner.success(),
+        ])
+        let xcodeManager = ArtifactManager(processRunner: xcodeRunner)
+        let xcodeRecord = try xcodeManager.recordXcodeExecution(
+            workspace: workspace,
+            executionContext: xcodeContext,
+            command: .test,
+            product: .client,
+            scheme: "Symphony",
+            destination: ResolvedDestination(platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil, xcodeDestination: expectedHostMacOSDestination()),
+            invocation: "xcodebuild test",
+            exitStatus: 0,
+            combinedOutput: "tests passed",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_450),
+            endedAt: Date(timeIntervalSince1970: 1_700_000_460)
+        )
+        let xcodeIndex = try JSONDecoder().decode(ArtifactIndex.self, from: Data(contentsOf: xcodeRecord.run.indexPath))
+        #expect(xcodeIndex.entries.contains(where: { $0.name == "custom-note.txt" && $0.kind == "file" }))
+
+        let swiftPMContext = try ExecutionContextBuilder().make(
+            workspace: workspace,
+            worker: WorkerScope(id: 1),
+            command: .test,
+            runID: "swiftpm-extra",
+            date: Date(timeIntervalSince1970: 1_700_000_470)
+        )
+        try FileManager.default.createDirectory(at: swiftPMContext.artifactRoot, withIntermediateDirectories: true)
+        let swiftPMExtra = swiftPMContext.artifactRoot.appendingPathComponent("manual-log.txt")
+        try "manual\n".write(to: swiftPMExtra, atomically: true, encoding: .utf8)
+
+        let swiftPMRecord = try ArtifactManager(processRunner: StubProcessRunner()).recordSwiftPMExecution(
+            workspace: workspace,
+            executionContext: swiftPMContext,
+            command: .test,
+            product: .server,
+            scheme: "SymphonyServer",
+            destination: ResolvedDestination(platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil, xcodeDestination: expectedHostMacOSDestination()),
+            invocation: "swift test --enable-code-coverage --filter SymphonyServerTests",
+            exitStatus: 0,
+            combinedOutput: "ok",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_470),
+            endedAt: Date(timeIntervalSince1970: 1_700_000_480)
+        )
+        let swiftPMIndex = try JSONDecoder().decode(ArtifactIndex.self, from: Data(contentsOf: swiftPMRecord.run.indexPath))
+        #expect(swiftPMIndex.entries.contains(where: { $0.name == "manual-log.txt" && $0.kind == "file" }))
+
+        let nilEnumeratorManager = ArtifactManager(processRunner: StubProcessRunner(), enumeratorFactory: { _ in nil })
+        #expect(nilEnumeratorManager.recursiveFiles(in: [directory]).isEmpty)
+    }
+}
+
+@Test func artifactManagerAdditionalEntriesMapsUnknownFilesIntoIndexEntries() throws {
+    try withTemporaryDirectory { directory in
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        try "alpha\n".write(to: artifactRoot.appendingPathComponent("alpha.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: artifactRoot.appendingPathComponent("nested", isDirectory: true), withIntermediateDirectories: true)
+
+        let manager = ArtifactManager(processRunner: StubProcessRunner())
+        let entries = try manager.additionalEntries(in: artifactRoot, excluding: [], createdAt: "2026-03-25T00:00:00Z")
+
+        #expect(entries.map(\.name) == ["alpha.txt", "nested"])
+        #expect(entries.first?.kind == "file")
+        #expect(entries.last?.kind == "directory")
+    }
+}
+
 @Test func artifactManagerWritesHarnessArtifactsAndResolvesHarnessFamily() throws {
     try withTemporaryDirectory { directory in
         let workspace = WorkspaceContext(

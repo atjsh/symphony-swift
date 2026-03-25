@@ -106,22 +106,7 @@ public struct ArtifactManager {
         }
 
         let knownNames = Set(entries.map(\.name))
-        let additionalEntries = try fileManager.contentsOfDirectory(
-            at: artifactRoot,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        .filter { !knownNames.contains($0.lastPathComponent) }
-        .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-        .map { url in
-            ArtifactIndexEntry(
-                name: url.lastPathComponent,
-                relativePath: url.lastPathComponent,
-                kind: kind(for: url),
-                createdAt: createdAt
-            )
-        }
-        entries.append(contentsOf: additionalEntries)
+        entries.append(contentsOf: try additionalEntries(in: artifactRoot, excluding: knownNames, createdAt: createdAt))
 
         let index = ArtifactIndex(entries: entries, command: command, runID: executionContext.runID, timestamp: executionContext.timestamp, anomalies: anomalies)
         let encoder = JSONEncoder()
@@ -213,22 +198,7 @@ public struct ArtifactManager {
         }
 
         let knownNames = Set(entries.map(\.name))
-        let additionalEntries = try fileManager.contentsOfDirectory(
-            at: artifactRoot,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        .filter { !knownNames.contains($0.lastPathComponent) }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        .map { url in
-            ArtifactIndexEntry(
-                name: url.lastPathComponent,
-                relativePath: url.lastPathComponent,
-                kind: kind(for: url),
-                createdAt: createdAt
-            )
-        }
-        entries.append(contentsOf: additionalEntries)
+        entries.append(contentsOf: try additionalEntries(in: artifactRoot, excluding: knownNames, createdAt: createdAt))
 
         let index = ArtifactIndex(entries: entries, command: command, runID: executionContext.runID, timestamp: executionContext.timestamp, anomalies: anomalies)
         let encoder = JSONEncoder()
@@ -384,6 +354,21 @@ public struct ArtifactManager {
         try fileManager.createDirectory(at: executionContext.runtimeRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: executionContext.artifactRoot.deletingLastPathComponent(), withIntermediateDirectories: true)
         _ = command
+    }
+
+    func additionalEntries(in artifactRoot: URL, excluding knownNames: Set<String>, createdAt: String) throws -> [ArtifactIndexEntry] {
+        let urls = try fileManager.contentsOfDirectory(
+            at: artifactRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { !knownNames.contains($0.lastPathComponent) }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var entries = [ArtifactIndexEntry]()
+        for url in urls {
+            entries.append(ArtifactIndexEntry(name: url.lastPathComponent, relativePath: url.lastPathComponent, kind: kind(for: url), createdAt: createdAt))
+        }
+        return entries
     }
 
     private func exportXCResult(

@@ -84,7 +84,7 @@ import Testing
                 currentDirectory: repoRoot
             )
         )
-        #expect(testOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: testOutput))
         #expect(runner.startedDetachedExecutions.isEmpty)
         #expect(signals.values.isEmpty)
 
@@ -130,7 +130,7 @@ import Testing
         let exportFailOutput = try exportFailTool.test(
             TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
         )
-        #expect(exportFailOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: exportFailOutput))
     }
 }
 
@@ -328,7 +328,7 @@ import Testing
                 currentDirectory: repoRoot
             )
         )
-        #expect(testOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: testOutput))
 
         let failingRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "xcodebuild", arguments.last == "build" {
@@ -679,7 +679,7 @@ import Testing
             let testOutput = try defaultSinkTool.test(
                 TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .full, currentDirectory: repoRoot)
             )
-            #expect(testOutput.hasSuffix("summary.txt"))
+            #expect(FileManager.default.fileExists(atPath: testOutput))
         }
 
         let runBuildFailRunner = RoutedProcessRunner { command, arguments, _, _, _ in
@@ -887,7 +887,7 @@ import Testing
         let pathFailureOutput = try pathFailureTool.test(
             TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
         )
-        #expect(pathFailureOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: pathFailureOutput))
 
         let emptyFailurePathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -902,7 +902,7 @@ import Testing
         let emptyFailureOutput = try emptyFailurePathTool.test(
             TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
         )
-        #expect(emptyFailureOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: emptyFailureOutput))
 
         let emptyPathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -917,7 +917,7 @@ import Testing
         let emptyPathOutput = try emptyPathTool.test(
             TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
         )
-        #expect(emptyPathOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: emptyPathOutput))
 
         let throwingCoverageRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -933,7 +933,7 @@ import Testing
         let throwingOutput = try throwingCoverageTool.test(
             TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
         )
-        #expect(throwingOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: throwingOutput))
 
         let binPathFailureRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["build", "--product", "SymphonyServer"] {
@@ -1066,7 +1066,7 @@ import Testing
             let testOutput = try genericCoverageTool.test(
                 TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
             )
-            #expect(testOutput.hasSuffix("summary.txt"))
+            #expect(FileManager.default.fileExists(atPath: testOutput))
         }
 
         let emptyInstallOutputRunner = RoutedProcessRunner { command, arguments, _, _, _ in
@@ -1268,7 +1268,7 @@ import Testing
                 currentDirectory: repoRoot
             )
         )
-        #expect(testOutput.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: testOutput))
 
         let testArtifacts = try tool.artifacts(
             ArtifactsCommandRequest(command: .test, latest: true, runID: nil, currentDirectory: repoRoot)
@@ -1391,7 +1391,7 @@ import Testing
             )
         )
 
-        #expect(output.hasSuffix("summary.txt"))
+        #expect(FileManager.default.fileExists(atPath: output))
 
         let testArtifacts = try tool.artifacts(
             ArtifactsCommandRequest(command: .test, latest: true, runID: nil, currentDirectory: repoRoot)

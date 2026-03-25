@@ -320,8 +320,7 @@ public final class SymphonyBuildTool {
                 try writeCoverageInspectionArtifacts(
                     artifactRoot: executionContext.artifactRoot,
                     normalizedReport: normalizedInspection,
-                    rawReport: rawInspection,
-                    writeRawArtifacts: true
+                    rawReport: rawInspection
                 )
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
@@ -353,7 +352,7 @@ public final class SymphonyBuildTool {
         guard result.exitStatus == 0 else {
             throw SymphonyBuildCommandFailure(message: "xcodebuild test failed.", summaryPath: record.run.summaryPath)
         }
-        return record.run.summaryPath.path
+        return record.run.artifactRoot.path
     }
 
     private func testSwiftPM(
@@ -440,8 +439,7 @@ public final class SymphonyBuildTool {
                 try writeCoverageInspectionArtifacts(
                     artifactRoot: executionContext.artifactRoot,
                     normalizedReport: normalizedInspection,
-                    rawReport: rawInspection,
-                    writeRawArtifacts: true
+                    rawReport: rawInspection
                 )
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
@@ -469,7 +467,7 @@ public final class SymphonyBuildTool {
         guard result.exitStatus == 0 else {
             throw SymphonyBuildCommandFailure(message: "swift test failed.", summaryPath: record.run.summaryPath)
         }
-        return record.run.summaryPath.path
+        return record.run.artifactRoot.path
     }
 
     private func runXcode(
@@ -899,8 +897,7 @@ public final class SymphonyBuildTool {
     private func writeCoverageInspectionArtifacts(
         artifactRoot: URL,
         normalizedReport: CoverageInspectionReport,
-        rawReport: CoverageInspectionRawReport,
-        writeRawArtifacts: Bool
+        rawReport: CoverageInspectionRawReport
     ) throws {
         let normalizedJSON = try encodePrettyJSON(normalizedReport)
         let normalizedText = renderInspectionHuman(report: normalizedReport)
@@ -914,10 +911,6 @@ public final class SymphonyBuildTool {
             atomically: true,
             encoding: .utf8
         )
-
-        guard writeRawArtifacts else {
-            return
-        }
 
         let rawJSON = try encodePrettyJSON(rawReport)
         let rawText = renderRawInspectionHuman(report: rawReport)
