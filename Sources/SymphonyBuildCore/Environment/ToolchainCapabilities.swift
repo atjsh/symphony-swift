@@ -50,6 +50,29 @@ public protocol ToolchainCapabilitiesResolving {
   func resolve() throws -> ToolchainCapabilities
 }
 
+public final class CachingToolchainCapabilitiesResolver: ToolchainCapabilitiesResolving,
+  @unchecked Sendable
+{
+  private let inner: ToolchainCapabilitiesResolving
+  private let lock = NSLock()
+  private var cached: ToolchainCapabilities?
+
+  public init(inner: ToolchainCapabilitiesResolving) {
+    self.inner = inner
+  }
+
+  public func resolve() throws -> ToolchainCapabilities {
+    lock.lock()
+    defer { lock.unlock() }
+    if let cached {
+      return cached
+    }
+    let resolved = try inner.resolve()
+    cached = resolved
+    return resolved
+  }
+}
+
 public struct ProcessToolchainCapabilitiesResolver: ToolchainCapabilitiesResolving {
   private let processRunner: ProcessRunning
 

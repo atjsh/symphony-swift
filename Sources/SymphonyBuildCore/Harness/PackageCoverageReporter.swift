@@ -1,6 +1,8 @@
 import Foundation
 
-public struct PackageCoverageReporter {
+// Safe to share across the harness's parallel operations because the reporter is immutable and
+// delegates all filesystem interaction to FileManager for each call.
+public struct PackageCoverageReporter: @unchecked Sendable {
   private let fileManager: FileManager
 
   public init(fileManager: FileManager = .default) {

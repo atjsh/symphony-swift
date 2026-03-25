@@ -38,8 +38,9 @@ public final class SymphonyBuildTool {
     self.artifactManager = artifactManager
     self.endpointOverrideStore = endpointOverrideStore
     let resolvedToolchainCapabilitiesResolver =
-      toolchainCapabilitiesResolver
-      ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+      CachingToolchainCapabilitiesResolver(
+        inner: toolchainCapabilitiesResolver
+          ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner))
     self.toolchainCapabilitiesResolver = resolvedToolchainCapabilitiesResolver
     self.doctorService =
       doctorService

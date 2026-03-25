@@ -16,8 +16,9 @@ public struct DoctorService: DoctorServicing {
     self.processRunner = processRunner
     self.fileManager = fileManager
     self.toolchainCapabilitiesResolver =
-      toolchainCapabilitiesResolver
-      ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+      CachingToolchainCapabilitiesResolver(
+        inner: toolchainCapabilitiesResolver
+          ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner))
   }
 
   public func makeReport(from request: DoctorCommandRequest) throws -> DiagnosticsReport {

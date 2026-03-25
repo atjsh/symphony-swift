@@ -1020,6 +1020,61 @@ import Testing
   }
 }
 
+@Test func commitHarnessCachesToolchainCapabilitiesAcrossExecution() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+    let coveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try
+      #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":10,"covered":9}}}]}]}"#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+      .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+    let resolver = CountingToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+
+    let report = try CommitHarness(
+      processRunner: CoverageCommandProcessRunner(
+        packageCoveragePath: coveragePath.path,
+        coverageResult: StubProcessRunner.success()
+      ),
+      statusSink: { _ in },
+      serverCoverageLoader: { _ in
+        CoverageReport(
+          coveredLines: 1,
+          executableLines: 1,
+          lineCoverage: 1,
+          includeTestTargets: false,
+          excludedTargets: [],
+          targets: [
+            CoverageTargetReport(
+              name: "Suite", buildProductPath: nil, coveredLines: 1, executableLines: 1,
+              lineCoverage: 1, files: [])
+          ]
+        )
+      },
+      toolchainCapabilitiesResolver: resolver
+    ).run(
+      workspace: workspace,
+      request: HarnessCommandRequest(
+        minimumCoveragePercent: 100, json: false, currentDirectory: repoRoot)
+    )
+
+    #expect(report.packageFileViolations.map(\.name) == ["Sources/Foo.swift"])
+    #expect(resolver.resolveCount == 1)
+  }
+}
+
 @Test func commitHarnessSkipsClientCoverageWhenXcodeIsUnavailable() throws {
   try withTemporaryDirectory { directory in
     let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
@@ -1072,6 +1127,65 @@ import Testing
         == "not supported because the current environment has no Xcode available; Editing those sources is not encouraged"
     )
     #expect(report.serverCoverage.targets.map(\.name) == ["Suite"])
+  }
+}
+
+@Test func commitHarnessOverlapsCoveragePathLookupWithCoverageSuites() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+    let packageCoveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+    try FileManager.default.createDirectory(
+      at: packageCoveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try
+      #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+      .write(to: packageCoveragePath, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+    let coverageJSON = #"""
+      {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+      """#
+    let clientArtifactRoot = directory.appendingPathComponent("client-artifacts", isDirectory: true)
+    let serverArtifactRoot = directory.appendingPathComponent("server-artifacts", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: clientArtifactRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: serverArtifactRoot, withIntermediateDirectories: true)
+    try coverageJSON.write(
+      to: clientArtifactRoot.appendingPathComponent("coverage.json"), atomically: true,
+      encoding: .utf8)
+    try coverageJSON.write(
+      to: serverArtifactRoot.appendingPathComponent("coverage.json"), atomically: true,
+      encoding: .utf8)
+
+    let runner = ParallelCoverageHarnessProcessRunner(
+      packageCoveragePath: packageCoveragePath.path,
+      clientArtifactRoot: clientArtifactRoot.path,
+      serverArtifactRoot: serverArtifactRoot.path
+    )
+
+    let execution = try CommitHarness(
+      processRunner: runner,
+      statusSink: { _ in },
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests)
+    ).execute(
+      workspace: workspace,
+      request: HarnessCommandRequest(
+        minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+    )
+
+    #expect(execution.report.clientCoverage?.targets.map(\.name) == ["Suite"])
+    #expect(execution.report.serverCoverage.targets.map(\.name) == ["Suite"])
   }
 }
 
@@ -1701,6 +1815,91 @@ private struct ArtifactPathProcessRunner: ProcessRunning {
       || arguments.prefix(3) == ["test", "--product", "server"]
     {
       return StubProcessRunner.success(artifactRoot + "\n")
+    }
+    return StubProcessRunner.success()
+  }
+
+  func startDetached(
+    executablePath: String, arguments: [String], environment: [String: String],
+    currentDirectory: URL?, output: URL
+  ) throws -> Int32 {
+    0
+  }
+}
+
+private final class CountingToolchainCapabilitiesResolver: ToolchainCapabilitiesResolving,
+  @unchecked Sendable
+{
+  let capabilities: ToolchainCapabilities
+  private let lock = NSLock()
+  private var storage = 0
+
+  init(capabilities: ToolchainCapabilities) {
+    self.capabilities = capabilities
+  }
+
+  var resolveCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  func resolve() throws -> ToolchainCapabilities {
+    lock.lock()
+    storage += 1
+    lock.unlock()
+    return capabilities
+  }
+}
+
+private enum ParallelCoverageHarnessError: Error {
+  case coveragePathDidNotOverlapSuites
+  case clientSuiteDidNotOverlapServer
+  case serverSuiteDidNotOverlapClient
+}
+
+private final class ParallelCoverageHarnessProcessRunner: ProcessRunning, @unchecked Sendable {
+  let packageCoveragePath: String
+  let clientArtifactRoot: String
+  let serverArtifactRoot: String
+  private let suiteStarted = DispatchSemaphore(value: 0)
+  private let clientStarted = DispatchSemaphore(value: 0)
+  private let serverStarted = DispatchSemaphore(value: 0)
+
+  init(packageCoveragePath: String, clientArtifactRoot: String, serverArtifactRoot: String) {
+    self.packageCoveragePath = packageCoveragePath
+    self.clientArtifactRoot = clientArtifactRoot
+    self.serverArtifactRoot = serverArtifactRoot
+  }
+
+  func run(
+    command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
+    observation: ProcessObservation?
+  ) throws -> CommandResult {
+    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      return StubProcessRunner.success()
+    }
+    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      guard suiteStarted.wait(timeout: .now() + 1) == .success else {
+        throw ParallelCoverageHarnessError.coveragePathDidNotOverlapSuites
+      }
+      return StubProcessRunner.success(packageCoveragePath + "\n")
+    }
+    if arguments.prefix(3) == ["test", "--product", "client"] {
+      suiteStarted.signal()
+      clientStarted.signal()
+      guard serverStarted.wait(timeout: .now() + 1) == .success else {
+        throw ParallelCoverageHarnessError.clientSuiteDidNotOverlapServer
+      }
+      return StubProcessRunner.success(clientArtifactRoot + "\n")
+    }
+    if arguments.prefix(3) == ["test", "--product", "server"] {
+      suiteStarted.signal()
+      serverStarted.signal()
+      guard clientStarted.wait(timeout: .now() + 1) == .success else {
+        throw ParallelCoverageHarnessError.serverSuiteDidNotOverlapClient
+      }
+      return StubProcessRunner.success(serverArtifactRoot + "\n")
     }
     return StubProcessRunner.success()
   }

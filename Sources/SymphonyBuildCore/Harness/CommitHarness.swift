@@ -37,8 +37,9 @@ public struct CommitHarness {
     self.clientCoverageLoader = clientCoverageLoader
     self.serverCoverageLoader = serverCoverageLoader
     self.toolchainCapabilitiesResolver =
-      toolchainCapabilitiesResolver
-      ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+      CachingToolchainCapabilitiesResolver(
+        inner: toolchainCapabilitiesResolver
+          ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner))
   }
 
   public func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws
@@ -89,29 +90,6 @@ public struct CommitHarness {
         message: "Commit harness failed because `swift test --enable-code-coverage` did not pass.")
     }
 
-    let coveragePathResult = try processRunner.run(
-      command: "swift",
-      arguments: ["test", "--show-code-coverage-path"],
-      environment: [:],
-      currentDirectory: workspace.projectRoot,
-      observation: nil
-    )
-    guard coveragePathResult.exitStatus == 0 else {
-      throw SymphonyBuildCommandFailure(
-        message: "Commit harness failed because SwiftPM did not return a coverage JSON path.")
-    }
-
-    let rawPath = coveragePathResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !rawPath.isEmpty else {
-      throw SymphonyBuildError(
-        code: "missing_package_coverage_path",
-        message: "SwiftPM returned an empty coverage JSON path.")
-    }
-
-    let coverageReport = try coverageReporter.loadReport(
-      at: URL(fileURLWithPath: rawPath),
-      projectRoot: workspace.projectRoot
-    )
     let clientCoverageInvocation = ShellQuoting.render(
       command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
       arguments: Self.coverageSuiteArguments(
@@ -123,44 +101,100 @@ public struct CommitHarness {
         product: "server", platform: nil, outputMode: request.outputMode)
     )
     let capabilities = try toolchainCapabilitiesResolver.resolve()
-    let clientExecution: CoverageSuiteExecution?
-    let clientCoverageInvocationForReport: String?
-    let clientCoverageSkipReason: String?
-    if let clientCoverageLoader {
-      clientExecution = CoverageSuiteExecution(
-        report: try clientCoverageLoader(workspace), inspection: nil)
-      clientCoverageInvocationForReport = clientCoverageInvocation
-      clientCoverageSkipReason = nil
-    } else if !capabilities.supportsXcodeCommands {
-      clientExecution = nil
-      clientCoverageInvocationForReport = nil
-      clientCoverageSkipReason = Self.noXcodeMessage
-    } else {
-      clientExecution = try Self.runCoverageSuiteExecution(
-        processRunner: processRunner,
-        executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-        arguments: Self.coverageSuiteArguments(
-          product: "client", platform: "macos", outputMode: request.outputMode),
-        currentDirectory: workspace.projectRoot,
-        statusSink: statusSink
-      )
-      clientCoverageInvocationForReport = clientCoverageInvocation
-      clientCoverageSkipReason = nil
-    }
-    let serverExecution: CoverageSuiteExecution
-    if let serverCoverageLoader {
-      serverExecution = CoverageSuiteExecution(
-        report: try serverCoverageLoader(workspace), inspection: nil)
-    } else {
-      serverExecution = try Self.runCoverageSuiteExecution(
-        processRunner: processRunner,
-        executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-        arguments: Self.coverageSuiteArguments(
-          product: "server", platform: nil, outputMode: request.outputMode),
-        currentDirectory: workspace.projectRoot,
-        statusSink: statusSink
-      )
-    }
+    let processRunner = self.processRunner
+    let coverageReporter = self.coverageReporter
+    let statusSink = self.statusSink
+    let clientCoverageLoader = self.clientCoverageLoader
+    let serverCoverageLoader = self.serverCoverageLoader
+    let projectRoot = workspace.projectRoot
+    let executablePath = Self.currentExecutablePath(workingDirectory: projectRoot)
+    let clientCoverageArguments = Self.coverageSuiteArguments(
+      product: "client", platform: "macos", outputMode: request.outputMode)
+    let serverCoverageArguments = Self.coverageSuiteArguments(
+      product: "server", platform: nil, outputMode: request.outputMode)
+    let clientCoverageInvocationForReport: String? =
+      clientCoverageLoader != nil || capabilities.supportsXcodeCommands ? clientCoverageInvocation : nil
+    let clientCoverageSkipReason: String? =
+      clientCoverageLoader != nil || capabilities.supportsXcodeCommands ? nil : Self.noXcodeMessage
+    let coverageReportBox = LockedResultBox<PackageCoverageReport>()
+    let clientExecutionBox = LockedResultBox<CoverageSuiteExecution?>()
+    let serverExecutionBox = LockedResultBox<CoverageSuiteExecution>()
+    let operations = OperationQueue()
+    operations.maxConcurrentOperationCount = 3
+    operations.qualityOfService = .userInitiated
+    operations.addOperations(
+      [
+        BlockOperation {
+          coverageReportBox.store(
+            Result {
+              let coveragePathResult = try processRunner.run(
+                command: "swift",
+                arguments: ["test", "--show-code-coverage-path"],
+                environment: [:],
+                currentDirectory: projectRoot,
+                observation: nil
+              )
+              guard coveragePathResult.exitStatus == 0 else {
+                throw SymphonyBuildCommandFailure(
+                  message: "Commit harness failed because SwiftPM did not return a coverage JSON path."
+                )
+              }
+
+              let rawPath = coveragePathResult.stdout.trimmingCharacters(
+                in: .whitespacesAndNewlines)
+              guard !rawPath.isEmpty else {
+                throw SymphonyBuildError(
+                  code: "missing_package_coverage_path",
+                  message: "SwiftPM returned an empty coverage JSON path.")
+              }
+
+              return try coverageReporter.loadReport(
+                at: URL(fileURLWithPath: rawPath),
+                projectRoot: projectRoot
+              )
+            })
+        },
+        BlockOperation {
+          clientExecutionBox.store(
+            Result {
+              if let clientCoverageLoader {
+                return CoverageSuiteExecution(
+                  report: try clientCoverageLoader(workspace), inspection: nil)
+              }
+              if !capabilities.supportsXcodeCommands {
+                return nil
+              }
+              return try Self.runCoverageSuiteExecution(
+                processRunner: processRunner,
+                executablePath: executablePath,
+                arguments: clientCoverageArguments,
+                currentDirectory: projectRoot,
+                statusSink: statusSink
+              )
+            })
+        },
+        BlockOperation {
+          serverExecutionBox.store(
+            Result {
+              if let serverCoverageLoader {
+                return CoverageSuiteExecution(
+                  report: try serverCoverageLoader(workspace), inspection: nil)
+              }
+              return try Self.runCoverageSuiteExecution(
+                processRunner: processRunner,
+                executablePath: executablePath,
+                arguments: serverCoverageArguments,
+                currentDirectory: projectRoot,
+                statusSink: statusSink
+              )
+            })
+        },
+      ],
+      waitUntilFinished: true
+    )
+    let coverageReport = try coverageReportBox.load()
+    let clientExecution = try clientExecutionBox.load()
+    let serverExecution = try serverExecutionBox.load()
     let clientCoverage = clientExecution?.report
     let serverCoverage = serverExecution.report
     let threshold = request.minimumCoveragePercent / 100
@@ -174,7 +208,7 @@ public struct CommitHarness {
         (try? Self.enrichViolationsWithFunctions(
           violations: rawPackageFileViolations,
           coverageJSONPath: URL(fileURLWithPath: coverageReport.coverageJSONPath),
-          projectRoot: workspace.projectRoot,
+          projectRoot: projectRoot,
           processRunner: processRunner,
           toolchainCapabilitiesResolver: toolchainCapabilitiesResolver
         )) ?? rawPackageFileViolations
@@ -390,6 +424,28 @@ extension CommitHarness {
 struct CoverageSuiteExecution: Sendable {
   let report: CoverageReport
   let inspection: CoverageInspectionReport?
+}
+
+private final class LockedResultBox<Value>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var result: Result<Value, Error>?
+
+  func store(_ result: Result<Value, Error>) {
+    lock.lock()
+    self.result = result
+    lock.unlock()
+  }
+
+  func load() throws -> Value {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let result else {
+      throw SymphonyBuildError(
+        code: "missing_parallel_operation_result",
+        message: "Commit harness failed because a concurrent operation did not produce a result.")
+    }
+    return try result.get()
+  }
 }
 
 public struct GitHookInstaller {
