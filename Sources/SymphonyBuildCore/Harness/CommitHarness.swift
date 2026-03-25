@@ -18,19 +18,22 @@ public struct CommitHarness {
     private let statusSink: @Sendable (String) -> Void
     private let clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
     private let serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
+    private let toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
 
     public init(
         processRunner: ProcessRunning = SystemProcessRunner(),
         coverageReporter: PackageCoverageReporter = PackageCoverageReporter(),
         statusSink: @escaping @Sendable (String) -> Void = { _ in },
         clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil,
-        serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil
+        serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil,
+        toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil
     ) {
         self.processRunner = processRunner
         self.coverageReporter = coverageReporter
         self.statusSink = statusSink
         self.clientCoverageLoader = clientCoverageLoader
         self.serverCoverageLoader = serverCoverageLoader
+        self.toolchainCapabilitiesResolver = toolchainCapabilitiesResolver ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
     }
 
     public func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws -> HarnessReport {
@@ -112,9 +115,18 @@ public struct CommitHarness {
                 "--json",
             ]
         )
-        let clientExecution: CoverageSuiteExecution
+        let capabilities = try toolchainCapabilitiesResolver.resolve()
+        let clientExecution: CoverageSuiteExecution?
+        let clientCoverageInvocationForReport: String?
+        let clientCoverageSkipReason: String?
         if let clientCoverageLoader {
             clientExecution = CoverageSuiteExecution(report: try clientCoverageLoader(workspace), inspection: nil)
+            clientCoverageInvocationForReport = clientCoverageInvocation
+            clientCoverageSkipReason = nil
+        } else if !capabilities.supportsXcodeCommands {
+            clientExecution = nil
+            clientCoverageInvocationForReport = nil
+            clientCoverageSkipReason = Self.noXcodeMessage
         } else {
             clientExecution = try Self.runCoverageSuiteExecution(
                 processRunner: processRunner,
@@ -131,6 +143,8 @@ public struct CommitHarness {
                 currentDirectory: workspace.projectRoot,
                 statusSink: statusSink
             )
+            clientCoverageInvocationForReport = clientCoverageInvocation
+            clientCoverageSkipReason = nil
         }
         let serverExecution: CoverageSuiteExecution
         if let serverCoverageLoader {
@@ -151,12 +165,16 @@ public struct CommitHarness {
                 statusSink: statusSink
             )
         }
-        let clientCoverage = clientExecution.report
+        let clientCoverage = clientExecution?.report
         let serverCoverage = serverExecution.report
         let threshold = request.minimumCoveragePercent / 100
         let packageFileViolations = coverageReporter.makePackageFileViolations(report: coverageReport, minimumLineCoverage: threshold)
-        let clientTargetViolations = coverageReporter.makeTargetViolations(report: clientCoverage, suite: "client", minimumLineCoverage: threshold)
-        let clientFileViolations = coverageReporter.makeFileViolations(report: clientCoverage, suite: "client", minimumLineCoverage: threshold)
+        let clientTargetViolations = clientCoverage.map {
+            coverageReporter.makeTargetViolations(report: $0, suite: "client", minimumLineCoverage: threshold)
+        } ?? []
+        let clientFileViolations = clientCoverage.map {
+            coverageReporter.makeFileViolations(report: $0, suite: "client", minimumLineCoverage: threshold)
+        } ?? []
         let serverTargetViolations = coverageReporter.makeTargetViolations(report: serverCoverage, suite: "server", minimumLineCoverage: threshold)
         let serverFileViolations = coverageReporter.makeFileViolations(report: serverCoverage, suite: "server", minimumLineCoverage: threshold)
 
@@ -165,8 +183,9 @@ public struct CommitHarness {
             testsInvocation: testsInvocation,
             coveragePathInvocation: coveragePathInvocation,
             packageCoverage: coverageReport,
-            clientCoverageInvocation: clientCoverageInvocation,
+            clientCoverageInvocation: clientCoverageInvocationForReport,
             clientCoverage: clientCoverage,
+            clientCoverageSkipReason: clientCoverageSkipReason,
             serverCoverageInvocation: serverCoverageInvocation,
             serverCoverage: serverCoverage,
             packageFileViolations: packageFileViolations,
@@ -178,7 +197,7 @@ public struct CommitHarness {
 
         return CommitHarnessExecution(
             report: report,
-            clientInspection: clientExecution.inspection,
+            clientInspection: clientExecution?.inspection,
             serverInspection: serverExecution.inspection
         )
     }
@@ -291,6 +310,10 @@ public struct CommitHarness {
         }
         return URL(fileURLWithPath: raw, relativeTo: workingDirectory).standardizedFileURL.path
     }
+}
+
+private extension CommitHarness {
+    static let noXcodeMessage = "not supported because the current environment has no Xcode available; Editing those sources is not encouraged"
 }
 
 struct CoverageSuiteExecution: Sendable {

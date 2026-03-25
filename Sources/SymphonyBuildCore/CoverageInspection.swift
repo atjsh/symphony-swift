@@ -31,12 +31,20 @@ public struct HarnessCoverageInspectionArtifact: Codable, Hashable, Sendable {
     public let backend: ProductBackend
     public let generatedAt: String
     public let files: [CoverageInspectionFileReport]
+    public let skippedReason: String?
 
-    public init(suite: String, backend: ProductBackend, generatedAt: String, files: [CoverageInspectionFileReport]) {
+    public init(
+        suite: String,
+        backend: ProductBackend,
+        generatedAt: String,
+        files: [CoverageInspectionFileReport],
+        skippedReason: String? = nil
+    ) {
         self.suite = suite
         self.backend = backend
         self.generatedAt = generatedAt
         self.files = files
+        self.skippedReason = skippedReason
     }
 }
 
@@ -53,10 +61,16 @@ public struct SwiftPMCoverageContext: Hashable, Sendable {
 public struct SwiftPMCoverageInspector {
     private let processRunner: ProcessRunning
     private let fileManager: FileManager
+    private let llvmCovCommand: LLVMCovCommand?
 
-    public init(processRunner: ProcessRunning = SystemProcessRunner(), fileManager: FileManager = .default) {
+    public init(
+        processRunner: ProcessRunning = SystemProcessRunner(),
+        fileManager: FileManager = .default,
+        llvmCovCommand: LLVMCovCommand? = nil
+    ) {
         self.processRunner = processRunner
         self.fileManager = fileManager
+        self.llvmCovCommand = llvmCovCommand
     }
 
     public func resolveContext(coverageJSONPath: URL) throws -> SwiftPMCoverageContext {
@@ -75,8 +89,18 @@ public struct SwiftPMCoverageInspector {
             .appendingPathComponent("\(packageName)PackageTests.xctest", isDirectory: true)
             .appendingPathComponent("Contents/MacOS", isDirectory: true)
             .appendingPathComponent("\(packageName)PackageTests")
-        if fileManager.fileExists(atPath: preferredBinaryPath.path) {
+        if isRegularFile(at: preferredBinaryPath) {
             return SwiftPMCoverageContext(profileDataPath: profileDataPath, testBinaryPath: preferredBinaryPath)
+        }
+
+        let preferredLinuxBinaryPath = debugRoot.appendingPathComponent("\(packageName)PackageTests.xctest")
+        if isRegularFile(at: preferredLinuxBinaryPath) {
+            return SwiftPMCoverageContext(profileDataPath: profileDataPath, testBinaryPath: preferredLinuxBinaryPath)
+        }
+
+        let preferredDirectBinaryPath = debugRoot.appendingPathComponent("\(packageName)PackageTests")
+        if isRegularFile(at: preferredDirectBinaryPath) {
+            return SwiftPMCoverageContext(profileDataPath: profileDataPath, testBinaryPath: preferredDirectBinaryPath)
         }
 
         if let fallback = resolveFallbackTestBinary(debugRoot: debugRoot) {
@@ -100,6 +124,7 @@ public struct SwiftPMCoverageInspector {
             return CoverageInspectionResult(files: [], rawCommands: [])
         }
         let context = try resolveContext(coverageJSONPath: coverageJSONPath)
+        let llvmCovCommand = try resolvedLLVMCovCommand()
         let resolvedRoot = projectRoot.resolvingSymlinksInPath()
 
         var files = [CoverageInspectionFileReport]()
@@ -110,13 +135,15 @@ public struct SwiftPMCoverageInspector {
             let missingLineRanges: [CoverageLineRange]
             if includeMissingLines {
                 let commandLine = renderedShowCommandLine(
+                    llvmCovCommand: llvmCovCommand,
                     profileDataPath: context.profileDataPath,
                     testBinaryPath: context.testBinaryPath,
                     filePath: filePath
                 )
+                let invocation = llvmCovInvocation(command: llvmCovCommand, arguments: ["show", "-instr-profile", context.profileDataPath.path, context.testBinaryPath.path, filePath])
                 let result = try processRunner.run(
-                    command: "xcrun",
-                    arguments: ["llvm-cov", "show", "-instr-profile", context.profileDataPath.path, context.testBinaryPath.path, filePath],
+                    command: invocation.command,
+                    arguments: invocation.arguments,
                     environment: [:],
                     currentDirectory: nil,
                     observation: nil
@@ -144,13 +171,15 @@ public struct SwiftPMCoverageInspector {
             let functions: [CoverageInspectionFunctionReport]
             if includeFunctions {
                 let commandLine = renderedFunctionsCommandLine(
+                    llvmCovCommand: llvmCovCommand,
                     profileDataPath: context.profileDataPath,
                     testBinaryPath: context.testBinaryPath,
                     filePath: filePath
                 )
+                let invocation = llvmCovInvocation(command: llvmCovCommand, arguments: ["report", "--show-functions", "-instr-profile", context.profileDataPath.path, context.testBinaryPath.path, filePath])
                 let result = try processRunner.run(
-                    command: "xcrun",
-                    arguments: ["llvm-cov", "report", "--show-functions", "-instr-profile", context.profileDataPath.path, context.testBinaryPath.path, filePath],
+                    command: invocation.command,
+                    arguments: invocation.arguments,
                     environment: [:],
                     currentDirectory: nil,
                     observation: nil
@@ -191,31 +220,69 @@ public struct SwiftPMCoverageInspector {
         return CoverageInspectionResult(files: files, rawCommands: rawCommands)
     }
 
-    func renderedShowCommandLine(profileDataPath: URL, testBinaryPath: URL, filePath: String) -> String {
+    func renderedShowCommandLine(llvmCovCommand: LLVMCovCommand, profileDataPath: URL, testBinaryPath: URL, filePath: String) -> String {
         ShellQuoting.render(
-            command: "xcrun",
-            arguments: ["llvm-cov", "show", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]
+            command: llvmCovInvocation(command: llvmCovCommand, arguments: ["show", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]).command,
+            arguments: llvmCovInvocation(command: llvmCovCommand, arguments: ["show", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]).arguments
         )
     }
 
-    func renderedFunctionsCommandLine(profileDataPath: URL, testBinaryPath: URL, filePath: String) -> String {
+    func renderedFunctionsCommandLine(llvmCovCommand: LLVMCovCommand, profileDataPath: URL, testBinaryPath: URL, filePath: String) -> String {
         ShellQuoting.render(
-            command: "xcrun",
-            arguments: ["llvm-cov", "report", "--show-functions", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]
+            command: llvmCovInvocation(command: llvmCovCommand, arguments: ["report", "--show-functions", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]).command,
+            arguments: llvmCovInvocation(command: llvmCovCommand, arguments: ["report", "--show-functions", "-instr-profile", profileDataPath.path, testBinaryPath.path, filePath]).arguments
         )
     }
 
     private func resolveFallbackTestBinary(debugRoot: URL) -> URL? {
         if let enumerator = fileManager.enumerator(at: debugRoot, includingPropertiesForKeys: [.isRegularFileKey]) {
             for case let url as URL in enumerator {
+                guard isRegularFile(at: url) else {
+                    continue
+                }
                 let path = url.path
-                guard path.contains("PackageTests.xctest/Contents/MacOS/"), path.hasSuffix("PackageTests") else {
+                guard path.contains("PackageTests.xctest/Contents/MacOS/") && path.hasSuffix("PackageTests")
+                    || path.hasSuffix("PackageTests.xctest")
+                    || path.hasSuffix("PackageTests") else {
                     continue
                 }
                 return url
             }
         }
         return nil
+    }
+
+    private func isRegularFile(at url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        guard !isDirectory.boolValue else {
+            return false
+        }
+        return (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? true
+    }
+
+    private func resolvedLLVMCovCommand() throws -> LLVMCovCommand {
+        if let llvmCovCommand {
+            return llvmCovCommand
+        }
+        guard let resolved = try ProcessToolchainCapabilitiesResolver(processRunner: processRunner).resolve().llvmCovCommand else {
+            throw SymphonyBuildError(
+                code: "missing_llvm_cov",
+                message: "SwiftPM coverage inspection requires `llvm-cov`, either through `xcrun llvm-cov` or `llvm-cov` on PATH."
+            )
+        }
+        return resolved
+    }
+
+    private func llvmCovInvocation(command: LLVMCovCommand, arguments: [String]) -> (command: String, arguments: [String]) {
+        switch command {
+        case .xcrun:
+            return ("xcrun", ["llvm-cov"] + arguments)
+        case .direct:
+            return ("llvm-cov", arguments)
+        }
     }
 
     private func absolutePath(for path: String, projectRoot: URL) -> String {
@@ -527,6 +594,9 @@ func renderRawInspectionHuman(report: CoverageInspectionRawReport) -> String {
 
 func renderHarnessInspectionHuman(artifact: HarnessCoverageInspectionArtifact) -> String {
     var lines = ["\(artifact.suite) inspection backend \(artifact.backend.rawValue)"]
+    if let skippedReason = artifact.skippedReason {
+        lines.append("skipped \(skippedReason)")
+    }
     for file in artifact.files {
         lines.append(
             "inspection file \(file.path) \(percentage(file.lineCoverage)) (\(file.coveredLines)/\(file.executableLines))"

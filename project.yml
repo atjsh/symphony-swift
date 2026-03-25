@@ -25,9 +25,6 @@ targets:
       macOS: "15.0"
     sources:
       - path: Applications/Symphony
-    dependencies:
-      - package: SymphonyPackage
-        product: SymphonyRuntime
     settings:
       base:
         PRODUCT_NAME: Symphony
@@ -49,8 +46,6 @@ targets:
       - path: Applications/SymphonyTests
     dependencies:
       - target: Symphony
-      - package: SymphonyPackage
-        product: SymphonyRuntime
     hostApplication: Symphony
     settings:
       base:

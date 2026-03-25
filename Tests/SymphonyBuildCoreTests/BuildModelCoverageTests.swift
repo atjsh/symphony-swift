@@ -201,6 +201,7 @@ import SymphonyShared
         packageCoverage: packageReport,
         clientCoverageInvocation: "symphony-build coverage --product client --json",
         clientCoverage: coverageReport,
+        clientCoverageSkipReason: nil,
         serverCoverageInvocation: "symphony-build coverage --product server --json",
         serverCoverage: coverageReport,
         packageFileViolations: [violation],
@@ -219,6 +220,7 @@ import SymphonyShared
         packageCoverage: packageReport,
         clientCoverageInvocation: "client",
         clientCoverage: coverageReport,
+        clientCoverageSkipReason: nil,
         serverCoverageInvocation: "server",
         serverCoverage: coverageReport,
         packageFileViolations: [],
@@ -266,12 +268,56 @@ import SymphonyShared
             DiagnosticIssue(severity: .error, code: "error-a", message: "error-a"),
             DiagnosticIssue(severity: .info, code: "info", message: "info"),
         ],
+        notes: ["xcode-backed checks were skipped"],
         checkedPaths: ["/tmp/repo"],
         checkedExecutables: ["swift"]
     )
     #expect(diagnostics.issues.map(\.code) == ["error-a", "error-b", "warning", "info"])
+    #expect(diagnostics.notes == ["xcode-backed checks were skipped"])
     #expect(diagnostics.isHealthy == false)
-    #expect(DiagnosticsReport(issues: [DiagnosticIssue(severity: .warning, code: "warn", message: "warn")], checkedPaths: [], checkedExecutables: []).isHealthy)
+    #expect(DiagnosticsReport(issues: [DiagnosticIssue(severity: .warning, code: "warn", message: "warn")], notes: ["note"], checkedPaths: [], checkedExecutables: []).isHealthy)
+
+    let skippedHarness = HarnessReport(
+        minimumCoveragePercent: 100,
+        testsInvocation: "swift test --enable-code-coverage",
+        coveragePathInvocation: "swift test --show-code-coverage-path",
+        packageCoverage: packageReport,
+        clientCoverageInvocation: nil,
+        clientCoverage: nil,
+        clientCoverageSkipReason: "not supported because the current environment has no Xcode available; Editing those sources is not encouraged",
+        serverCoverageInvocation: "server",
+        serverCoverage: coverageReport,
+        packageFileViolations: [],
+        clientTargetViolations: [],
+        clientFileViolations: [],
+        serverTargetViolations: [],
+        serverFileViolations: []
+    )
+    #expect(skippedHarness.clientCoverage == nil)
+    #expect(skippedHarness.clientCoverageSkipReason?.contains("no Xcode available") == true)
+    #expect(skippedHarness.meetsCoverageThreshold)
+
+    let skippedInspection = HarnessCoverageInspectionArtifact(
+        suite: "client",
+        backend: .xcode,
+        generatedAt: "2026-03-25T00:00:00Z",
+        files: [],
+        skippedReason: "not supported because the current environment has no Xcode available; Editing those sources is not encouraged"
+    )
+    #expect(try JSONDecoder().decode(HarnessCoverageInspectionArtifact.self, from: JSONEncoder().encode(skippedInspection)) == skippedInspection)
+
+    let directLLVMCovCapabilities = ToolchainCapabilities(
+        swiftAvailable: true,
+        xcodebuildAvailable: false,
+        xcrunAvailable: false,
+        simctlAvailable: false,
+        xcresulttoolAvailable: false,
+        llvmCovCommand: .direct
+    )
+    #expect(!directLLVMCovCapabilities.supportsXcodeCommands)
+    #expect(!directLLVMCovCapabilities.supportsSimulatorCommands)
+    #expect(!directLLVMCovCapabilities.supportsXCResultTools)
+    #expect(directLLVMCovCapabilities.supportsSwiftPMCoverageInspection)
 
     let buildRequest = BuildCommandRequest(product: .server, scheme: "Server", platform: .macos, simulator: nil, workerID: 1, dryRun: true, buildForTesting: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let testRequest = TestCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 2, dryRun: false, onlyTesting: ["Suite/test"], skipTesting: ["Suite/skip"], outputMode: .filtered, currentDirectory: URL(fileURLWithPath: "/tmp"))

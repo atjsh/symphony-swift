@@ -81,36 +81,36 @@ enum BootstrapRuntimeHooks {
     }
 }
 
-public enum BootstrapEnvironment {
-    public static let serverSchemeKey = "SYMPHONY_SERVER_SCHEME"
-    public static let serverHostKey = "SYMPHONY_SERVER_HOST"
-    public static let serverPortKey = "SYMPHONY_SERVER_PORT"
+enum BootstrapEnvironment {
+    static let serverSchemeKey = "SYMPHONY_SERVER_SCHEME"
+    static let serverHostKey = "SYMPHONY_SERVER_HOST"
+    static let serverPortKey = "SYMPHONY_SERVER_PORT"
 
-    public static func effectiveServerEndpoint(
+    static func effectiveServerEndpoint(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> BootstrapServerEndpoint {
         BootstrapServerEndpoint.resolved(from: environment)
     }
 }
 
-public struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConvertible {
-    public var scheme: String
-    public var host: String
-    public var port: Int
+struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConvertible {
+    var scheme: String
+    var host: String
+    var port: Int
 
-    public init(scheme: String, host: String, port: Int) {
+    init(scheme: String, host: String, port: Int) {
         self.scheme = Self.normalizedScheme(scheme) ?? Self.defaultEndpoint.scheme
         self.host = Self.normalizedHost(host) ?? Self.defaultEndpoint.host
         self.port = Self.normalizedPort(port) ?? Self.defaultEndpoint.port
     }
 
-    public static let defaultEndpoint = BootstrapServerEndpoint(
+    static let defaultEndpoint = BootstrapServerEndpoint(
         scheme: "http",
         host: "localhost",
         port: 8080
     )
 
-    public var url: URL? {
+    var url: URL? {
         var components = URLComponents()
         components.scheme = scheme
         components.host = host
@@ -118,15 +118,15 @@ public struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConverti
         return components.url
     }
 
-    public var displayString: String {
+    var displayString: String {
         url?.absoluteString ?? "\(scheme)://\(host):\(port)"
     }
 
-    public var description: String {
+    var description: String {
         displayString
     }
 
-    public static func resolved(from environment: [String: String]) -> Self {
+    static func resolved(from environment: [String: String]) -> Self {
         var endpoint = defaultEndpoint
 
         if let scheme = normalizedScheme(environment[BootstrapEnvironment.serverSchemeKey]) {
@@ -184,14 +184,14 @@ public struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConverti
     }
 }
 
-public struct BootstrapStartupState: Sendable, CustomStringConvertible {
-    public let componentName: String
-    public let processIdentifier: Int32
-    public let launchArguments: [String]
-    public let startedAt: Date
-    public let endpoint: BootstrapServerEndpoint
+struct BootstrapStartupState: Sendable, CustomStringConvertible {
+    let componentName: String
+    let processIdentifier: Int32
+    let launchArguments: [String]
+    let startedAt: Date
+    let endpoint: BootstrapServerEndpoint
 
-    public init(
+    init(
         componentName: String,
         processIdentifier: Int32,
         launchArguments: [String],
@@ -205,7 +205,7 @@ public struct BootstrapStartupState: Sendable, CustomStringConvertible {
         self.endpoint = endpoint
     }
 
-    public static func current(
+    static func current(
         componentName: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processIdentifier: Int32 = getpid(),
@@ -221,7 +221,7 @@ public struct BootstrapStartupState: Sendable, CustomStringConvertible {
         )
     }
 
-    public var startupLogLines: [String] {
+    var startupLogLines: [String] {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -234,13 +234,13 @@ public struct BootstrapStartupState: Sendable, CustomStringConvertible {
         ]
     }
 
-    public var description: String {
+    var description: String {
         startupLogLines.joined(separator: "\n")
     }
 }
 
-public enum BootstrapServerRunner {
-    public static func run(
+enum BootstrapServerRunner {
+    static func run(
         componentName: String = "SymphonyServer",
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processIdentifier: Int32 = getpid(),
@@ -263,7 +263,7 @@ public enum BootstrapServerRunner {
         keepAlive()
     }
 
-    public static func startupState(
+    static func startupState(
         componentName: String = "SymphonyServer",
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processIdentifier: Int32 = getpid(),
@@ -280,14 +280,14 @@ public enum BootstrapServerRunner {
     }
 }
 
-public enum BootstrapKeepAlivePolicy {
-    public static let exitAfterStartupKey = "SYMPHONY_EXIT_AFTER_STARTUP"
+enum BootstrapKeepAlivePolicy {
+    static let exitAfterStartupKey = "SYMPHONY_EXIT_AFTER_STARTUP"
 
-    public static func shouldExitAfterStartup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    static func shouldExitAfterStartup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         environment[exitAfterStartupKey] == "1"
     }
 
-    public static func makeKeepAlive(environment: [String: String] = ProcessInfo.processInfo.environment) -> () -> Void {
+    static func makeKeepAlive(environment: [String: String] = ProcessInfo.processInfo.environment) -> () -> Void {
         shouldExitAfterStartup(environment: environment) ? {} : { BootstrapRuntimeHooks.keepAlive() }
     }
 }

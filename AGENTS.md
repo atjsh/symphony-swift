@@ -29,12 +29,14 @@ This repository uses a test-first workflow for all changes.
 - Minimum gate for any code change:
   - `swift run symphony-build harness`
   - `swift run symphony-build doctor`
+  - Those commands are environment-aware. On machines without Xcode, they must still pass for SwiftPM/server work while reporting any skipped Xcode-backed checks as notes or explicit skip reasons instead of hard failures.
 - The commit harness is the canonical gate for package-level changes:
   - It runs `swift test --enable-code-coverage`.
   - It measures first-party code coverage from SwiftPM’s exported coverage JSON, filtered to tracked files under `Sources/`.
-  - It also runs Xcode-backed coverage passes for the bootstrap client and server products on macOS:
+  - On machines where Xcode-backed tooling is available, it also runs Xcode-backed coverage passes for the bootstrap client and server products:
     - `swift run symphony-build coverage --product client --platform macos --json`
     - `swift run symphony-build coverage --product server --json`
+  - On machines where Xcode-backed tooling is unavailable, the harness must skip those Apple-only coverage passes automatically and report the skip explicitly.
   - Test files, generated runners, and checked-out dependency sources are excluded from the threshold calculation.
   - Commits must not proceed if source coverage falls below `100%`.
   - The current threshold is intentionally lower than the long-term goal; treat regressions below the current floor as hard failures.
@@ -50,18 +52,21 @@ This repository uses a test-first workflow for all changes.
   - `swift run symphony-build build --dry-run`
   - `swift run symphony-build run --product client --dry-run`
   - `swift run symphony-build coverage --product client --dry-run`
+  - On machines without Xcode, also confirm that non-dry-run client/app commands fail with the explicit unsupported-environment warning: `not supported because the current environment has no Xcode available; Editing those sources is not encouraged`.
   - On machines where the default `iPhone 17` destination is ambiguous, those two commands must fail with a clear `ambiguous_simulator_name` error. Use an explicit UDID for all remaining client validations.
-  - Use `swift run symphony-build sim list` to select the simulator UDID for explicit client runs.
+  - Use `swift run symphony-build sim list` to select the simulator UDID for explicit client runs only when Xcode-backed simulator tooling is available.
 - If the change touches artifact generation, xcresult export, launch behavior, or any real Xcode invocation path, run the live smoke checks:
   - `swift run symphony-build build --product server --worker 1 --xcode-output-mode filtered`
   - `swift run symphony-build test --product server --worker 1 --xcode-output-mode filtered`
   - `swift run symphony-build run --product server --worker 1 --xcode-output-mode filtered`
   - `swift run symphony-build build --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
   - `swift run symphony-build run --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
+  - These live Xcode-backed smoke checks are required only when the current environment provides Xcode-backed tooling. On Xcode-less environments, validate the SwiftPM/server path and the explicit unsupported-environment warning instead.
 - Always clean up long-lived processes after live verification:
   - Stop detached `SymphonyServer` processes after `run --product server`.
   - Stop the simulator app after `run --product client`.
 - Validation is not complete until the produced artifacts are inspected using the canonical checks below. A green exit code without artifact inspection is insufficient for build-tool changes.
+  - When Xcode-backed runs are skipped because the environment lacks Xcode, inspect the harness/doctor output instead and confirm the skip is explicit.
 
 ## Canonical artifact inspection
 

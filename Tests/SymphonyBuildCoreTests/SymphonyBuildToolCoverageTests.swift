@@ -171,6 +171,62 @@ import Testing
     }
 }
 
+@Test func buildToolBlocksClientExecutionWithoutXcodeButAllowsDryRun() throws {
+    try withTemporaryRepositoryFixture { repoRoot in
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+            xcodeProjectPath: nil
+        )
+        let runner = RoutedProcessRunner { _, _, _, _, _ in
+            Issue.record("Unsupported client execution and client dry-run rendering should not invoke subprocesses when Xcode is unavailable.")
+            return StubProcessRunner.success()
+        }
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            executionContextBuilder: ExecutionContextBuilder(),
+            simulatorResolver: SimulatorResolver(catalog: StubSimulatorCatalog(devices: []), processRunner: runner),
+            processRunner: runner,
+            artifactManager: ArtifactManager(processRunner: runner),
+            endpointOverrideStore: EndpointOverrideStore(),
+            doctorService: StubDoctorService(report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []), rendered: "ok"),
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests),
+            productLocator: ProductLocator(processRunner: runner),
+            commitHarness: CommitHarness(processRunner: runner),
+            gitHookInstaller: GitHookInstaller(processRunner: runner),
+            statusSink: { _ in }
+        )
+
+        let buildDryRun = try tool.build(
+            BuildCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: true, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(buildDryRun.contains("xcodebuild"))
+        #expect(buildDryRun.contains("platform=iOS Simulator,name=iPhone 17"))
+
+        let runDryRun = try tool.run(
+            RunCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: true, serverURL: nil, host: nil, port: nil, environment: [:], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(runDryRun.contains("xcodebuild"))
+
+        for operation in [
+            { try tool.build(BuildCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)) },
+            { try tool.test(TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)) },
+            { try tool.coverage(CoverageCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)) },
+            { try tool.run(RunCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, serverURL: nil, host: nil, port: nil, environment: [:], outputMode: .filtered, currentDirectory: repoRoot)) },
+            { try tool.simList(currentDirectory: repoRoot) },
+            { try tool.simBoot(SimBootRequest(simulator: "iPhone 17", currentDirectory: repoRoot)) },
+        ] {
+            do {
+                _ = try operation()
+                Issue.record("Expected client and simulator commands to fail when Xcode is unavailable.")
+            } catch let error as SymphonyBuildCommandFailure {
+                #expect(error.message == "not supported because the current environment has no Xcode available; Editing those sources is not encouraged")
+            }
+        }
+    }
+}
+
 @Test func buildToolCoversClientXcodeBuildTestAndCoveragePaths() throws {
     try withTemporaryRepositoryFixture { repoRoot in
         let workspace = WorkspaceContext(
@@ -1515,7 +1571,7 @@ import Testing
           "data": [
             {
               "files": [
-                { "filename": "__REPO__/Sources/Foo.swift", "summary": { "lines": { "count": 4, "covered": 2 } } },
+                { "filename": "__REPO__/Sources/SymphonyRuntime/BootstrapSupport.swift", "summary": { "lines": { "count": 4, "covered": 2 } } },
                 { "filename": "__REPO__/Sources/Covered.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
               ]
             }
@@ -1563,6 +1619,322 @@ import Testing
     }
 }
 
+@Test func buildToolHarnessSkipsPackageInspectionWhenLLVMCovIsUnavailable() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coveragePath = repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+        let debugRoot = repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug", isDirectory: true)
+        let profdataPath = coveragePath.deletingLastPathComponent().appendingPathComponent("default.profdata")
+        let testBinaryPath = debugRoot.appendingPathComponent("symphony-swiftPackageTests")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: debugRoot, withIntermediateDirectories: true)
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/SymphonyRuntime/BootstrapSupport.swift", "summary": { "lines": { "count": 4, "covered": 2 } } }
+              ]
+            }
+          ]
+        }
+        """#
+        .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+        .write(to: coveragePath, atomically: true, encoding: .utf8)
+        try Data().write(to: profdataPath)
+        try Data().write(to: testBinaryPath)
+
+        let perfectCoverage = CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+        )
+        let noLLVMCovCapabilities = StubToolchainCapabilitiesResolver(capabilities: ToolchainCapabilities(
+            swiftAvailable: true,
+            xcodebuildAvailable: false,
+            xcrunAvailable: false,
+            simctlAvailable: false,
+            xcresulttoolAvailable: false,
+            llvmCovCommand: nil
+        ))
+        let harnessRunner = StubProcessRunner(results: [
+            "swift test --enable-code-coverage": StubProcessRunner.success(),
+            "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+        ])
+        let missingLLVMCovRunner = StubProcessRunner(results: [
+            "which xcrun": StubProcessRunner.failure(""),
+            "which llvm-cov": StubProcessRunner.failure(""),
+        ])
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            processRunner: missingLLVMCovRunner,
+            artifactManager: ArtifactManager(processRunner: missingLLVMCovRunner),
+            toolchainCapabilitiesResolver: noLLVMCovCapabilities,
+            commitHarness: CommitHarness(
+                processRunner: harnessRunner,
+                statusSink: { _ in },
+                clientCoverageLoader: { _ in perfectCoverage },
+                serverCoverageLoader: { _ in perfectCoverage },
+                toolchainCapabilitiesResolver: noLLVMCovCapabilities
+            )
+        )
+
+        _ = try tool.harness(
+            HarnessCommandRequest(minimumCoveragePercent: 50, json: false, currentDirectory: repoRoot)
+        )
+
+        let artifactRoot = workspace.buildStateRoot.appendingPathComponent("artifacts/harness/latest").resolvingSymlinksInPath()
+        let packageInspection = try JSONDecoder().decode(
+            HarnessCoverageInspectionArtifact.self,
+            from: Data(contentsOf: artifactRoot.appendingPathComponent("package-inspection.json"))
+        )
+        #expect(packageInspection.files.isEmpty)
+    }
+}
+
+@Test func buildToolHarnessWritesSkippedClientArtifactsAndSupportsJSONOutput() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coveragePath = repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/Foo.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+              ]
+            }
+          ]
+        }
+        """#
+        .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+        .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let perfectCoverage = CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+        )
+        let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+        let harnessRunner = StubProcessRunner(results: [
+            "swift test --enable-code-coverage": StubProcessRunner.success(),
+            "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+        ])
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            processRunner: StubProcessRunner(),
+            artifactManager: ArtifactManager(processRunner: StubProcessRunner()),
+            toolchainCapabilitiesResolver: noXcodeCapabilities,
+            commitHarness: CommitHarness(
+                processRunner: harnessRunner,
+                statusSink: { _ in },
+                serverCoverageLoader: { _ in perfectCoverage },
+                toolchainCapabilitiesResolver: noXcodeCapabilities
+            )
+        )
+
+        let output = try tool.harness(
+            HarnessCommandRequest(minimumCoveragePercent: 100, json: true, currentDirectory: repoRoot)
+        )
+        #expect(output.contains("\"clientCoverageSkipReason\""))
+        #expect(output.contains("not supported because the current environment has no Xcode available; Editing those sources is not encouraged"))
+
+        let artifactRoot = workspace.buildStateRoot.appendingPathComponent("artifacts/harness/latest").resolvingSymlinksInPath()
+        let clientInspection = try JSONDecoder().decode(
+            HarnessCoverageInspectionArtifact.self,
+            from: Data(contentsOf: artifactRoot.appendingPathComponent("client-inspection.json"))
+        )
+        let serverInspection = try JSONDecoder().decode(
+            HarnessCoverageInspectionArtifact.self,
+            from: Data(contentsOf: artifactRoot.appendingPathComponent("server-inspection.json"))
+        )
+        let clientInspectionHuman = try String(
+            contentsOf: artifactRoot.appendingPathComponent("client-inspection.txt"),
+            encoding: .utf8
+        )
+        let summary = try String(contentsOf: artifactRoot.appendingPathComponent("summary.txt"), encoding: .utf8)
+
+        #expect(clientInspection.files.isEmpty)
+        #expect(clientInspection.skippedReason == "not supported because the current environment has no Xcode available; Editing those sources is not encouraged")
+        #expect(serverInspection.suite == "server")
+        #expect(clientInspectionHuman.contains("skipped not supported because the current environment has no Xcode available; Editing those sources is not encouraged"))
+        #expect(summary.contains("invocation: symphony-build harness --minimum-coverage 100.00 --json"))
+    }
+}
+
+@Test func buildToolHarnessFailureUsesCompactPreviewMessage() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coveragePath = repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/Foo.swift", "summary": { "lines": { "count": 4, "covered": 2 } } }
+              ]
+            }
+          ]
+        }
+        """#
+        .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+        .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let perfectCoverage = CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+        )
+        let harnessRunner = StubProcessRunner(results: [
+            "swift test --enable-code-coverage": StubProcessRunner.success(),
+            "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+        ])
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            processRunner: StubProcessRunner(),
+            artifactManager: ArtifactManager(processRunner: StubProcessRunner()),
+            commitHarness: CommitHarness(
+                processRunner: harnessRunner,
+                statusSink: { _ in },
+                clientCoverageLoader: { _ in perfectCoverage },
+                serverCoverageLoader: { _ in perfectCoverage }
+            )
+        )
+
+        do {
+            _ = try tool.harness(
+                HarnessCommandRequest(minimumCoveragePercent: 100, json: false, currentDirectory: repoRoot)
+            )
+            Issue.record("Expected harness failures to render the compact preview message.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message.contains("Commit harness failed because one or more required coverage suites are below the required threshold."))
+            #expect(error.message.contains("package file Sources/Foo.swift 50.00% (2/4)"))
+            #expect(error.message.contains("Harness artifacts:"))
+        }
+    }
+}
+
+@Test func buildToolUsesDryRunFallbackDestinationsWhenSimulatorToolingIsUnavailable() throws {
+    try withTemporaryRepositoryFixture { repoRoot in
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+            xcodeProjectPath: nil
+        )
+        let silentRunner = RoutedProcessRunner { _, _, _, _, _ in
+            Issue.record("Dry-run fallback and unsupported simulator checks should not invoke subprocesses.")
+            return StubProcessRunner.success()
+        }
+
+        let noXcodeTool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            executionContextBuilder: ExecutionContextBuilder(),
+            simulatorResolver: SimulatorResolver(catalog: StubSimulatorCatalog(devices: []), processRunner: silentRunner),
+            processRunner: silentRunner,
+            artifactManager: ArtifactManager(processRunner: silentRunner),
+            endpointOverrideStore: EndpointOverrideStore(),
+            doctorService: StubDoctorService(report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []), rendered: "ok"),
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests),
+            productLocator: ProductLocator(processRunner: silentRunner),
+            commitHarness: CommitHarness(processRunner: silentRunner),
+            gitHookInstaller: GitHookInstaller(processRunner: silentRunner),
+            statusSink: { _ in }
+        )
+        let macDryRun = try noXcodeTool.build(
+            BuildCommandRequest(product: .client, scheme: nil, platform: .macos, simulator: nil, workerID: 0, dryRun: true, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(macDryRun.contains(expectedHostMacOSDestination()))
+
+        let partialCapabilities = StubToolchainCapabilitiesResolver(capabilities: ToolchainCapabilities(
+            swiftAvailable: true,
+            xcodebuildAvailable: true,
+            xcrunAvailable: true,
+            simctlAvailable: false,
+            xcresulttoolAvailable: true,
+            llvmCovCommand: .xcrun
+        ))
+        let partialTool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            executionContextBuilder: ExecutionContextBuilder(),
+            simulatorResolver: SimulatorResolver(catalog: StubSimulatorCatalog(devices: []), processRunner: silentRunner),
+            processRunner: silentRunner,
+            artifactManager: ArtifactManager(processRunner: silentRunner),
+            endpointOverrideStore: EndpointOverrideStore(),
+            doctorService: StubDoctorService(report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []), rendered: "ok"),
+            toolchainCapabilitiesResolver: partialCapabilities,
+            productLocator: ProductLocator(processRunner: silentRunner),
+            commitHarness: CommitHarness(processRunner: silentRunner),
+            gitHookInstaller: GitHookInstaller(processRunner: silentRunner),
+            statusSink: { _ in }
+        )
+
+        let namedSimulatorDryRun = try partialTool.build(
+            BuildCommandRequest(product: .client, scheme: nil, platform: .iosSimulator, simulator: "Custom Sim", workerID: 0, dryRun: true, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(namedSimulatorDryRun.contains("platform=iOS Simulator,name=Custom Sim"))
+
+        let udidDryRun = try partialTool.build(
+            BuildCommandRequest(product: .client, scheme: nil, platform: .iosSimulator, simulator: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", workerID: 0, dryRun: true, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(udidDryRun.contains("platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+
+        do {
+            _ = try partialTool.simList(currentDirectory: repoRoot)
+            Issue.record("Expected simulator management to be blocked when only simulator tooling is unavailable.")
+        } catch let error as SymphonyBuildCommandFailure {
+            #expect(error.message == "not supported because the current environment has no Xcode available; Editing those sources is not encouraged")
+        }
+    }
+}
+
+@Test func buildToolDefaultInitializerPathsRemainConstructibleWithStubbedRunner() {
+    let runner = StubProcessRunner()
+    let tool = SymphonyBuildTool(
+        processRunner: runner,
+        artifactManager: ArtifactManager(processRunner: runner)
+    )
+    _ = tool
+}
+
 private func makeCoverageTool(workspace: WorkspaceContext, runner: RoutedProcessRunner, statusSink: @escaping @Sendable (String) -> Void) -> SymphonyBuildTool {
     SymphonyBuildTool(
         workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
@@ -1572,6 +1944,7 @@ private func makeCoverageTool(workspace: WorkspaceContext, runner: RoutedProcess
         artifactManager: ArtifactManager(processRunner: runner),
         endpointOverrideStore: EndpointOverrideStore(),
         doctorService: StubDoctorService(report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []), rendered: "ok"),
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests),
         productLocator: ProductLocator(processRunner: runner),
         commitHarness: CommitHarness(processRunner: runner, clientCoverageLoader: { _ in
             CoverageReport(coveredLines: 1, executableLines: 1, lineCoverage: 1, includeTestTargets: false, excludedTargets: [], targets: [])

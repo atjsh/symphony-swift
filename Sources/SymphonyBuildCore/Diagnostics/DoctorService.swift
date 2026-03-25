@@ -4,41 +4,44 @@ public struct DoctorService: DoctorServicing {
     private let workspaceDiscovery: WorkspaceDiscovering
     private let processRunner: ProcessRunning
     private let fileManager: FileManager
+    private let toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
 
     public init(
         workspaceDiscovery: WorkspaceDiscovering = WorkspaceDiscovery(),
         processRunner: ProcessRunning = SystemProcessRunner(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil
     ) {
         self.workspaceDiscovery = workspaceDiscovery
         self.processRunner = processRunner
         self.fileManager = fileManager
+        self.toolchainCapabilitiesResolver = toolchainCapabilitiesResolver ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
     }
 
     public func makeReport(from request: DoctorCommandRequest) throws -> DiagnosticsReport {
         var issues = [DiagnosticIssue]()
+        var notes = [String]()
         var checkedExecutables = [String]()
         let checkedPaths = [request.currentDirectory.path]
+        let capabilities = try toolchainCapabilitiesResolver.resolve()
 
         for executable in ["swift", "xcodebuild", "xcrun", "simctl", "xcresulttool"] {
             checkedExecutables.append(executable)
-            switch executable {
-            case "simctl":
-                let result = try processRunner.run(command: "xcrun", arguments: ["simctl", "help"], environment: [:], currentDirectory: nil)
-                if result.exitStatus != 0 {
-                    issues.append(DiagnosticIssue(severity: .error, code: "missing_simctl", message: "Simulator control is unavailable.", suggestedFix: "Install Xcode Simulator support and ensure `xcrun simctl` succeeds."))
-                }
-            case "xcresulttool":
-                let result = try processRunner.run(command: "xcrun", arguments: ["xcresulttool", "help"], environment: [:], currentDirectory: nil)
-                if result.exitStatus != 0 {
-                    issues.append(DiagnosticIssue(severity: .error, code: "missing_xcresulttool", message: "xcresulttool is unavailable.", suggestedFix: "Install Xcode command-line tools and ensure `xcrun xcresulttool` succeeds."))
-                }
-            default:
-                let result = try processRunner.run(command: "which", arguments: [executable], environment: [:], currentDirectory: nil)
-                if result.exitStatus != 0 {
-                    issues.append(DiagnosticIssue(severity: .error, code: "missing_\(executable)", message: "Required executable '\(executable)' was not found.", suggestedFix: "Install \(executable) or update PATH."))
-                }
+        }
+
+        if !capabilities.swiftAvailable {
+            issues.append(DiagnosticIssue(severity: .error, code: "missing_swift", message: "Required executable 'swift' was not found.", suggestedFix: "Install swift or update PATH."))
+        }
+
+        if capabilities.supportsXcodeCommands {
+            if !capabilities.simctlAvailable {
+                issues.append(DiagnosticIssue(severity: .error, code: "missing_simctl", message: "Simulator control is unavailable.", suggestedFix: "Install Xcode Simulator support and ensure `xcrun simctl` succeeds."))
             }
+            if !capabilities.xcresulttoolAvailable {
+                issues.append(DiagnosticIssue(severity: .error, code: "missing_xcresulttool", message: "xcresulttool is unavailable.", suggestedFix: "Install Xcode command-line tools and ensure `xcrun xcresulttool` succeeds."))
+            }
+        } else {
+            notes.append("Xcode-backed diagnostics were skipped because the current environment has no Xcode available.")
         }
 
         do {
@@ -50,17 +53,19 @@ public struct DoctorService: DoctorServicing {
                 issues.append(DiagnosticIssue(severity: .error, code: "unwritable_build_state_root", message: "The canonical build state root is not writable: \(buildStateRoot.path)", suggestedFix: "Make the repository writable and ensure `.build/` can be created."))
             }
 
-            let schemes = try listSchemes(in: workspace)
-            for scheme in ["Symphony"] {
-                if !schemes.contains(scheme) {
-                    issues.append(DiagnosticIssue(severity: .error, code: "missing_scheme_\(scheme.lowercased())", message: "Expected scheme '\(scheme)' was not found in the checked-in build definition.", suggestedFix: "Check in the required scheme or regenerate the Xcode project."))
+            if capabilities.supportsXcodeCommands {
+                let schemes = try listSchemes(in: workspace)
+                for scheme in ["Symphony"] {
+                    if !schemes.contains(scheme) {
+                        issues.append(DiagnosticIssue(severity: .error, code: "missing_scheme_\(scheme.lowercased())", message: "Expected scheme '\(scheme)' was not found in the checked-in build definition.", suggestedFix: "Check in the required scheme or regenerate the Xcode project."))
+                    }
                 }
             }
         } catch let error as SymphonyBuildError {
             issues.append(DiagnosticIssue(severity: .error, code: error.code, message: error.message, suggestedFix: "Check that the repository contains a checked-in `Symphony.xcworkspace` or `SymphonyApps.xcodeproj`."))
         }
 
-        return DiagnosticsReport(issues: issues, checkedPaths: checkedPaths, checkedExecutables: checkedExecutables)
+        return DiagnosticsReport(issues: issues, notes: notes, checkedPaths: checkedPaths, checkedExecutables: checkedExecutables)
     }
 
     public func render(report: DiagnosticsReport, json: Bool, quiet: Bool) throws -> String {
@@ -74,6 +79,9 @@ public struct DoctorService: DoctorServicing {
         if !quiet {
             lines.append("checked_paths: \(report.checkedPaths.joined(separator: ", "))")
             lines.append("checked_executables: \(report.checkedExecutables.joined(separator: ", "))")
+        }
+        for note in report.notes {
+            lines.append("NOTE \(note)")
         }
         if report.issues.isEmpty {
             lines.append("OK: environment is ready")

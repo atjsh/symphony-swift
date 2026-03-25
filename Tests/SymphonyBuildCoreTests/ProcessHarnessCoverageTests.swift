@@ -72,6 +72,7 @@ import Testing
                     )
                 ]
             ),
+            clientCoverageSkipReason: nil,
             serverCoverageInvocation: "server",
             serverCoverage: CoverageReport(
                 coveredLines: 2,
@@ -92,10 +93,31 @@ import Testing
         #expect(human.contains("violations"))
         #expect(human.contains("client file /tmp/ContentView.swift 50.00% (1/2)"))
         #expect(reporter.makePackageFileViolations(report: harness.packageCoverage, minimumLineCoverage: 1).count == 2)
-        #expect(reporter.makeTargetViolations(report: harness.clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
-        #expect(reporter.makeFileViolations(report: harness.clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
+        let clientCoverage = try #require(harness.clientCoverage)
+        #expect(reporter.makeTargetViolations(report: clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
+        #expect(reporter.makeFileViolations(report: clientCoverage, suite: "client", minimumLineCoverage: 1).count == 1)
         #expect(reporter.makeFileViolations(report: harness.serverCoverage, suite: "server", minimumLineCoverage: 1).isEmpty)
         #expect(PackageCoverageReporter.normalizedCoverage(coveredLines: 0, executableLines: 0) == 0)
+
+        let skippedHuman = reporter.renderHuman(
+            report: HarnessReport(
+                minimumCoveragePercent: 100,
+                testsInvocation: "swift test",
+                coveragePathInvocation: "swift test --show-code-coverage-path",
+                packageCoverage: harness.packageCoverage,
+                clientCoverageInvocation: nil,
+                clientCoverage: nil,
+                clientCoverageSkipReason: "not supported because the current environment has no Xcode available; Editing those sources is not encouraged",
+                serverCoverageInvocation: "server",
+                serverCoverage: harness.serverCoverage,
+                packageFileViolations: [],
+                clientTargetViolations: [],
+                clientFileViolations: [],
+                serverTargetViolations: [],
+                serverFileViolations: []
+            )
+        )
+        #expect(skippedHuman.contains("client coverage skipped: not supported because the current environment has no Xcode available; Editing those sources is not encouraged"))
     }
 }
 
@@ -643,12 +665,16 @@ import Testing
         """#
         let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, coverageJSON: coverageJSON)
 
-        let report = try CommitHarness(processRunner: runner, statusSink: { _ in }).run(
+        let report = try CommitHarness(
+            processRunner: runner,
+            statusSink: { _ in },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
+        ).run(
             workspace: workspace,
             request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
         )
 
-        #expect(report.clientCoverage.targets.map { $0.name } == ["Suite"])
+        #expect(try #require(report.clientCoverage).targets.map { $0.name } == ["Suite"])
         #expect(report.serverCoverage.targets.map { $0.name } == ["Suite"])
     }
 }
@@ -704,7 +730,11 @@ import Testing
         )
         let runner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: wrapperJSON)
 
-        let execution = try CommitHarness(processRunner: runner, statusSink: { _ in }).execute(
+        let execution = try CommitHarness(
+            processRunner: runner,
+            statusSink: { _ in },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
+        ).execute(
             workspace: workspace,
             request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
         )
@@ -733,12 +763,54 @@ import Testing
             as: UTF8.self
         )
         let rawRunner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: rawWrapperJSON)
-        let rawExecution = try CommitHarness(processRunner: rawRunner, statusSink: { _ in }).execute(
+        let rawExecution = try CommitHarness(
+            processRunner: rawRunner,
+            statusSink: { _ in },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
+        ).execute(
             workspace: workspace,
             request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
         )
         #expect(rawExecution.clientInspection == nil)
         #expect(rawExecution.serverInspection == nil)
+    }
+}
+
+@Test func commitHarnessSkipsClientCoverageWhenXcodeIsUnavailable() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let coveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coverageJSON = #"""
+        {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+        """#
+        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, coverageJSON: coverageJSON)
+
+        let report = try CommitHarness(
+            processRunner: runner,
+            statusSink: { _ in },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+        ).run(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+        )
+
+        #expect(report.clientCoverageInvocation == nil)
+        #expect(report.clientCoverage == nil)
+        #expect(report.clientCoverageSkipReason == "not supported because the current environment has no Xcode available; Editing those sources is not encouraged")
+        #expect(report.serverCoverage.targets.map(\.name) == ["Suite"])
     }
 }
 

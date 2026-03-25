@@ -1,5 +1,4 @@
 import SwiftUI
-import SymphonyRuntime
 
 struct ContentView: View {
     let endpoint: BootstrapServerEndpoint

@@ -587,8 +587,9 @@ public struct HarnessReport: Codable, Hashable, Sendable {
     public let testsInvocation: String
     public let coveragePathInvocation: String
     public let packageCoverage: PackageCoverageReport
-    public let clientCoverageInvocation: String
-    public let clientCoverage: CoverageReport
+    public let clientCoverageInvocation: String?
+    public let clientCoverage: CoverageReport?
+    public let clientCoverageSkipReason: String?
     public let serverCoverageInvocation: String
     public let serverCoverage: CoverageReport
     public let packageFileViolations: [HarnessCoverageViolation]
@@ -602,8 +603,9 @@ public struct HarnessReport: Codable, Hashable, Sendable {
         testsInvocation: String,
         coveragePathInvocation: String,
         packageCoverage: PackageCoverageReport,
-        clientCoverageInvocation: String,
-        clientCoverage: CoverageReport,
+        clientCoverageInvocation: String?,
+        clientCoverage: CoverageReport?,
+        clientCoverageSkipReason: String? = nil,
         serverCoverageInvocation: String,
         serverCoverage: CoverageReport,
         packageFileViolations: [HarnessCoverageViolation],
@@ -618,6 +620,7 @@ public struct HarnessReport: Codable, Hashable, Sendable {
         self.packageCoverage = packageCoverage
         self.clientCoverageInvocation = clientCoverageInvocation
         self.clientCoverage = clientCoverage
+        self.clientCoverageSkipReason = clientCoverageSkipReason
         self.serverCoverageInvocation = serverCoverageInvocation
         self.serverCoverage = serverCoverage
         self.packageFileViolations = packageFileViolations
@@ -785,16 +788,23 @@ public struct DiagnosticIssue: Codable, Hashable, Sendable {
 
 public struct DiagnosticsReport: Codable, Hashable, Sendable {
     public let issues: [DiagnosticIssue]
+    public let notes: [String]
     public let checkedPaths: [String]
     public let checkedExecutables: [String]
 
-    public init(issues: [DiagnosticIssue], checkedPaths: [String], checkedExecutables: [String]) {
+    public init(
+        issues: [DiagnosticIssue],
+        notes: [String] = [],
+        checkedPaths: [String],
+        checkedExecutables: [String]
+    ) {
         self.issues = issues.sorted { lhs, rhs in
             if lhs.severity == rhs.severity {
                 return lhs.code < rhs.code
             }
             return lhs.severity < rhs.severity
         }
+        self.notes = notes
         self.checkedPaths = checkedPaths
         self.checkedExecutables = checkedExecutables
     }

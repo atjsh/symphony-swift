@@ -1,6 +1,5 @@
 import XCTest
 @testable import Symphony
-@testable import SymphonyRuntime
 
 final class BootstrapSupportTests: XCTestCase {
     func testEffectiveServerEndpointUsesDefaults() {

@@ -1367,6 +1367,34 @@ struct StubDoctorService: DoctorServicing {
     }
 }
 
+struct StubToolchainCapabilitiesResolver: ToolchainCapabilitiesResolving {
+    let capabilities: ToolchainCapabilities
+
+    func resolve() throws -> ToolchainCapabilities {
+        capabilities
+    }
+}
+
+extension ToolchainCapabilities {
+    static let fullyAvailableForTests = ToolchainCapabilities(
+        swiftAvailable: true,
+        xcodebuildAvailable: true,
+        xcrunAvailable: true,
+        simctlAvailable: true,
+        xcresulttoolAvailable: true,
+        llvmCovCommand: .xcrun
+    )
+
+    static let noXcodeForTests = ToolchainCapabilities(
+        swiftAvailable: true,
+        xcodebuildAvailable: false,
+        xcrunAvailable: false,
+        simctlAvailable: false,
+        xcresulttoolAvailable: false,
+        llvmCovCommand: .direct
+    )
+}
+
 func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

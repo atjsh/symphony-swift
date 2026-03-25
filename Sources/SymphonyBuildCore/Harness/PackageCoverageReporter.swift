@@ -64,11 +64,19 @@ public struct PackageCoverageReporter {
         var lines = [
             "tests passed",
             "package coverage \(percentage(report.packageCoverage.lineCoverage)) (\(report.packageCoverage.coveredLines)/\(report.packageCoverage.executableLines))",
-            "client coverage \(percentage(report.clientCoverage.lineCoverage)) (\(report.clientCoverage.coveredLines)/\(report.clientCoverage.executableLines))",
             "server coverage \(percentage(report.serverCoverage.lineCoverage)) (\(report.serverCoverage.coveredLines)/\(report.serverCoverage.executableLines))",
             "threshold \(threshold)",
             "coverage_json \(report.packageCoverage.coverageJSONPath)",
         ]
+
+        if let clientCoverage = report.clientCoverage {
+            lines.insert(
+                "client coverage \(percentage(clientCoverage.lineCoverage)) (\(clientCoverage.coveredLines)/\(clientCoverage.executableLines))",
+                at: 2
+            )
+        } else if let skippedReason = report.clientCoverageSkipReason {
+            lines.insert("client coverage skipped: \(skippedReason)", at: 2)
+        }
 
         if !report.packageCoverage.files.isEmpty {
             lines.append("lowest_coverage_files")
@@ -77,9 +85,11 @@ public struct PackageCoverageReporter {
             }
         }
 
-        lines.append("client_targets")
-        for target in report.clientCoverage.targets {
-            lines.append("target \(target.name) \(percentage(target.lineCoverage)) (\(target.coveredLines)/\(target.executableLines))")
+        if let clientCoverage = report.clientCoverage {
+            lines.append("client_targets")
+            for target in clientCoverage.targets {
+                lines.append("target \(target.name) \(percentage(target.lineCoverage)) (\(target.coveredLines)/\(target.executableLines))")
+            }
         }
 
         lines.append("server_targets")

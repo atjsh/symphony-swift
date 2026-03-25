@@ -9,6 +9,7 @@ public final class SymphonyBuildTool {
     private let artifactManager: ArtifactManager
     private let endpointOverrideStore: EndpointOverrideStore
     private let doctorService: DoctorServicing
+    private let toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
     private let productLocator: ProductLocator
     private let commitHarness: CommitHarness
     private let gitHookInstaller: GitHookInstaller
@@ -21,7 +22,8 @@ public final class SymphonyBuildTool {
         processRunner: ProcessRunning = SystemProcessRunner(),
         artifactManager: ArtifactManager = ArtifactManager(),
         endpointOverrideStore: EndpointOverrideStore = EndpointOverrideStore(),
-        doctorService: DoctorServicing = DoctorService(),
+        doctorService: DoctorServicing? = nil,
+        toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil,
         productLocator: ProductLocator = ProductLocator(),
         commitHarness: CommitHarness? = nil,
         gitHookInstaller: GitHookInstaller? = nil,
@@ -35,10 +37,20 @@ public final class SymphonyBuildTool {
         self.processRunner = processRunner
         self.artifactManager = artifactManager
         self.endpointOverrideStore = endpointOverrideStore
-        self.doctorService = doctorService
+        let resolvedToolchainCapabilitiesResolver = toolchainCapabilitiesResolver ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+        self.toolchainCapabilitiesResolver = resolvedToolchainCapabilitiesResolver
+        self.doctorService = doctorService ?? DoctorService(
+            workspaceDiscovery: workspaceDiscovery,
+            processRunner: processRunner,
+            toolchainCapabilitiesResolver: resolvedToolchainCapabilitiesResolver
+        )
         self.productLocator = productLocator
         self.statusSink = statusSink
-        self.commitHarness = commitHarness ?? CommitHarness(processRunner: processRunner, statusSink: statusSink)
+        self.commitHarness = commitHarness ?? CommitHarness(
+            processRunner: processRunner,
+            statusSink: statusSink,
+            toolchainCapabilitiesResolver: resolvedToolchainCapabilitiesResolver
+        )
         self.gitHookInstaller = gitHookInstaller ?? GitHookInstaller(processRunner: processRunner)
     }
 
@@ -46,10 +58,13 @@ public final class SymphonyBuildTool {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)
         let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
         let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .build, runID: selector.runIdentifier)
         switch selector.product.defaultBackend {
         case .xcode:
+            if !request.dryRun {
+                try ensureXcodeSupport(for: selector.platform)
+            }
+            let destination = try xcodeDestination(platform: selector.platform, simulator: request.simulator, dryRun: request.dryRun)
             return try buildXcode(
                 request: request,
                 workspace: workspace,
@@ -58,6 +73,7 @@ public final class SymphonyBuildTool {
                 executionContext: executionContext
             )
         case .swiftPM:
+            let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
             return try buildSwiftPM(
                 request: request,
                 workspace: workspace,
@@ -72,10 +88,13 @@ public final class SymphonyBuildTool {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)
         let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
         let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .test, runID: selector.runIdentifier)
         switch selector.product.defaultBackend {
         case .xcode:
+            if !request.dryRun {
+                try ensureXcodeSupport(for: selector.platform)
+            }
+            let destination = try xcodeDestination(platform: selector.platform, simulator: request.simulator, dryRun: request.dryRun)
             return try testXcode(
                 request: request,
                 workspace: workspace,
@@ -84,6 +103,7 @@ public final class SymphonyBuildTool {
                 executionContext: executionContext
             )
         case .swiftPM:
+            let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
             return try testSwiftPM(
                 request: request,
                 workspace: workspace,
@@ -98,10 +118,13 @@ public final class SymphonyBuildTool {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)
         let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
         let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .coverage, runID: selector.runIdentifier)
         switch selector.product.defaultBackend {
         case .xcode:
+            if !request.dryRun {
+                try ensureXcodeSupport(for: selector.platform)
+            }
+            let destination = try xcodeDestination(platform: selector.platform, simulator: request.simulator, dryRun: request.dryRun)
             return try coverageXcode(
                 request: request,
                 workspace: workspace,
@@ -110,6 +133,7 @@ public final class SymphonyBuildTool {
                 executionContext: executionContext
             )
         case .swiftPM:
+            let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
             return try coverageSwiftPM(
                 request: request,
                 workspace: workspace,
@@ -124,10 +148,13 @@ public final class SymphonyBuildTool {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)
         let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
         let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .run, runID: selector.runIdentifier)
         switch selector.product.defaultBackend {
         case .xcode:
+            if !request.dryRun {
+                try ensureXcodeSupport(for: selector.platform)
+            }
+            let destination = try xcodeDestination(platform: selector.platform, simulator: request.simulator, dryRun: request.dryRun)
             return try runXcode(
                 request: request,
                 workspace: workspace,
@@ -136,6 +163,7 @@ public final class SymphonyBuildTool {
                 executionContext: executionContext
             )
         case .swiftPM:
+            let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
             return try runSwiftPM(
                 request: request,
                 workspace: workspace,
@@ -539,7 +567,10 @@ public final class SymphonyBuildTool {
                 )
 
                 if wantsInspection {
-                    let inspection = try SwiftPMCoverageInspector(processRunner: processRunner).inspect(
+                    let inspection = try SwiftPMCoverageInspector(
+                        processRunner: processRunner,
+                        llvmCovCommand: try toolchainCapabilitiesResolver.resolve().llvmCovCommand
+                    ).inspect(
                         coverageJSONPath: URL(fileURLWithPath: rawPath),
                         projectRoot: workspace.projectRoot,
                         candidates: inspectionCandidates(from: exportedArtifacts.report),
@@ -844,7 +875,8 @@ public final class SymphonyBuildTool {
             suite: "client",
             backend: ProductKind.client.defaultBackend,
             generatedAt: generatedAt,
-            files: execution.clientInspection?.files ?? []
+            files: execution.clientInspection?.files ?? [],
+            skippedReason: execution.report.clientCoverageSkipReason
         )
         let serverInspection = HarnessCoverageInspectionArtifact(
             suite: "server",
@@ -891,11 +923,13 @@ public final class SymphonyBuildTool {
 
     public func simList(currentDirectory: URL) throws -> String {
         _ = try workspaceDiscovery.discover(from: currentDirectory)
+        try ensureXcodeSupport(for: .iosSimulator)
         return try SimctlSimulatorCatalog(processRunner: processRunner).availableDevices().map { "\($0.name) (\($0.udid))" }.joined(separator: "\n")
     }
 
     public func simBoot(_ request: SimBootRequest) throws -> String {
         _ = try workspaceDiscovery.discover(from: request.currentDirectory)
+        try ensureXcodeSupport(for: .iosSimulator)
         let destination = try simulatorResolver.resolve(destinationSelector(platform: .iosSimulator, simulator: request.simulator)); try simulatorResolver.boot(resolved: destination)
         return destination.displayName
     }
@@ -946,7 +980,10 @@ public final class SymphonyBuildTool {
         }
         let inspection: CoverageInspectionResult
         do {
-            inspection = try SwiftPMCoverageInspector(processRunner: processRunner).inspect(
+            inspection = try SwiftPMCoverageInspector(
+                processRunner: processRunner,
+                llvmCovCommand: try toolchainCapabilitiesResolver.resolve().llvmCovCommand
+            ).inspect(
                 coverageJSONPath: URL(fileURLWithPath: report.coverageJSONPath),
                 projectRoot: workspace.projectRoot,
                 candidates: candidates,
@@ -954,7 +991,7 @@ public final class SymphonyBuildTool {
                 includeMissingLines: true
             )
         } catch let error as SymphonyBuildError
-            where error.code == "missing_swiftpm_profdata" || error.code == "missing_swiftpm_test_binary" {
+            where error.code == "missing_swiftpm_profdata" || error.code == "missing_swiftpm_test_binary" || error.code == "missing_llvm_cov" {
             inspection = CoverageInspectionResult(files: [], rawCommands: [])
         }
         return HarnessCoverageInspectionArtifact(
@@ -1110,12 +1147,73 @@ public final class SymphonyBuildTool {
         ).joined(separator: "\n")
     }
 
+    private func ensureXcodeSupport(for platform: PlatformKind) throws {
+        let capabilities = try toolchainCapabilitiesResolver.resolve()
+        guard capabilities.supportsXcodeCommands else {
+            throw SymphonyBuildCommandFailure(message: Self.noXcodeMessage)
+        }
+        if platform == .iosSimulator, !capabilities.supportsSimulatorCommands {
+            throw SymphonyBuildCommandFailure(message: Self.noXcodeMessage)
+        }
+    }
+
+    private func xcodeDestination(platform: PlatformKind, simulator: String?, dryRun: Bool) throws -> ResolvedDestination {
+        if dryRun {
+            let capabilities = try toolchainCapabilitiesResolver.resolve()
+            if !capabilities.supportsXcodeCommands || (platform == .iosSimulator && !capabilities.supportsSimulatorCommands) {
+                return assumedDryRunDestination(platform: platform, simulator: simulator)
+            }
+        }
+        return try simulatorResolver.resolve(destinationSelector(platform: platform, simulator: simulator))
+    }
+
+    private func assumedDryRunDestination(platform: PlatformKind, simulator: String?) -> ResolvedDestination {
+        switch platform {
+        case .macos:
+            return ResolvedDestination(
+                platform: .macos,
+                displayName: "macOS",
+                simulatorName: nil,
+                simulatorUDID: nil,
+                xcodeDestination: expectedHostMacOSDestination()
+            )
+        case .iosSimulator:
+            if let simulator, looksLikeUDID(simulator) {
+                return ResolvedDestination(
+                    platform: .iosSimulator,
+                    displayName: simulator,
+                    simulatorName: nil,
+                    simulatorUDID: simulator,
+                    xcodeDestination: "platform=iOS Simulator,id=\(simulator)"
+                )
+            }
+            let simulatorName = simulator ?? "iPhone 17"
+            return ResolvedDestination(
+                platform: .iosSimulator,
+                displayName: simulatorName,
+                simulatorName: simulatorName,
+                simulatorUDID: nil,
+                xcodeDestination: "platform=iOS Simulator,name=\(simulatorName)"
+            )
+        }
+    }
+
     private func destinationSelector(platform: PlatformKind, simulator: String?) -> DestinationSelector {
         if platform == .iosSimulator, let simulator, looksLikeUDID(simulator) { return DestinationSelector(platform: platform, simulatorName: nil, simulatorUDID: simulator) }
         return DestinationSelector(platform: platform, simulatorName: simulator, simulatorUDID: nil)
     }
 
     private func looksLikeUDID(_ value: String) -> Bool { value.wholeMatch(of: /^[A-Fa-f0-9-]{36}$/) != nil }
+
+    private func expectedHostMacOSDestination() -> String {
+        #if arch(arm64)
+        "platform=macOS,arch=arm64"
+        #elseif arch(x86_64)
+        "platform=macOS,arch=x86_64"
+        #else
+        "platform=macOS"
+        #endif
+    }
 
     private func renderXcodeRunSequence(
         xcodeRequest: XcodeCommandRequest,
@@ -1157,4 +1255,8 @@ public final class SymphonyBuildTool {
         return prefixed
     }
 
+}
+
+private extension SymphonyBuildTool {
+    static let noXcodeMessage = "not supported because the current environment has no Xcode available; Editing those sources is not encouraged"
 }
