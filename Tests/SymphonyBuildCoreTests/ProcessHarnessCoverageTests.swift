@@ -1479,7 +1479,8 @@ import Testing
 }
 
 @Test func harnessCoverageViolationDecodesWithoutUncoveredFunctions() throws {
-  let json = #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9}"#
+  let json =
+    #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9}"#
   let data = Data(json.utf8)
   let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
   #expect(violation.suite == "package")
@@ -1487,7 +1488,8 @@ import Testing
 }
 
 @Test func harnessCoverageViolationDecodesWithUncoveredFunctions() throws {
-  let json = #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9,"uncoveredFunctions":["bar()"]}"#
+  let json =
+    #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9,"uncoveredFunctions":["bar()"]}"#
   let data = Data(json.utf8)
   let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
   #expect(violation.uncoveredFunctions == ["bar()"])

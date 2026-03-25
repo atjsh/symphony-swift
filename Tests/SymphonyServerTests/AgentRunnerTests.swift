@@ -101,9 +101,14 @@ private final class StubWorkspaceManager: WorkspaceManaging, @unchecked Sendable
 
 private final class CollectingEventSink: AgentRunEventSink, @unchecked Sendable {
   private let lock = NSLock()
+  private var _starts: [AgentRunStartInfo] = []
   private var _transitions: [(RunContext, RunLifecycleState)] = []
   private var _events: [AgentRawEvent] = []
   private var _completions: [AgentRunResult] = []
+
+  var starts: [AgentRunStartInfo] {
+    lock.withLock { _starts }
+  }
 
   var transitions: [(RunContext, RunLifecycleState)] {
     lock.withLock { _transitions }
@@ -121,15 +126,19 @@ private final class CollectingEventSink: AgentRunEventSink, @unchecked Sendable 
     lock.withLock { _completions }
   }
 
-  func runDidTransition(_ context: RunContext, to state: RunLifecycleState) async {
+  func runDidStart(_ startInfo: AgentRunStartInfo) {
+    lock.withLock { _starts.append(startInfo) }
+  }
+
+  func runDidTransition(_ context: RunContext, to state: RunLifecycleState) {
     lock.withLock { _transitions.append((context, state)) }
   }
 
-  func runDidReceiveEvent(_ event: AgentRawEvent) async {
+  func runDidReceiveEvent(_ event: AgentRawEvent) {
     lock.withLock { _events.append(event) }
   }
 
-  func runDidComplete(_ result: AgentRunResult) async {
+  func runDidComplete(_ result: AgentRunResult) {
     lock.withLock { _completions.append(result) }
   }
 }
@@ -211,13 +220,21 @@ struct NoOpAgentRunEventSinkTests {
   @Test func noOpDoesNotCrash() async throws {
     let sink = NoOpAgentRunEventSink()
     let ctx = try makeRunContext()
-    await sink.runDidTransition(ctx, to: .preparingWorkspace)
-    await sink.runDidReceiveEvent(
+    sink.runDidStart(
+      AgentRunStartInfo(
+        context: ctx,
+        issue: try makeIssue(),
+        provider: "codex",
+        sessionID: SessionID("S_1"),
+        workspacePath: "/tmp/ws"
+      ))
+    sink.runDidTransition(ctx, to: .preparingWorkspace)
+    sink.runDidReceiveEvent(
       AgentRawEvent(
         sessionID: SessionID("S_1"), provider: "codex",
         sequence: EventSequence(0), timestamp: "2026-01-01T00:00:00Z",
         rawJSON: "{}", providerEventType: "test", normalizedEventKind: "message"))
-    await sink.runDidComplete(
+    sink.runDidComplete(
       AgentRunResult(
         context: ctx, sessionID: SessionID("S_1"), finalState: .succeeded,
         eventCount: 1, error: nil))
@@ -280,6 +297,11 @@ struct AgentRunnerLifecycleTests {
     // Verify completion sink was called
     #expect(sink.completions.count == 1)
     #expect(sink.completions[0].finalState == RunLifecycleState.succeeded)
+
+    // Start info is emitted after session initialization.
+    #expect(sink.starts.count == 1)
+    #expect(sink.starts[0].sessionID == result.sessionID)
+    #expect(sink.starts[0].provider == "codex")
 
     // Events received by sink
     #expect(sink.events.count == 2)
@@ -913,12 +935,28 @@ struct ProvidersConfigStallTimeoutTests {
 
 @Suite("CollectingEventSink")
 struct CollectingEventSinkDirectTests {
+  @Test func collectsStarts() async throws {
+    let sink = CollectingEventSink()
+    let ctx = try makeRunContext()
+    let startInfo = AgentRunStartInfo(
+      context: ctx,
+      issue: try makeIssue(),
+      provider: "codex",
+      sessionID: SessionID("S_1"),
+      workspacePath: "/tmp/ws"
+    )
+
+    sink.runDidStart(startInfo)
+
+    #expect(sink.starts == [startInfo])
+  }
+
   @Test func collectsTransitions() async throws {
     let sink = CollectingEventSink()
     let ctx = try makeRunContext()
 
-    await sink.runDidTransition(ctx, to: .preparingWorkspace)
-    await sink.runDidTransition(ctx, to: .streamingTurn)
+    sink.runDidTransition(ctx, to: .preparingWorkspace)
+    sink.runDidTransition(ctx, to: .streamingTurn)
 
     #expect(sink.transitions.count == 2)
     #expect(sink.transitionStates == [.preparingWorkspace, .streamingTurn])
@@ -930,7 +968,7 @@ struct CollectingEventSinkDirectTests {
       sessionID: SessionID("S_1"), provider: "codex",
       sequence: EventSequence(0), timestamp: "2026-01-01T00:00:00Z",
       rawJSON: "{}", providerEventType: "test", normalizedEventKind: "message")
-    await sink.runDidReceiveEvent(event)
+    sink.runDidReceiveEvent(event)
     #expect(sink.events.count == 1)
   }
 
@@ -940,7 +978,7 @@ struct CollectingEventSinkDirectTests {
     let result = AgentRunResult(
       context: ctx, sessionID: SessionID("S_1"), finalState: .succeeded,
       eventCount: 0, error: nil)
-    await sink.runDidComplete(result)
+    sink.runDidComplete(result)
     #expect(sink.completions.count == 1)
   }
 }

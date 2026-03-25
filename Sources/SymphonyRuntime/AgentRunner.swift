@@ -35,12 +35,35 @@ public struct AgentRunResult: Equatable, Sendable {
   }
 }
 
+public struct AgentRunStartInfo: Equatable, Sendable {
+  public let context: RunContext
+  public let issue: Issue
+  public let provider: String
+  public let sessionID: SessionID
+  public let workspacePath: String
+
+  public init(
+    context: RunContext,
+    issue: Issue,
+    provider: String,
+    sessionID: SessionID,
+    workspacePath: String
+  ) {
+    self.context = context
+    self.issue = issue
+    self.provider = provider
+    self.sessionID = sessionID
+    self.workspacePath = workspacePath
+  }
+}
+
 // MARK: - Agent Run Event Sink
 
 public protocol AgentRunEventSink: Sendable {
-  func runDidTransition(_ context: RunContext, to state: RunLifecycleState) async
-  func runDidReceiveEvent(_ event: AgentRawEvent) async
-  func runDidComplete(_ result: AgentRunResult) async
+  func runDidStart(_ startInfo: AgentRunStartInfo)
+  func runDidTransition(_ context: RunContext, to state: RunLifecycleState)
+  func runDidReceiveEvent(_ event: AgentRawEvent)
+  func runDidComplete(_ result: AgentRunResult)
 }
 
 // MARK: - Agent Running Protocol
@@ -131,7 +154,7 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     let sessionID = SessionID(UUID().uuidString)
 
     // Step 1: Prepare workspace
-    await eventSink.runDidTransition(context, to: .preparingWorkspace)
+    eventSink.runDidTransition(context, to: .preparingWorkspace)
     let workspacePath: String
     do {
       let key = issue.identifier.workspaceKey
@@ -140,12 +163,12 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Workspace preparation failed: \(error)")
-      await eventSink.runDidComplete(result)
+      eventSink.runDidComplete(result)
       return result
     }
 
     // Step 2: Build prompt
-    await eventSink.runDidTransition(context, to: .buildingPrompt)
+    eventSink.runDidTransition(context, to: .buildingPrompt)
     let prompt: String
     do {
       prompt = try PromptRenderer.render(
@@ -154,12 +177,12 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Prompt render failed: \(error)")
-      await eventSink.runDidComplete(result)
+      eventSink.runDidComplete(result)
       return result
     }
 
     // Step 3: Launch agent process
-    await eventSink.runDidTransition(context, to: .launchingAgentProcess)
+    eventSink.runDidTransition(context, to: .launchingAgentProcess)
     let adapter = ProviderAdapterFactory.makeAdapter(
       for: config.agent.defaultProvider,
       config: config.providers,
@@ -171,7 +194,7 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     registerActiveRun(activeRun, for: context.runID)
 
     // Step 4: Initialize session
-    await eventSink.runDidTransition(context, to: .initializingSession)
+    eventSink.runDidTransition(context, to: .initializingSession)
     let eventStream: AsyncThrowingStream<AgentRawEvent, Error>
     do {
       eventStream = try await adapter.startSession(
@@ -185,43 +208,53 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Session start failed: \(error)")
-      await eventSink.runDidComplete(result)
+      eventSink.runDidComplete(result)
       return result
     }
 
+    eventSink.runDidStart(
+      AgentRunStartInfo(
+        context: context,
+        issue: issue,
+        provider: adapter.providerName.rawValue,
+        sessionID: sessionID,
+        workspacePath: workspacePath
+      ))
+
     // Step 5: Stream events with stall detection
-    await eventSink.runDidTransition(context, to: .streamingTurn)
+    eventSink.runDidTransition(context, to: .streamingTurn)
     var eventCount = 0
     var streamError: String?
 
     let stallTimeoutMS = config.providers.stallTimeoutMS(for: config.agent.defaultProvider)
     let stallDetector = StallDetector(stallTimeoutMS: stallTimeoutMS)
     let stallState = StallWatchState(lastEventAt: Date())
-    let stallWatchdog: Task<Void, Never>? = if stallDetector.isEnabled {
-      Task {
-        while !Task.isCancelled {
-          do {
-            try await Task.sleep(nanoseconds: UInt64(stallTimeoutMS) * 1_000_000)
-          } catch {
-            break
-          }
+    let stallWatchdog: Task<Void, Never>? =
+      if stallDetector.isEnabled {
+        Task {
+          while !Task.isCancelled {
+            do {
+              try await Task.sleep(nanoseconds: UInt64(stallTimeoutMS) * 1_000_000)
+            } catch {
+              break
+            }
 
-          if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
-            stallState.markStalled(timeoutMS: stallTimeoutMS)
-            try? await adapter.cancelSession(sessionID: sessionID)
-            break
+            if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
+              stallState.markStalled(timeoutMS: stallTimeoutMS)
+              try? await adapter.cancelSession(sessionID: sessionID)
+              break
+            }
           }
         }
+      } else {
+        nil
       }
-    } else {
-      nil
-    }
 
     do {
       for try await event in eventStream {
         stallState.recordEvent(at: Date())
         eventCount += 1
-        await eventSink.runDidReceiveEvent(event)
+        eventSink.runDidReceiveEvent(event)
       }
     } catch {
       if stallState.stallError == nil {
@@ -244,12 +277,12 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       finalState = .failed
     }
 
-    await eventSink.runDidTransition(context, to: .finishing)
+    eventSink.runDidTransition(context, to: .finishing)
     removeActiveRun(for: context.runID)
     let result = AgentRunResult(
       context: context, sessionID: sessionID, finalState: finalState,
       eventCount: eventCount, error: streamError)
-    await eventSink.runDidComplete(result)
+    eventSink.runDidComplete(result)
     return result
   }
 
@@ -271,7 +304,8 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
 public struct NoOpAgentRunEventSink: AgentRunEventSink, Sendable {
   public init() {}
-  public func runDidTransition(_ context: RunContext, to state: RunLifecycleState) async {}
-  public func runDidReceiveEvent(_ event: AgentRawEvent) async {}
-  public func runDidComplete(_ result: AgentRunResult) async {}
+  public func runDidStart(_ startInfo: AgentRunStartInfo) {}
+  public func runDidTransition(_ context: RunContext, to state: RunLifecycleState) {}
+  public func runDidReceiveEvent(_ event: AgentRawEvent) {}
+  public func runDidComplete(_ result: AgentRunResult) {}
 }

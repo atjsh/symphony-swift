@@ -3,10 +3,15 @@ import SymphonyShared
 
 enum BootstrapRuntimeHooks {
   private final class Storage: @unchecked Sendable {
+    private static func defaultRunLoopAction() {
+      RunLoop.main.run()
+    }
+
     private let lock = NSLock()
     private var output: ((String) -> Void)?
     private var keepAlive: (() -> Void)?
-    private var runLoop: () -> Void = RunLoop.main.run
+    private var runLoopOverride: (() -> Void)?
+    private var defaultRunLoopOverride: (() -> Void)?
 
     var outputOverride: ((String) -> Void)? {
       get {
@@ -34,16 +39,34 @@ enum BootstrapRuntimeHooks {
       }
     }
 
-    var runLoopRunner: () -> Void {
+    var runLoopRunnerOverride: (() -> Void)? {
       get {
         lock.lock()
         defer { lock.unlock() }
-        return runLoop
+        return runLoopOverride
       }
       set {
         lock.lock()
-        runLoop = newValue
+        runLoopOverride = newValue
         lock.unlock()
+      }
+    }
+
+    func setDefaultRunLoopActionOverride(_ action: (() -> Void)?) {
+      lock.lock()
+      defaultRunLoopOverride = action
+      lock.unlock()
+    }
+
+    func runDefaultRunLoopAction() {
+      let override: (() -> Void)?
+      lock.lock()
+      override = defaultRunLoopOverride
+      lock.unlock()
+      if let override {
+        override()
+      } else {
+        Storage.defaultRunLoopAction()
       }
     }
   }
@@ -60,9 +83,17 @@ enum BootstrapRuntimeHooks {
     set { storage.keepAliveOverride = newValue }
   }
 
-  static var runLoopRunner: () -> Void {
-    get { storage.runLoopRunner }
-    set { storage.runLoopRunner = newValue }
+  static var runLoopRunnerOverride: (() -> Void)? {
+    get { storage.runLoopRunnerOverride }
+    set { storage.runLoopRunnerOverride = newValue }
+  }
+
+  static func withDefaultRunLoopAction(_ action: @escaping () -> Void) {
+    storage.setDefaultRunLoopActionOverride(action)
+  }
+
+  static func resetDefaultRunLoopAction() {
+    storage.setDefaultRunLoopActionOverride(nil)
   }
 
   static func defaultOutput(_ line: String) {
@@ -73,11 +104,14 @@ enum BootstrapRuntimeHooks {
     }
   }
 
+  @inline(never)
   static func keepAlive() {
     if let keepAliveOverride {
       keepAliveOverride()
+    } else if let runLoopRunnerOverride {
+      runLoopRunnerOverride()
     } else {
-      runLoopRunner()
+      storage.runDefaultRunLoopAction()
     }
   }
 }
@@ -87,6 +121,7 @@ public enum BootstrapEnvironment {
   public static let serverHostKey = "SYMPHONY_SERVER_HOST"
   public static let serverPortKey = "SYMPHONY_SERVER_PORT"
   public static let serverSQLitePathKey = "SYMPHONY_STORAGE_SQLITE_PATH"
+  public static let workflowPathKey = "SYMPHONY_WORKFLOW_PATH"
 
   public static func effectiveServerEndpoint(
     environment: [String: String] = ProcessInfo.processInfo.environment
@@ -113,6 +148,68 @@ public enum BootstrapEnvironment {
       applicationSupport
       .appendingPathComponent("symphony", isDirectory: true)
       .appendingPathComponent("symphony.sqlite3", isDirectory: false)
+  }
+
+  public static func effectiveWorkflowURL(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    workingDirectory: String = FileManager.default.currentDirectoryPath
+  ) -> URL? {
+    if let explicitPath = environment[workflowPathKey]?.trimmingCharacters(
+      in: .whitespacesAndNewlines),
+      !explicitPath.isEmpty
+    {
+      let expanded = NSString(string: explicitPath).expandingTildeInPath
+      return URL(fileURLWithPath: expanded)
+    }
+
+    return WorkflowParser.discover(workingDirectory: workingDirectory)
+  }
+}
+
+public protocol BootstrapEngineRunning: Sendable {
+  func start() throws
+  func stop()
+}
+
+extension OrchestratorEngine: BootstrapEngineRunning {}
+
+public struct BootstrapTrackerFactory: Sendable {
+  public let environment: [String: String]
+
+  public init(environment: [String: String]) {
+    self.environment = environment
+  }
+
+  public func make(_ tracker: TrackerConfig) throws -> any TrackerAdapting {
+    guard let endpoint = URL(string: tracker.endpoint) else {
+      throw GitHubTrackerError.invalidEndpoint(tracker.endpoint)
+    }
+
+    let apiKey =
+      try ConfigResolver.resolveAPIKey(tracker.apiKey, environment: environment)
+      ?? environment["GITHUB_TOKEN"]
+    guard let apiKey, !apiKey.isEmpty else {
+      throw GitHubTrackerError.missingAPIKey
+    }
+
+    let transport = URLSessionGraphQLTransport(endpoint: endpoint, apiKey: apiKey)
+    return GitHubTrackerAdapter(transport: transport, config: tracker)
+  }
+}
+
+public struct BootstrapAgentRunnerFactory: Sendable {
+  public let store: SQLiteServerStateStore
+
+  public init(store: SQLiteServerStateStore) {
+    self.store = store
+  }
+
+  public func make(_ workspaceManager: any WorkspaceManaging) -> any AgentRunning {
+    AgentRunner(
+      workspaceManager: workspaceManager,
+      processLauncher: DefaultProcessLauncher(),
+      eventSink: SQLiteAgentRunEventSink(store: store)
+    )
   }
 }
 
@@ -271,10 +368,19 @@ public enum BootstrapServerRunner {
     startedAt: Date = Date(),
     output: ((String) -> Void)? = nil,
     keepAlive: (() -> Void)? = nil,
-    startServer: Bool = true
+    startServer: Bool = true,
+    startOrchestrator: Bool? = nil,
+    workflowLoader: (URL) throws -> WorkflowDefinition = {
+      try WorkflowParser.parse(contentsOf: $0)
+    },
+    engineFactory: (WorkflowDefinition, [String: String], SQLiteServerStateStore) throws ->
+      any BootstrapEngineRunning = {
+        try makeOrchestratorEngine(workflow: $0, environment: $1, store: $2)
+      }
   ) throws {
     let output = output ?? BootstrapRuntimeHooks.defaultOutput
     let keepAlive = keepAlive ?? BootstrapRuntimeHooks.keepAlive
+    let shouldStartOrchestrator = startOrchestrator ?? startServer
     let state = BootstrapStartupState.current(
       componentName: componentName,
       environment: environment,
@@ -286,35 +392,49 @@ public enum BootstrapServerRunner {
     state.startupLogLines.forEach(output)
 
     var serverTask: Task<Void, Error>?
-    if startServer {
+    var orchestratorEngine: (any BootstrapEngineRunning)?
+    if startServer || shouldStartOrchestrator {
       let databaseURL = BootstrapEnvironment.effectiveSQLitePath(environment: environment)
       let liveLogHub = LiveLogHub()
       let store = try SQLiteServerStateStore(
         databaseURL: databaseURL,
         eventObserver: makeEventObserver(liveLogHub: liveLogHub)
       )
-      let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
-      let server = SymphonyHTTPServer(
-        endpoint: state.endpoint,
-        store: store,
-        api: api,
-        liveLogHub: liveLogHub
-      )
-      let startup = ServerStartupSignal()
-      serverTask = Task {
-        do {
-          try await server.run {
-            startup.ready()
-          }
-        } catch {
-          startup.fail(error)
-          throw error
-        }
+
+      if shouldStartOrchestrator,
+        let workflowURL = BootstrapEnvironment.effectiveWorkflowURL(environment: environment)
+      {
+        let workflow = try workflowLoader(workflowURL)
+        let engine = try engineFactory(workflow, environment, store)
+        try engine.start()
+        orchestratorEngine = engine
       }
-      try startup.wait()
+
+      if startServer {
+        let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+        let server = SymphonyHTTPServer(
+          endpoint: state.endpoint,
+          store: store,
+          api: api,
+          liveLogHub: liveLogHub
+        )
+        let startup = ServerStartupSignal()
+        serverTask = Task {
+          do {
+            try await server.run {
+              startup.ready()
+            }
+          } catch {
+            startup.fail(error)
+            throw error
+          }
+        }
+        try startup.wait()
+      }
     }
 
     keepAlive()
+    orchestratorEngine?.stop()
     serverTask?.cancel()
   }
 
@@ -340,6 +460,24 @@ public enum BootstrapServerRunner {
         await liveLogHub.publish(event)
       }
     }
+  }
+
+  public static func makeOrchestratorEngine(
+    workflow: WorkflowDefinition,
+    environment: [String: String],
+    store: SQLiteServerStateStore,
+    observer: any EngineEventObserving = NoOpEngineEventObserver()
+  ) throws -> any BootstrapEngineRunning {
+    let trackerFactory = BootstrapTrackerFactory(environment: environment)
+    let agentRunnerFactory = BootstrapAgentRunnerFactory(store: store)
+
+    return OrchestratorEngine(
+      config: workflow.config,
+      trackerFactory: trackerFactory.make,
+      agentRunnerFactory: agentRunnerFactory.make,
+      promptTemplate: workflow.promptTemplate,
+      observer: observer
+    )
   }
 }
 

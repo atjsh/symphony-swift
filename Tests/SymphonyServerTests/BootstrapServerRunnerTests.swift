@@ -1,3 +1,4 @@
+import CoreFoundation
 import Darwin
 import Foundation
 import SymphonyShared
@@ -142,6 +143,204 @@ import Testing
   #expect(state.description.contains("[WorkerServer] endpoint=https://worker.example.com:8443"))
 }
 
+@Test func bootstrapEnvironmentWorkflowURLPrefersExplicitPath() throws {
+  let explicitWorkflow = try makeTemporaryDirectory().appendingPathComponent("custom-workflow.md")
+  try "---\nagent:\n  default_provider: codex\n---\nResolve it".write(
+    to: explicitWorkflow,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let resolved = BootstrapEnvironment.effectiveWorkflowURL(
+    environment: [BootstrapEnvironment.workflowPathKey: explicitWorkflow.path],
+    workingDirectory: "/tmp/does-not-matter"
+  )
+
+  #expect(resolved == explicitWorkflow)
+}
+
+@Test func bootstrapServerRunnerStartsInjectedOrchestratorWhenWorkflowPresent() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-orchestrator.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try "---\npolling:\n  interval_ms: 50\n---\nResolve {{issue.title}}".write(
+    to: workflowURL,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let engine = RecordingBootstrapEngine()
+  var loadedWorkflow: WorkflowDefinition?
+
+  try BootstrapServerRunner.run(
+    componentName: "BootstrapOrchestrator",
+    environment: [
+      BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+      BootstrapEnvironment.workflowPathKey: workflowURL.path,
+    ],
+    output: { _ in },
+    keepAlive: {},
+    startServer: false,
+    startOrchestrator: true,
+    workflowLoader: { url in
+      let workflow = try WorkflowParser.parse(contentsOf: url)
+      loadedWorkflow = workflow
+      return workflow
+    },
+    engineFactory: { workflow, _, _ in
+      #expect(workflow.promptTemplate == "Resolve {{issue.title}}")
+      return engine
+    }
+  )
+
+  #expect(engine.started)
+  #expect(engine.stopped)
+  #expect(loadedWorkflow?.config.polling.intervalMS == 50)
+}
+
+@Test func bootstrapServerRunnerCanStartOrchestratorUsingDefaultFactories() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-default-orchestrator.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try """
+  ---
+  tracker:
+    kind: github
+    endpoint: https://api.github.com/graphql
+    project_owner: owner
+    project_owner_type: organization
+    project_number: 1
+  polling:
+    interval_ms: 50
+  ---
+  Resolve {{issue.title}}
+  """.write(to: workflowURL, atomically: true, encoding: .utf8)
+
+  try BootstrapServerRunner.run(
+    componentName: "BootstrapDefaultOrchestrator",
+    environment: [
+      BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+      BootstrapEnvironment.workflowPathKey: workflowURL.path,
+      "GITHUB_TOKEN": "token",
+    ],
+    output: { _ in },
+    keepAlive: {},
+    startServer: false,
+    startOrchestrator: true
+  )
+}
+
+@Test func bootstrapServerRunnerPropagatesWorkflowParseFailure() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-invalid.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try "---\ntracker: [\n---\nBroken".write(to: workflowURL, atomically: true, encoding: .utf8)
+
+  #expect(throws: WorkflowConfigError.self) {
+    try BootstrapServerRunner.run(
+      environment: [
+        BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+        BootstrapEnvironment.workflowPathKey: workflowURL.path,
+      ],
+      output: { _ in },
+      keepAlive: {},
+      startServer: false,
+      startOrchestrator: true
+    )
+  }
+}
+
+@Test func bootstrapTrackerFactoryBuildsGitHubTrackerAdapter() throws {
+  let factory = BootstrapTrackerFactory(environment: ["GITHUB_TOKEN": "test-token"])
+  let tracker = try factory.make(
+    TrackerConfig(
+      endpoint: "https://api.github.com/graphql",
+      projectOwner: "owner",
+      projectOwnerType: "organization",
+      projectNumber: 1
+    ))
+
+  #expect(tracker is GitHubTrackerAdapter)
+}
+
+@Test func bootstrapTrackerFactoryRejectsInvalidEndpointAndMissingAPIKey() {
+  let invalidEndpointFactory = BootstrapTrackerFactory(environment: ["GITHUB_TOKEN": "token"])
+  #expect(throws: GitHubTrackerError.self) {
+    _ = try invalidEndpointFactory.make(TrackerConfig(endpoint: "http://[invalid"))
+  }
+
+  let missingKeyFactory = BootstrapTrackerFactory(environment: [:])
+  #expect(throws: GitHubTrackerError.self) {
+    _ = try missingKeyFactory.make(TrackerConfig(endpoint: "https://api.github.com/graphql"))
+  }
+}
+
+@Test func bootstrapAgentRunnerFactoryBuildsAgentRunner() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent(
+    "bootstrap-runner-factory.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let factory = BootstrapAgentRunnerFactory(store: store)
+  let workspaceManager = WorkspaceManager(root: NSTemporaryDirectory() + UUID().uuidString)
+
+  let runner = factory.make(workspaceManager)
+
+  #expect(runner is AgentRunner)
+}
+
+@Test func bootstrapMakeOrchestratorEngineReturnsEngine() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-engine.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let workflow = WorkflowDefinition(
+    config: WorkflowConfig(
+      tracker: TrackerConfig(
+        endpoint: "https://api.github.com/graphql",
+        projectOwner: "owner",
+        projectOwnerType: "organization",
+        projectNumber: 1
+      )
+    ),
+    promptTemplate: "Resolve {{issue.title}}"
+  )
+
+  let engine = try BootstrapServerRunner.makeOrchestratorEngine(
+    workflow: workflow,
+    environment: ["GITHUB_TOKEN": "token"],
+    store: store
+  )
+
+  #expect(engine is OrchestratorEngine)
+}
+
+@Test func bootstrapMakeOrchestratorEngineStartsRealEngine() async throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-engine-start.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let workflow = WorkflowDefinition(
+    config: WorkflowConfig(
+      tracker: TrackerConfig(
+        endpoint: "https://api.github.com/graphql",
+        projectOwner: "owner",
+        projectOwnerType: "organization",
+        projectNumber: 1
+      ),
+      polling: PollingConfig(intervalMS: 10_000)
+    ),
+    promptTemplate: "Resolve {{issue.title}}"
+  )
+
+  let engine = try BootstrapServerRunner.makeOrchestratorEngine(
+    workflow: workflow,
+    environment: ["GITHUB_TOKEN": "token"],
+    store: store
+  )
+
+  try engine.start()
+  defer { engine.stop() }
+
+  try await Task.sleep(for: .milliseconds(50))
+}
+
 @Test func keepAlivePolicyCanExitImmediatelyForServerCoverageRuns() {
   withBootstrapRuntimeHooksLock {
     #expect(!BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: [:]))
@@ -203,21 +402,28 @@ import Testing
   withBootstrapRuntimeHooksLock {
     let previousOutput = BootstrapRuntimeHooks.outputOverride
     let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
-    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunner
+    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
     BootstrapRuntimeHooks.outputOverride = nil
 
-    var didRunLoop = false
+    var didDefaultRunLoop = false
+    var didCustomRunLoop = false
     BootstrapRuntimeHooks.keepAliveOverride = nil
-    BootstrapRuntimeHooks.runLoopRunner = { didRunLoop = true }
+    BootstrapRuntimeHooks.runLoopRunnerOverride = { didCustomRunLoop = true }
+    BootstrapRuntimeHooks.withDefaultRunLoopAction { didDefaultRunLoop = true }
     defer {
       BootstrapRuntimeHooks.outputOverride = previousOutput
       BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
-      BootstrapRuntimeHooks.runLoopRunner = previousRunLoopRunner
+      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+      BootstrapRuntimeHooks.resetDefaultRunLoopAction()
     }
 
     BootstrapRuntimeHooks.defaultOutput("[SymphonyServer] probe")
     BootstrapRuntimeHooks.keepAlive()
-    #expect(didRunLoop)
+    #expect(didCustomRunLoop)
+
+    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
+    BootstrapRuntimeHooks.keepAlive()
+    #expect(didDefaultRunLoop)
 
     let normalized = BootstrapServerEndpoint(scheme: " ", host: " ", port: 0)
     #expect(normalized == .defaultEndpoint)
@@ -227,6 +433,74 @@ import Testing
     #expect(fallbackEndpoint.url == nil)
     #expect(fallbackEndpoint.displayString == "http://bad host:8080")
     #expect(fallbackEndpoint.description == "http://bad host:8080")
+  }
+}
+
+@Test func bootstrapRuntimeHooksDefaultRunLoopFallbackCanBeExercisedDirectly() {
+  withBootstrapRuntimeHooksLock {
+    var didRunDefaultPath = false
+    BootstrapRuntimeHooks.withDefaultRunLoopAction { didRunDefaultPath = true }
+    defer { BootstrapRuntimeHooks.resetDefaultRunLoopAction() }
+    let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+    BootstrapRuntimeHooks.keepAliveOverride = nil
+    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
+    defer {
+      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+    }
+
+    BootstrapRuntimeHooks.keepAlive()
+
+    #expect(didRunDefaultPath)
+  }
+}
+
+@Test func bootstrapRuntimeHooksCanRunRealMainRunLoopFallback() async {
+  var previousKeepAliveOverride: (() -> Void)?
+  var previousRunLoopRunner: (() -> Void)?
+
+  withBootstrapRuntimeHooksLock {
+    previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+    previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+    BootstrapRuntimeHooks.keepAliveOverride = nil
+    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
+    BootstrapRuntimeHooks.resetDefaultRunLoopAction()
+  }
+
+  defer {
+    withBootstrapRuntimeHooksLock {
+      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+    }
+  }
+
+  await MainActor.run {
+    RunLoop.main.perform {
+      CFRunLoopStop(CFRunLoopGetMain())
+    }
+
+    BootstrapRuntimeHooks.keepAlive()
+  }
+}
+
+@Test func bootstrapRuntimeHooksKeepAliveUsesExplicitOverrideFirst() {
+  withBootstrapRuntimeHooksLock {
+    let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+    var didKeepAlive = false
+    var didRunLoop = false
+    BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
+    BootstrapRuntimeHooks.runLoopRunnerOverride = { didRunLoop = true }
+    defer {
+      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+    }
+
+    BootstrapRuntimeHooks.keepAlive()
+
+    #expect(didKeepAlive)
+    #expect(!didRunLoop)
   }
 }
 
@@ -370,6 +644,28 @@ private final class EmptyApplicationSupportFileManager: FileManager, @unchecked 
 
   override var homeDirectoryForCurrentUser: URL {
     testHomeDirectory
+  }
+}
+
+private final class RecordingBootstrapEngine: BootstrapEngineRunning, @unchecked Sendable {
+  private let lock = NSLock()
+  private var _started = false
+  private var _stopped = false
+
+  var started: Bool {
+    lock.withLock { _started }
+  }
+
+  var stopped: Bool {
+    lock.withLock { _stopped }
+  }
+
+  func start() throws {
+    lock.withLock { _started = true }
+  }
+
+  func stop() {
+    lock.withLock { _stopped = true }
   }
 }
 
