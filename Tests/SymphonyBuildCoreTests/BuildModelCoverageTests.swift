@@ -4,7 +4,7 @@ import Testing
 import SymphonyShared
 
 @Test func buildModelsExposeExpectedDefaultsAndComputedValues() throws {
-    #expect(BuildCommandFamily.allCases == [.build, .test, .coverage, .run, .harness])
+    #expect(BuildCommandFamily.allCases == [.build, .test, .run, .harness])
     #expect(ProductKind.server.defaultBackend == .swiftPM)
     #expect(ProductKind.client.defaultBackend == .xcode)
     #expect(ProductKind.server.defaultScheme == "SymphonyServer")
@@ -183,13 +183,8 @@ import SymphonyShared
             )
         ]
     )
-    let normalizedEnvelope = CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(inspectionReport))
-    let rawEnvelope = CoverageInspectionResponse(coverage: coverageReport, inspection: .raw(rawReport))
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    let decoder = JSONDecoder()
-    #expect(try decoder.decode(CoverageInspectionResponse.self, from: encoder.encode(normalizedEnvelope)) == normalizedEnvelope)
-    #expect(try decoder.decode(CoverageInspectionResponse.self, from: encoder.encode(rawEnvelope)) == rawEnvelope)
+    #expect(inspectionReport.files.count == 1)
+    #expect(rawReport.commands.count == 1)
 
     let packageFile = PackageCoverageFileReport(path: "Sources/Foo.swift", coveredLines: 5, executableLines: 5, lineCoverage: 1)
     let packageReport = PackageCoverageReport(scope: "first_party_sources", coveredLines: 5, executableLines: 5, lineCoverage: 1, coverageJSONPath: "/tmp/package.json", files: [packageFile])
@@ -199,10 +194,10 @@ import SymphonyShared
         testsInvocation: "swift test --enable-code-coverage",
         coveragePathInvocation: "swift test --show-code-coverage-path",
         packageCoverage: packageReport,
-        clientCoverageInvocation: "symphony-build coverage --product client --json",
+        clientCoverageInvocation: "symphony-build test --product client --json",
         clientCoverage: coverageReport,
         clientCoverageSkipReason: nil,
-        serverCoverageInvocation: "symphony-build coverage --product server --json",
+        serverCoverageInvocation: "symphony-build test --product server --json",
         serverCoverage: coverageReport,
         packageFileViolations: [violation],
         clientTargetViolations: [],
@@ -322,7 +317,6 @@ import SymphonyShared
     let buildRequest = BuildCommandRequest(product: .server, scheme: "Server", platform: .macos, simulator: nil, workerID: 1, dryRun: true, buildForTesting: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let testRequest = TestCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 2, dryRun: false, onlyTesting: ["Suite/test"], skipTesting: ["Suite/skip"], outputMode: .filtered, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let runRequest = RunCommandRequest(product: .server, scheme: "Server", platform: .macos, simulator: nil, workerID: 3, dryRun: false, serverURL: "http://localhost:8080", host: nil, port: nil, environment: ["FOO": "bar"], outputMode: .full, currentDirectory: URL(fileURLWithPath: "/tmp"))
-    let coverageRequest = CoverageCommandRequest(product: .client, scheme: "Client", platform: .iosSimulator, simulator: "UDID", workerID: 4, dryRun: true, onlyTesting: [], skipTesting: [], json: true, showFiles: true, includeTestTargets: true, outputMode: .quiet, currentDirectory: URL(fileURLWithPath: "/tmp"), showFunctions: true, showMissingLines: true, rawOutput: true)
     let harnessRequest = HarnessCommandRequest(minimumCoveragePercent: 100, json: true, currentDirectory: URL(fileURLWithPath: "/tmp"))
     let hooksRequest = HooksInstallRequest(currentDirectory: URL(fileURLWithPath: "/tmp"))
     let artifactsRequest = ArtifactsCommandRequest(command: .harness, latest: false, runID: "run-1", currentDirectory: URL(fileURLWithPath: "/tmp"))
@@ -332,10 +326,6 @@ import SymphonyShared
     #expect(buildRequest.buildForTesting)
     #expect(testRequest.skipTesting == ["Suite/skip"])
     #expect(runRequest.environment["FOO"] == "bar")
-    #expect(coverageRequest.includeTestTargets)
-    #expect(coverageRequest.showFunctions)
-    #expect(coverageRequest.showMissingLines)
-    #expect(coverageRequest.rawOutput)
     #expect(harnessRequest.minimumCoveragePercent == 100)
     #expect(hooksRequest.currentDirectory.path == "/tmp")
     #expect(artifactsRequest.command == .harness)

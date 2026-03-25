@@ -230,26 +230,28 @@ public struct CommitHarness {
                 message: "Commit harness failed because `\(ShellQuoting.render(command: executablePath, arguments: arguments))` did not pass."
             )
         }
-        guard !result.stdout.isEmpty else {
-            throw SymphonyBuildError(code: "missing_bootstrap_coverage_json", message: "The coverage command did not emit JSON output.")
+
+        let artifactRoot = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artifactRoot.isEmpty else {
+            throw SymphonyBuildError(code: "missing_test_artifact_root", message: "The test command did not return an artifact root path.")
+        }
+        let artifactRootURL = URL(fileURLWithPath: artifactRoot)
+
+        let coverageJSONPath = artifactRootURL.appendingPathComponent("coverage.json")
+        guard FileManager.default.fileExists(atPath: coverageJSONPath.path) else {
+            throw SymphonyBuildError(code: "missing_bootstrap_coverage_json", message: "The test artifact root does not contain coverage.json.")
+        }
+        let coverageData = try Data(contentsOf: coverageJSONPath)
+        let report = try JSONDecoder().decode(CoverageReport.self, from: coverageData)
+
+        let inspectionJSONPath = artifactRootURL.appendingPathComponent("coverage-inspection.json")
+        var inspection: CoverageInspectionReport?
+        if FileManager.default.fileExists(atPath: inspectionJSONPath.path) {
+            let inspectionData = try Data(contentsOf: inspectionJSONPath)
+            inspection = try JSONDecoder().decode(CoverageInspectionReport.self, from: inspectionData)
         }
 
-        do {
-            let data = Data(result.stdout.utf8)
-            if let wrapped = try? JSONDecoder().decode(CoverageInspectionResponse.self, from: data) {
-                let inspection: CoverageInspectionReport?
-                switch wrapped.inspection {
-                case .normalized(let report):
-                    inspection = report
-                case .raw:
-                    inspection = nil
-                }
-                return CoverageSuiteExecution(report: wrapped.coverage, inspection: inspection)
-            }
-            return CoverageSuiteExecution(report: try JSONDecoder().decode(CoverageReport.self, from: data), inspection: nil)
-        } catch {
-            throw SymphonyBuildError(code: "bootstrap_coverage_decode_failed", message: "The coverage command JSON output could not be decoded.")
-        }
+        return CoverageSuiteExecution(report: report, inspection: inspection)
     }
 
     static func currentExecutablePath(workingDirectory: URL) -> String {
@@ -269,18 +271,12 @@ public struct CommitHarness {
 
     static func coverageSuiteArguments(product: String, platform: String?, outputMode: XcodeOutputMode) -> [String] {
         var arguments = [
-            "coverage",
+            "test",
             "--product", product,
         ]
         if let platform {
             arguments += ["--platform", platform]
         }
-        arguments += [
-            "--show-files",
-            "--show-functions",
-            "--show-missing-lines",
-            "--json",
-        ]
         if outputMode != .filtered {
             arguments.append(contentsOf: ["--xcode-output-mode", outputMode.rawValue])
         }

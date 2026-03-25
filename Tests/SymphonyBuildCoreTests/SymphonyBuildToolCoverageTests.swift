@@ -85,27 +85,6 @@ import Testing
             )
         )
         #expect(testOutput.hasSuffix("summary.txt"))
-
-        let coverageOutput = try tool.coverage(
-            CoverageCommandRequest(
-                product: .server,
-                scheme: nil,
-                platform: nil,
-                simulator: nil,
-                workerID: 0,
-                dryRun: false,
-                onlyTesting: [],
-                skipTesting: [],
-                json: false,
-                showFiles: true,
-                includeTestTargets: false,
-                outputMode: .quiet,
-                currentDirectory: repoRoot
-            )
-        )
-        #expect(coverageOutput.contains("overall 100.00% (6/6)"))
-        #expect(coverageOutput.contains("target SymphonyRuntime 100.00% (4/4)"))
-        #expect(coverageOutput.contains("target SymphonyServer 100.00% (2/2)"))
         #expect(runner.startedDetachedExecutions.isEmpty)
         #expect(signals.values.isEmpty)
 
@@ -113,11 +92,8 @@ import Testing
             if command == "swift", arguments == ["build", "--product", "SymphonyServer"] {
                 return StubProcessRunner.failure("build failed")
             }
-            if command == "swift", arguments == ["test", "--filter", "SymphonyServerTests"] {
-                return StubProcessRunner.failure("test failed")
-            }
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
-                return StubProcessRunner.failure("coverage failed")
+                return StubProcessRunner.failure("test failed")
             }
             return StubProcessRunner.success()
         }
@@ -141,15 +117,6 @@ import Testing
             #expect(error.message.contains("swift test failed"))
         }
 
-        do {
-            _ = try failingTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected failing coverage builds to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message.contains("swift test with code coverage failed."))
-        }
-
         let exportFailRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
                 return StubProcessRunner.success("ok")
@@ -160,14 +127,10 @@ import Testing
             return StubProcessRunner.success()
         }
         let exportFailTool = makeCoverageTool(workspace: workspace, runner: exportFailRunner, statusSink: { _ in })
-        do {
-            _ = try exportFailTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected coverage export failures to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
-        }
+        let exportFailOutput = try exportFailTool.test(
+            TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(exportFailOutput.hasSuffix("summary.txt"))
     }
 }
 
@@ -212,7 +175,6 @@ import Testing
         for operation in [
             { try tool.build(BuildCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, buildForTesting: false, outputMode: .filtered, currentDirectory: repoRoot)) },
             { try tool.test(TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)) },
-            { try tool.coverage(CoverageCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)) },
             { try tool.run(RunCommandRequest(product: .client, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, serverURL: nil, host: nil, port: nil, environment: [:], outputMode: .filtered, currentDirectory: repoRoot)) },
             { try tool.simList(currentDirectory: repoRoot) },
             { try tool.simBoot(SimBootRequest(simulator: "iPhone 17", currentDirectory: repoRoot)) },
@@ -259,11 +221,8 @@ import Testing
             if command == "xcodebuild", arguments.last == "build-for-testing" {
                 return StubProcessRunner.success("build-for-testing ok")
             }
-            if command == "xcodebuild", arguments.last == "test", !arguments.contains("-enableCodeCoverage"), !arguments.contains("YES") {
+            if command == "xcodebuild", arguments.last == "test" {
                 return StubProcessRunner.success("test ok")
-            }
-            if command == "xcodebuild", arguments.last == "test", arguments.contains("-enableCodeCoverage"), arguments.contains("YES") {
-                return StubProcessRunner.success("coverage ok")
             }
             if command == "xcrun", arguments.prefix(4) == ["xccov", "view", "--report", "--json"] {
                 return StubProcessRunner.success(coverageJSON)
@@ -318,26 +277,8 @@ import Testing
         )
         #expect(dryRunTest.contains("-only-testing:SymphonyTests/BootstrapSupportTests"))
         #expect(dryRunTest.contains("-skip-testing:SymphonyTests/OtherTests"))
-
-        let dryRunCoverage = try tool.coverage(
-            CoverageCommandRequest(
-                product: .client,
-                scheme: nil,
-                platform: nil,
-                simulator: "iPhone 17",
-                workerID: 0,
-                dryRun: true,
-                onlyTesting: [],
-                skipTesting: [],
-                json: false,
-                showFiles: false,
-                includeTestTargets: false,
-                outputMode: .filtered,
-                currentDirectory: repoRoot
-            )
-        )
-        #expect(dryRunCoverage.contains("xcodebuild"))
-        #expect(dryRunCoverage.contains("xcrun xccov view --report --json"))
+        #expect(dryRunTest.contains("-enableCodeCoverage"))
+        #expect(dryRunTest.contains("xcrun xccov view --report --json"))
 
         let macOSDryRun = try tool.run(
             RunCommandRequest(
@@ -389,35 +330,12 @@ import Testing
         )
         #expect(testOutput.hasSuffix("summary.txt"))
 
-        let coverageOutput = try tool.coverage(
-            CoverageCommandRequest(
-                product: .client,
-                scheme: nil,
-                platform: nil,
-                simulator: "iPhone 17",
-                workerID: 0,
-                dryRun: false,
-                onlyTesting: [],
-                skipTesting: [],
-                json: true,
-                showFiles: true,
-                includeTestTargets: false,
-                outputMode: .quiet,
-                currentDirectory: repoRoot
-            )
-        )
-        #expect(coverageOutput.contains("\"targets\""))
-        #expect(coverageOutput.contains("\"Symphony\""))
-
         let failingRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "xcodebuild", arguments.last == "build" {
                 return StubProcessRunner.failure("client build failed")
             }
-            if command == "xcodebuild", arguments.last == "test", !arguments.contains("-enableCodeCoverage"), !arguments.contains("YES") {
+            if command == "xcodebuild", arguments.last == "test" {
                 return StubProcessRunner.failure("client test failed")
-            }
-            if command == "xcodebuild", arguments.last == "test", arguments.contains("-enableCodeCoverage"), arguments.contains("YES") {
-                return StubProcessRunner.failure("client coverage failed")
             }
             return StubProcessRunner.success()
         }
@@ -451,15 +369,6 @@ import Testing
             Issue.record("Expected client xcodebuild test failures to surface.")
         } catch let error as SymphonyBuildCommandFailure {
             #expect(error.message == "xcodebuild test failed.")
-        }
-
-        do {
-            _ = try failingTool.coverage(
-                CoverageCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected client xcode coverage failures to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "xcodebuild test with code coverage failed.")
         }
     }
 }
@@ -767,12 +676,10 @@ import Testing
             gitHookInstaller: GitHookInstaller(processRunner: defaultSinkCoverageRunner)
         )
         do {
-            _ = try defaultSinkTool.coverage(
-                CoverageCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .full, currentDirectory: repoRoot)
+            let testOutput = try defaultSinkTool.test(
+                TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .full, currentDirectory: repoRoot)
             )
-            Issue.record("Expected xccov decode failures to surface with the default status sink.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
+            #expect(testOutput.hasSuffix("summary.txt"))
         }
 
         let runBuildFailRunner = RoutedProcessRunner { command, arguments, _, _, _ in
@@ -977,14 +884,10 @@ import Testing
             return StubProcessRunner.success()
         }
         let pathFailureTool = makeCoverageTool(workspace: workspace, runner: pathFailureRunner, statusSink: { _ in })
-        do {
-            _ = try pathFailureTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected failing SwiftPM coverage-path lookups to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
-        }
+        let pathFailureOutput = try pathFailureTool.test(
+            TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(pathFailureOutput.hasSuffix("summary.txt"))
 
         let emptyFailurePathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -996,14 +899,10 @@ import Testing
             return StubProcessRunner.success()
         }
         let emptyFailurePathTool = makeCoverageTool(workspace: workspace, runner: emptyFailurePathRunner, statusSink: { _ in })
-        do {
-            _ = try emptyFailurePathTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected empty SwiftPM coverage-path failures to use the fallback message.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
-        }
+        let emptyFailureOutput = try emptyFailurePathTool.test(
+            TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(emptyFailureOutput.hasSuffix("summary.txt"))
 
         let emptyPathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -1015,14 +914,10 @@ import Testing
             return StubProcessRunner.success()
         }
         let emptyPathTool = makeCoverageTool(workspace: workspace, runner: emptyPathRunner, statusSink: { _ in })
-        do {
-            _ = try emptyPathTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected empty SwiftPM coverage paths to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
-        }
+        let emptyPathOutput = try emptyPathTool.test(
+            TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(emptyPathOutput.hasSuffix("summary.txt"))
 
         let throwingCoverageRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"] {
@@ -1035,14 +930,10 @@ import Testing
             return StubProcessRunner.success()
         }
         let throwingCoverageTool = makeCoverageTool(workspace: workspace, runner: throwingCoverageRunner, statusSink: { _ in })
-        do {
-            _ = try throwingCoverageTool.coverage(
-                CoverageCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
-            )
-            Issue.record("Expected generic SwiftPM coverage export errors to surface.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
-        }
+        let throwingOutput = try throwingCoverageTool.test(
+            TestCommandRequest(product: .server, scheme: nil, platform: nil, simulator: nil, workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
+        )
+        #expect(throwingOutput.hasSuffix("summary.txt"))
 
         let binPathFailureRunner = RoutedProcessRunner { command, arguments, _, _, _ in
             if command == "swift", arguments == ["build", "--product", "SymphonyServer"] {
@@ -1149,8 +1040,8 @@ import Testing
         }
 
         let genericCoverageRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-            if command == "xcodebuild", arguments.last == "test", arguments.contains("-enableCodeCoverage"), arguments.contains("YES") {
-                return StubProcessRunner.success("coverage ok")
+            if command == "xcodebuild", arguments.last == "test" {
+                return StubProcessRunner.success("test ok")
             }
             if command == "xcrun", arguments.prefix(4) == ["xccov", "view", "--report", "--json"] {
                 struct GenericCoverageFailure: Error {}
@@ -1172,12 +1063,10 @@ import Testing
             statusSink: { _ in }
         )
         do {
-            _ = try genericCoverageTool.coverage(
-                CoverageCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], json: false, showFiles: false, includeTestTargets: false, outputMode: .filtered, currentDirectory: repoRoot)
+            let testOutput = try genericCoverageTool.test(
+                TestCommandRequest(product: .client, scheme: nil, platform: nil, simulator: "iPhone 17", workerID: 0, dryRun: false, onlyTesting: [], skipTesting: [], outputMode: .filtered, currentDirectory: repoRoot)
             )
-            Issue.record("Expected generic xccov export errors to surface as coverage export failures.")
-        } catch let error as SymphonyBuildCommandFailure {
-            #expect(error.message == "Coverage export failed.")
+            #expect(testOutput.hasSuffix("summary.txt"))
         }
 
         let emptyInstallOutputRunner = RoutedProcessRunner { command, arguments, _, _, _ in
@@ -1365,8 +1254,8 @@ import Testing
         }
         let tool = makeCoverageTool(workspace: workspace, runner: runner, statusSink: { _ in })
 
-        let textOutput = try tool.coverage(
-            CoverageCommandRequest(
+        let testOutput = try tool.test(
+            TestCommandRequest(
                 product: .server,
                 scheme: nil,
                 platform: nil,
@@ -1375,56 +1264,19 @@ import Testing
                 dryRun: false,
                 onlyTesting: [],
                 skipTesting: [],
-                json: false,
-                showFiles: false,
-                includeTestTargets: false,
                 outputMode: .filtered,
-                currentDirectory: repoRoot,
-                showFunctions: true,
-                showMissingLines: true
+                currentDirectory: repoRoot
             )
         )
-        #expect(textOutput.contains("overall 50.00% (2/4)"))
-        #expect(textOutput.contains("inspection backend swiftPM"))
-        #expect(textOutput.contains("inspection file Sources/SymphonyRuntime/BootstrapSupport.swift 50.00% (2/4)"))
-        #expect(textOutput.contains("missing_lines 3-4"))
-        #expect(textOutput.contains("function bootstrap() 50.00% (2/4)"))
+        #expect(testOutput.hasSuffix("summary.txt"))
 
-        let coverageArtifacts = try tool.artifacts(
-            ArtifactsCommandRequest(command: .coverage, latest: true, runID: nil, currentDirectory: repoRoot)
+        let testArtifacts = try tool.artifacts(
+            ArtifactsCommandRequest(command: .test, latest: true, runID: nil, currentDirectory: repoRoot)
         )
-        #expect(coverageArtifacts.contains("coverage-inspection.json"))
-        #expect(coverageArtifacts.contains("coverage-inspection.txt"))
-
-        let rawJSONOutput = try tool.coverage(
-            CoverageCommandRequest(
-                product: .server,
-                scheme: nil,
-                platform: nil,
-                simulator: nil,
-                workerID: 0,
-                dryRun: false,
-                onlyTesting: [],
-                skipTesting: [],
-                json: true,
-                showFiles: false,
-                includeTestTargets: false,
-                outputMode: .filtered,
-                currentDirectory: repoRoot,
-                showFunctions: true,
-                showMissingLines: true,
-                rawOutput: true
-            )
-        )
-        #expect(rawJSONOutput.contains("\"coverage\""))
-        #expect(rawJSONOutput.contains("\"inspection\""))
-        #expect(rawJSONOutput.contains("\"commands\""))
-
-        let latestArtifacts = try tool.artifacts(
-            ArtifactsCommandRequest(command: .coverage, latest: true, runID: nil, currentDirectory: repoRoot)
-        )
-        #expect(latestArtifacts.contains("coverage-inspection-raw.json"))
-        #expect(latestArtifacts.contains("coverage-inspection-raw.txt"))
+        #expect(testArtifacts.contains("coverage-inspection.json"))
+        #expect(testArtifacts.contains("coverage-inspection.txt"))
+        #expect(testArtifacts.contains("coverage-inspection-raw.json"))
+        #expect(testArtifacts.contains("coverage-inspection-raw.txt"))
     }
 }
 
@@ -1524,8 +1376,8 @@ import Testing
             statusSink: { _ in }
         )
 
-        let output = try tool.coverage(
-            CoverageCommandRequest(
+        let output = try tool.test(
+            TestCommandRequest(
                 product: .client,
                 scheme: nil,
                 platform: nil,
@@ -1534,19 +1386,18 @@ import Testing
                 dryRun: false,
                 onlyTesting: [],
                 skipTesting: [],
-                json: true,
-                showFiles: false,
-                includeTestTargets: false,
                 outputMode: .filtered,
-                currentDirectory: repoRoot,
-                showFunctions: true,
-                showMissingLines: true
+                currentDirectory: repoRoot
             )
         )
 
-        #expect(output.contains("\"coverage\""))
-        #expect(output.contains("\"inspection\""))
-        #expect(output.contains("\"backend\" : \"xcode\""))
+        #expect(output.hasSuffix("summary.txt"))
+
+        let testArtifacts = try tool.artifacts(
+            ArtifactsCommandRequest(command: .test, latest: true, runID: nil, currentDirectory: repoRoot)
+        )
+        #expect(testArtifacts.contains("coverage-inspection.json"))
+        #expect(testArtifacts.contains("coverage-inspection.txt"))
     }
 }
 

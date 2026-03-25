@@ -683,31 +683,34 @@ import Testing
                 workspace: workspace,
                 request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
             )
-            Issue.record("Expected empty coverage JSON output to fail.")
+            Issue.record("Expected empty test artifact root to fail.")
         } catch let error as SymphonyBuildError {
-            #expect(error.code == "missing_bootstrap_coverage_json")
+            #expect(error.code == "missing_test_artifact_root")
         }
 
         let invalidCoverageRunner = CoverageCommandProcessRunner(
             packageCoveragePath: coveragePath.path,
-            coverageResult: CommandResult(exitStatus: 0, stdout: "not json", stderr: "")
+            coverageResult: CommandResult(exitStatus: 0, stdout: "/nonexistent/path", stderr: "")
         )
         do {
             _ = try CommitHarness(processRunner: invalidCoverageRunner).run(
                 workspace: workspace,
                 request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
             )
-            Issue.record("Expected undecodable coverage JSON output to fail.")
+            Issue.record("Expected missing coverage.json at artifact root to fail.")
         } catch let error as SymphonyBuildError {
-            #expect(error.code == "bootstrap_coverage_decode_failed")
+            #expect(error.code == "missing_bootstrap_coverage_json")
         }
 
         let undercoveredCoverageJSON = #"""
         {"coveredLines":1,"executableLines":2,"lineCoverage":0.5,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":2,"lineCoverage":0.5,"files":[{"name":"Foo.swift","path":"/tmp/Foo.swift","coveredLines":1,"executableLines":2,"lineCoverage":0.5}]}]}
         """#
+        let thresholdArtifactRoot = directory.appendingPathComponent("threshold-artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: thresholdArtifactRoot, withIntermediateDirectories: true)
+        try undercoveredCoverageJSON.write(to: thresholdArtifactRoot.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
         let thresholdFailureRunner = CoverageCommandProcessRunner(
             packageCoveragePath: coveragePath.path,
-            coverageResult: CommandResult(exitStatus: 0, stdout: undercoveredCoverageJSON, stderr: "")
+            coverageResult: CommandResult(exitStatus: 0, stdout: thresholdArtifactRoot.path, stderr: "")
         )
         do {
             _ = try CommitHarness(processRunner: thresholdFailureRunner).run(
@@ -745,7 +748,10 @@ import Testing
         let coverageJSON = #"""
         {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
         """#
-        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, coverageJSON: coverageJSON)
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        try coverageJSON.write(to: artifactRoot.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
+        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, artifactRoot: artifactRoot.path)
 
         let report = try CommitHarness(
             processRunner: runner,
@@ -761,7 +767,7 @@ import Testing
     }
 }
 
-@Test func commitHarnessExecuteDecodesInspectionWrappersAndRequestsInspectionFlags() throws {
+@Test func commitHarnessExecuteDecodesInspectionFromArtifactFiles() throws {
     try withTemporaryDirectory { directory in
         let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
         try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
@@ -806,11 +812,14 @@ import Testing
                 )
             ]
         )
-        let wrapperJSON = String(
-            decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(inspectionReport))),
-            as: UTF8.self
-        )
-        let runner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: wrapperJSON)
+
+        // Create artifact directories with coverage files on disk
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(coverageReport).write(to: artifactRoot.appendingPathComponent("coverage.json"))
+        try JSONEncoder().encode(inspectionReport).write(to: artifactRoot.appendingPathComponent("coverage-inspection.json"))
+
+        let runner = ArtifactPathProcessRunner(packageCoveragePath: coveragePath.path, artifactRoot: artifactRoot.path)
 
         let execution = try CommitHarness(
             processRunner: runner,
@@ -825,36 +834,23 @@ import Testing
         #expect(execution.report.serverCoverage == coverageReport)
         #expect(execution.clientInspection == inspectionReport)
         #expect(execution.serverInspection == inspectionReport)
-        #expect(runner.commands.contains(where: { $0.contains("--show-functions") && $0.contains("--show-missing-lines") }))
 
-        let rawInspection = CoverageInspectionRawReport(
-            backend: .swiftPM,
-            product: .server,
-            commands: [
-                CoverageInspectionRawCommand(
-                    commandLine: "xcrun llvm-cov show",
-                    scope: "missing-lines",
-                    filePath: "/tmp/Foo.swift",
-                    format: "text",
-                    output: "raw output"
-                )
-            ]
-        )
-        let rawWrapperJSON = String(
-            decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .raw(rawInspection))),
-            as: UTF8.self
-        )
-        let rawRunner = RecordingCoverageInspectionProcessRunner(packageCoveragePath: coveragePath.path, wrappedCoverageJSON: rawWrapperJSON)
-        let rawExecution = try CommitHarness(
-            processRunner: rawRunner,
+        // Test without inspection file — harness should still succeed with nil inspection
+        let noInspectionArtifactRoot = directory.appendingPathComponent("artifacts-no-inspection", isDirectory: true)
+        try FileManager.default.createDirectory(at: noInspectionArtifactRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(coverageReport).write(to: noInspectionArtifactRoot.appendingPathComponent("coverage.json"))
+
+        let noInspectionRunner = ArtifactPathProcessRunner(packageCoveragePath: coveragePath.path, artifactRoot: noInspectionArtifactRoot.path)
+        let noInspectionExecution = try CommitHarness(
+            processRunner: noInspectionRunner,
             statusSink: { _ in },
             toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
         ).execute(
             workspace: workspace,
             request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
         )
-        #expect(rawExecution.clientInspection == nil)
-        #expect(rawExecution.serverInspection == nil)
+        #expect(noInspectionExecution.clientInspection == nil)
+        #expect(noInspectionExecution.serverInspection == nil)
     }
 }
 
@@ -878,7 +874,10 @@ import Testing
         let coverageJSON = #"""
         {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
         """#
-        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, coverageJSON: coverageJSON)
+        let noXcodeArtifactRoot = directory.appendingPathComponent("artifacts-noxcode", isDirectory: true)
+        try FileManager.default.createDirectory(at: noXcodeArtifactRoot, withIntermediateDirectories: true)
+        try coverageJSON.write(to: noXcodeArtifactRoot.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
+        let runner = DualCoverageProcessRunner(packageCoveragePath: coveragePath.path, artifactRoot: noXcodeArtifactRoot.path)
 
         let report = try CommitHarness(
             processRunner: runner,
@@ -927,10 +926,14 @@ import Testing
         {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
         """#
 
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        try coverageJSON.write(to: artifactRoot.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
+
         let filteredStatus = SignalBox()
         let filteredRunner = HarnessOutputControlProcessRunner(
             packageCoveragePath: packageCoveragePath.path,
-            coverageJSON: coverageJSON
+            artifactRoot: artifactRoot.path
         )
         _ = try CommitHarness(
             processRunner: filteredRunner,
@@ -948,7 +951,7 @@ import Testing
         let quietStatus = SignalBox()
         let quietRunner = HarnessOutputControlProcessRunner(
             packageCoveragePath: packageCoveragePath.path,
-            coverageJSON: coverageJSON
+            artifactRoot: artifactRoot.path
         )
         _ = try CommitHarness(
             processRunner: quietRunner,
@@ -961,8 +964,8 @@ import Testing
 
         #expect(!quietStatus.values.contains(where: { $0.contains("warning: important harness warning") }))
         #expect(!quietStatus.values.contains(where: { $0.contains("Compiling NIOCore AsyncChannel.swift") }))
-        #expect(quietRunner.commands.contains(where: { $0.contains("coverage --product client") && $0.contains("--xcode-output-mode quiet") }))
-        #expect(quietRunner.commands.contains(where: { $0.contains("coverage --product server") && $0.contains("--xcode-output-mode quiet") }))
+        #expect(quietRunner.commands.contains(where: { $0.contains("test --product client") && $0.contains("--xcode-output-mode quiet") }))
+        #expect(quietRunner.commands.contains(where: { $0.contains("test --product server") && $0.contains("--xcode-output-mode quiet") }))
     }
 }
 
@@ -992,7 +995,11 @@ import Testing
     let coverageJSON = #"""
     {"coveredLines":4,"executableLines":4,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"SymphonyServer","buildProductPath":"/tmp/SymphonyServer","coveredLines":4,"executableLines":4,"lineCoverage":1,"files":[]}]}
     """#
-    let runner = ObservationCoverageRunner(json: coverageJSON) { observation in
+    let artifactDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: artifactDir) }
+    try coverageJSON.write(to: artifactDir.appendingPathComponent("coverage.json"), atomically: true, encoding: .utf8)
+    let runner = ObservationCoverageRunner(stdout: artifactDir.path + "\n") { observation in
         observation?.onStaleSignal?("coverage stale")
         observation?.onLine?(.stdout, "ignore stdout")
         observation?.onLine?(.stderr, " ")
@@ -1001,7 +1008,7 @@ import Testing
     let report = try CommitHarness.runCoverageSuite(
         processRunner: runner,
         executablePath: "/tmp/symphony-build",
-        arguments: ["coverage", "--product", "server"],
+        arguments: ["test", "--product", "server"],
         currentDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true),
         statusSink: { status.append($0) }
     )
@@ -1200,7 +1207,7 @@ private struct CoverageCommandProcessRunner: ProcessRunning {
         if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
             return StubProcessRunner.success(packageCoveragePath + "\n")
         }
-        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
+        if arguments.prefix(3) == ["test", "--product", "client"] || arguments.prefix(3) == ["test", "--product", "server"] {
             observation?.onLine?(.stderr, "coverage stderr")
             return coverageResult
         }
@@ -1214,13 +1221,13 @@ private struct CoverageCommandProcessRunner: ProcessRunning {
 
 private final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecked Sendable {
     let packageCoveragePath: String
-    let coverageJSON: String
+    let artifactRoot: String
     private let lock = NSLock()
     private var storage = [String]()
 
-    init(packageCoveragePath: String, coverageJSON: String) {
+    init(packageCoveragePath: String, artifactRoot: String) {
         self.packageCoveragePath = packageCoveragePath
-        self.coverageJSON = coverageJSON
+        self.artifactRoot = artifactRoot
     }
 
     var commands: [String] {
@@ -1243,8 +1250,8 @@ private final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecke
         if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
             return StubProcessRunner.success(packageCoveragePath + "\n")
         }
-        if arguments.first == "coverage" {
-            return StubProcessRunner.success(coverageJSON)
+        if arguments.prefix(3) == ["test", "--product", "client"] || arguments.prefix(3) == ["test", "--product", "server"] {
+            return StubProcessRunner.success(artifactRoot + "\n")
         }
         return StubProcessRunner.success()
     }
@@ -1268,12 +1275,12 @@ private final class ProtocolExtensionRunner: ProcessRunning, @unchecked Sendable
 }
 
 private struct ObservationCoverageRunner: ProcessRunning {
-    let json: String
+    let stdout: String
     let observe: @Sendable (ProcessObservation?) -> Void
 
     func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
         observe(observation)
-        return StubProcessRunner.success(json)
+        return StubProcessRunner.success(stdout)
     }
 
     func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
@@ -1283,7 +1290,7 @@ private struct ObservationCoverageRunner: ProcessRunning {
 
 private struct DualCoverageProcessRunner: ProcessRunning {
     let packageCoveragePath: String
-    let coverageJSON: String
+    let artifactRoot: String
 
     func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
         if command == "swift", arguments == ["test", "--enable-code-coverage"] {
@@ -1292,8 +1299,8 @@ private struct DualCoverageProcessRunner: ProcessRunning {
         if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
             return StubProcessRunner.success(packageCoveragePath + "\n")
         }
-        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
-            return StubProcessRunner.success(coverageJSON)
+        if arguments.prefix(3) == ["test", "--product", "client"] || arguments.prefix(3) == ["test", "--product", "server"] {
+            return StubProcessRunner.success(artifactRoot + "\n")
         }
         return StubProcessRunner.success()
     }
@@ -1303,37 +1310,19 @@ private struct DualCoverageProcessRunner: ProcessRunning {
     }
 }
 
-private final class RecordingCoverageInspectionProcessRunner: ProcessRunning, @unchecked Sendable {
+private struct ArtifactPathProcessRunner: ProcessRunning {
     let packageCoveragePath: String
-    let wrappedCoverageJSON: String
-    private let lock = NSLock()
-    private var storage = [String]()
-
-    init(packageCoveragePath: String, wrappedCoverageJSON: String) {
-        self.packageCoveragePath = packageCoveragePath
-        self.wrappedCoverageJSON = wrappedCoverageJSON
-    }
-
-    var commands: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
-    }
+    let artifactRoot: String
 
     func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
-        let rendered = ([command] + arguments).joined(separator: " ")
-        lock.lock()
-        storage.append(rendered)
-        lock.unlock()
-
         if command == "swift", arguments == ["test", "--enable-code-coverage"] {
             return StubProcessRunner.success()
         }
         if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
             return StubProcessRunner.success(packageCoveragePath + "\n")
         }
-        if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
-            return StubProcessRunner.success(wrappedCoverageJSON)
+        if arguments.prefix(3) == ["test", "--product", "client"] || arguments.prefix(3) == ["test", "--product", "server"] {
+            return StubProcessRunner.success(artifactRoot + "\n")
         }
         return StubProcessRunner.success()
     }

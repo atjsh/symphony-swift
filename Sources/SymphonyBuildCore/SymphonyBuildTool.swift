@@ -114,36 +114,6 @@ public final class SymphonyBuildTool {
         }
     }
 
-    public func coverage(_ request: CoverageCommandRequest) throws -> String {
-        let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
-        let worker = try WorkerScope(id: request.workerID)
-        let selector = SchemeSelector(product: request.product, scheme: request.scheme, platform: request.platform)
-        let executionContext = try executionContextBuilder.make(workspace: workspace, worker: worker, command: .coverage, runID: selector.runIdentifier)
-        switch selector.product.defaultBackend {
-        case .xcode:
-            if !request.dryRun {
-                try ensureXcodeSupport(for: selector.platform)
-            }
-            let destination = try xcodeDestination(platform: selector.platform, simulator: request.simulator, dryRun: request.dryRun)
-            return try coverageXcode(
-                request: request,
-                workspace: workspace,
-                selector: selector,
-                destination: destination,
-                executionContext: executionContext
-            )
-        case .swiftPM:
-            let destination = try simulatorResolver.resolve(destinationSelector(platform: selector.platform, simulator: request.simulator))
-            return try coverageSwiftPM(
-                request: request,
-                workspace: workspace,
-                selector: selector,
-                destination: destination,
-                executionContext: executionContext
-            )
-        }
-    }
-
     public func run(_ request: RunCommandRequest) throws -> String {
         let workspace = try workspaceDiscovery.discover(from: request.currentDirectory)
         let worker = try WorkerScope(id: request.workerID)
@@ -284,106 +254,6 @@ public final class SymphonyBuildTool {
             destination: destination,
             derivedDataPath: executionContext.derivedDataPath,
             resultBundlePath: executionContext.resultBundlePath,
-            outputMode: request.outputMode,
-            environment: [:],
-            workspacePath: workspace.xcodeWorkspacePath,
-            projectPath: workspace.xcodeProjectPath,
-            onlyTesting: request.onlyTesting,
-            skipTesting: request.skipTesting
-        )
-
-        if request.dryRun {
-            return try xcodeRequest.renderedCommandLine()
-        }
-
-        let startedAt = Date()
-        let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
-        defer { reporter.finish() }
-        let result = try processRunner.run(
-            command: "xcodebuild",
-            arguments: try xcodeRequest.renderedArguments(),
-            environment: [:],
-            currentDirectory: workspace.projectRoot,
-            observation: reporter.makeObservation(label: "xcodebuild test")
-        )
-        let endedAt = Date()
-        let record = try artifactManager.recordXcodeExecution(
-            workspace: workspace,
-            executionContext: executionContext,
-            command: .test,
-            product: request.product,
-            scheme: selector.scheme,
-            destination: destination,
-            invocation: try xcodeRequest.renderedCommandLine(),
-            exitStatus: result.exitStatus,
-            combinedOutput: result.combinedOutput,
-            startedAt: startedAt,
-            endedAt: endedAt
-        )
-
-        guard result.exitStatus == 0 else {
-            throw SymphonyBuildCommandFailure(message: "xcodebuild test failed.", summaryPath: record.run.summaryPath)
-        }
-        return record.run.summaryPath.path
-    }
-
-    private func testSwiftPM(
-        request: TestCommandRequest,
-        workspace: WorkspaceContext,
-        selector: SchemeSelector,
-        destination: ResolvedDestination,
-        executionContext: ExecutionContext
-    ) throws -> String {
-        let testFilter = "SymphonyServerTests"
-        let invocation = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: false)
-
-        if request.dryRun {
-            return invocation
-        }
-
-        let startedAt = Date()
-        let result = try processRunner.run(
-            command: "swift",
-            arguments: ["test", "--filter", testFilter],
-            environment: [:],
-            currentDirectory: workspace.projectRoot,
-            observation: nil
-        )
-        let endedAt = Date()
-        let record = try artifactManager.recordSwiftPMExecution(
-            workspace: workspace,
-            executionContext: executionContext,
-            command: .test,
-            product: request.product,
-            scheme: selector.scheme,
-            destination: destination,
-            invocation: invocation,
-            exitStatus: result.exitStatus,
-            combinedOutput: result.combinedOutput,
-            startedAt: startedAt,
-            endedAt: endedAt
-        )
-
-        guard result.exitStatus == 0 else {
-            throw SymphonyBuildCommandFailure(message: "swift test failed.", summaryPath: record.run.summaryPath)
-        }
-        return record.run.summaryPath.path
-    }
-
-    private func coverageXcode(
-        request: CoverageCommandRequest,
-        workspace: WorkspaceContext,
-        selector: SchemeSelector,
-        destination: ResolvedDestination,
-        executionContext: ExecutionContext
-    ) throws -> String {
-        let wantsInspection = request.showFunctions || request.showMissingLines
-        let xcodeRequest = XcodeCommandRequest(
-            action: .test,
-            scheme: selector.scheme,
-            destination: destination,
-            derivedDataPath: executionContext.derivedDataPath,
-            resultBundlePath: executionContext.resultBundlePath,
             enableCodeCoverage: true,
             outputMode: request.outputMode,
             environment: [:],
@@ -410,13 +280,10 @@ public final class SymphonyBuildTool {
             arguments: try xcodeRequest.renderedArguments(),
             environment: [:],
             currentDirectory: workspace.projectRoot,
-            observation: reporter.makeObservation(label: "xcodebuild coverage")
+            observation: reporter.makeObservation(label: "xcodebuild test")
         )
         let endedAt = Date()
 
-        var coverageArtifacts: CoverageArtifacts?
-        var inspectionReport: CoverageInspectionReport?
-        var rawInspectionReport: CoverageInspectionRawReport?
         var coverageAnomalies = [ArtifactAnomaly]()
         if result.exitStatus == 0 {
             do {
@@ -424,44 +291,38 @@ public final class SymphonyBuildTool {
                     resultBundlePath: executionContext.resultBundlePath,
                     artifactRoot: executionContext.artifactRoot,
                     product: request.product,
-                    includeTestTargets: request.includeTestTargets,
-                    showFiles: request.showFiles || wantsInspection
+                    includeTestTargets: false,
+                    showFiles: true
                 )
-                let finalizedArtifacts = try displayedCoverageArtifacts(
+                _ = try displayedCoverageArtifacts(
                     from: exportedArtifacts,
-                    showFiles: request.showFiles,
+                    showFiles: true,
                     artifactRoot: executionContext.artifactRoot
                 )
 
-                if wantsInspection {
-                    let inspection = try XcodeCoverageInspector(processRunner: processRunner).inspect(
-                        resultBundlePath: executionContext.resultBundlePath,
-                        candidates: inspectionCandidates(from: exportedArtifacts.report),
-                        includeFunctions: request.showFunctions,
-                        includeMissingLines: request.showMissingLines
-                    )
-                    let normalizedInspection = CoverageInspectionReport(
-                        backend: .xcode,
-                        product: request.product,
-                        generatedAt: DateFormatting.iso8601(endedAt),
-                        files: inspection.files
-                    )
-                    let rawInspection = CoverageInspectionRawReport(
-                        backend: .xcode,
-                        product: request.product,
-                        commands: inspection.rawCommands
-                    )
-                    try writeCoverageInspectionArtifacts(
-                        artifactRoot: executionContext.artifactRoot,
-                        normalizedReport: normalizedInspection,
-                        rawReport: rawInspection,
-                        writeRawArtifacts: request.rawOutput
-                    )
-                    inspectionReport = normalizedInspection
-                    rawInspectionReport = rawInspection
-                }
-
-                coverageArtifacts = finalizedArtifacts
+                let inspection = try XcodeCoverageInspector(processRunner: processRunner).inspect(
+                    resultBundlePath: executionContext.resultBundlePath,
+                    candidates: inspectionCandidates(from: exportedArtifacts.report),
+                    includeFunctions: true,
+                    includeMissingLines: true
+                )
+                let normalizedInspection = CoverageInspectionReport(
+                    backend: .xcode,
+                    product: request.product,
+                    generatedAt: DateFormatting.iso8601(endedAt),
+                    files: inspection.files
+                )
+                let rawInspection = CoverageInspectionRawReport(
+                    backend: .xcode,
+                    product: request.product,
+                    commands: inspection.rawCommands
+                )
+                try writeCoverageInspectionArtifacts(
+                    artifactRoot: executionContext.artifactRoot,
+                    normalizedReport: normalizedInspection,
+                    rawReport: rawInspection,
+                    writeRawArtifacts: true
+                )
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
             } catch {
@@ -474,7 +335,7 @@ public final class SymphonyBuildTool {
         let record = try artifactManager.recordXcodeExecution(
             workspace: workspace,
             executionContext: executionContext,
-            command: .coverage,
+            command: .test,
             product: request.product,
             scheme: selector.scheme,
             destination: destination,
@@ -482,7 +343,7 @@ public final class SymphonyBuildTool {
                 try xcodeRequest.renderedCommandLine(),
                 coverageCommand,
             ].joined(separator: "\n"),
-            exitStatus: result.exitStatus == 0 && coverageAnomalies.isEmpty ? 0 : (result.exitStatus == 0 ? 1 : result.exitStatus),
+            exitStatus: result.exitStatus,
             combinedOutput: result.combinedOutput,
             startedAt: startedAt,
             endedAt: endedAt,
@@ -490,27 +351,18 @@ public final class SymphonyBuildTool {
         )
 
         guard result.exitStatus == 0 else {
-            throw SymphonyBuildCommandFailure(message: "xcodebuild test with code coverage failed.", summaryPath: record.run.summaryPath)
+            throw SymphonyBuildCommandFailure(message: "xcodebuild test failed.", summaryPath: record.run.summaryPath)
         }
-        guard coverageAnomalies.isEmpty, let coverageArtifacts else {
-            throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
-        }
-        return try renderCoverageOutput(
-            request: request,
-            coverageArtifacts: coverageArtifacts,
-            inspectionReport: inspectionReport,
-            rawInspectionReport: rawInspectionReport
-        )
+        return record.run.summaryPath.path
     }
 
-    private func coverageSwiftPM(
-        request: CoverageCommandRequest,
+    private func testSwiftPM(
+        request: TestCommandRequest,
         workspace: WorkspaceContext,
         selector: SchemeSelector,
         destination: ResolvedDestination,
         executionContext: ExecutionContext
     ) throws -> String {
-        let wantsInspection = request.showFunctions || request.showMissingLines
         let testFilter = "SymphonyServerTests"
         let coverageCommand = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: true)
         let coveragePathCommand = SwiftPMCoverageReporter().renderedCoveragePathCommandLine()
@@ -528,9 +380,6 @@ public final class SymphonyBuildTool {
             observation: nil
         )
 
-        var coverageArtifacts: CoverageArtifacts?
-        var inspectionReport: CoverageInspectionReport?
-        var rawInspectionReport: CoverageInspectionRawReport?
         var coverageAnomalies = [ArtifactAnomaly]()
         var coveragePathOutput = ""
         if result.exitStatus == 0 {
@@ -559,47 +408,41 @@ public final class SymphonyBuildTool {
                     coverageJSONPath: URL(fileURLWithPath: rawPath),
                     projectRoot: workspace.projectRoot,
                     artifactRoot: executionContext.artifactRoot,
-                    showFiles: request.showFiles || wantsInspection
+                    showFiles: true
                 )
-                let finalizedArtifacts = try displayedCoverageArtifacts(
+                _ = try displayedCoverageArtifacts(
                     from: exportedArtifacts,
-                    showFiles: request.showFiles,
+                    showFiles: true,
                     artifactRoot: executionContext.artifactRoot
                 )
 
-                if wantsInspection {
-                    let inspection = try SwiftPMCoverageInspector(
-                        processRunner: processRunner,
-                        llvmCovCommand: try toolchainCapabilitiesResolver.resolve().llvmCovCommand
-                    ).inspect(
-                        coverageJSONPath: URL(fileURLWithPath: rawPath),
-                        projectRoot: workspace.projectRoot,
-                        candidates: inspectionCandidates(from: exportedArtifacts.report),
-                        includeFunctions: request.showFunctions,
-                        includeMissingLines: request.showMissingLines
-                    )
-                    let normalizedInspection = CoverageInspectionReport(
-                        backend: .swiftPM,
-                        product: request.product,
-                        generatedAt: DateFormatting.iso8601(Date()),
-                        files: inspection.files
-                    )
-                    let rawInspection = CoverageInspectionRawReport(
-                        backend: .swiftPM,
-                        product: request.product,
-                        commands: inspection.rawCommands
-                    )
-                    try writeCoverageInspectionArtifacts(
-                        artifactRoot: executionContext.artifactRoot,
-                        normalizedReport: normalizedInspection,
-                        rawReport: rawInspection,
-                        writeRawArtifacts: request.rawOutput
-                    )
-                    inspectionReport = normalizedInspection
-                    rawInspectionReport = rawInspection
-                }
-
-                coverageArtifacts = finalizedArtifacts
+                let inspection = try SwiftPMCoverageInspector(
+                    processRunner: processRunner,
+                    llvmCovCommand: try toolchainCapabilitiesResolver.resolve().llvmCovCommand
+                ).inspect(
+                    coverageJSONPath: URL(fileURLWithPath: rawPath),
+                    projectRoot: workspace.projectRoot,
+                    candidates: inspectionCandidates(from: exportedArtifacts.report),
+                    includeFunctions: true,
+                    includeMissingLines: true
+                )
+                let normalizedInspection = CoverageInspectionReport(
+                    backend: .swiftPM,
+                    product: request.product,
+                    generatedAt: DateFormatting.iso8601(Date()),
+                    files: inspection.files
+                )
+                let rawInspection = CoverageInspectionRawReport(
+                    backend: .swiftPM,
+                    product: request.product,
+                    commands: inspection.rawCommands
+                )
+                try writeCoverageInspectionArtifacts(
+                    artifactRoot: executionContext.artifactRoot,
+                    normalizedReport: normalizedInspection,
+                    rawReport: rawInspection,
+                    writeRawArtifacts: true
+                )
             } catch let error as SymphonyBuildError {
                 coverageAnomalies.append(ArtifactAnomaly(code: error.code, message: error.message, phase: "coverage"))
             } catch {
@@ -611,12 +454,12 @@ public final class SymphonyBuildTool {
         let record = try artifactManager.recordSwiftPMExecution(
             workspace: workspace,
             executionContext: executionContext,
-            command: .coverage,
+            command: .test,
             product: request.product,
             scheme: selector.scheme,
             destination: destination,
             invocation: [coverageCommand, coveragePathCommand].joined(separator: "\n"),
-            exitStatus: result.exitStatus == 0 && coverageAnomalies.isEmpty ? 0 : (result.exitStatus == 0 ? 1 : result.exitStatus),
+            exitStatus: result.exitStatus,
             combinedOutput: [result.combinedOutput, coveragePathOutput].filter { !$0.isEmpty }.joined(separator: "\n"),
             startedAt: startedAt,
             endedAt: endedAt,
@@ -624,17 +467,9 @@ public final class SymphonyBuildTool {
         )
 
         guard result.exitStatus == 0 else {
-            throw SymphonyBuildCommandFailure(message: "swift test with code coverage failed.", summaryPath: record.run.summaryPath)
+            throw SymphonyBuildCommandFailure(message: "swift test failed.", summaryPath: record.run.summaryPath)
         }
-        guard coverageAnomalies.isEmpty, let coverageArtifacts else {
-            throw SymphonyBuildCommandFailure(message: "Coverage export failed.", summaryPath: record.run.summaryPath)
-        }
-        return try renderCoverageOutput(
-            request: request,
-            coverageArtifacts: coverageArtifacts,
-            inspectionReport: inspectionReport,
-            rawInspectionReport: rawInspectionReport
-        )
+        return record.run.summaryPath.path
     }
 
     private func runXcode(
@@ -1096,33 +931,6 @@ public final class SymphonyBuildTool {
             atomically: true,
             encoding: .utf8
         )
-    }
-
-    private func renderCoverageOutput(
-        request: CoverageCommandRequest,
-        coverageArtifacts: CoverageArtifacts,
-        inspectionReport: CoverageInspectionReport?,
-        rawInspectionReport: CoverageInspectionRawReport?
-    ) throws -> String {
-        if request.json {
-            guard let inspectionReport else {
-                return coverageArtifacts.jsonOutput
-            }
-            let inspectionPayload: CoverageInspectionPayload
-            if request.rawOutput, let rawInspectionReport {
-                inspectionPayload = .raw(rawInspectionReport)
-            } else {
-                inspectionPayload = .normalized(inspectionReport)
-            }
-            return try encodePrettyJSON(
-                CoverageInspectionResponse(coverage: coverageArtifacts.report, inspection: inspectionPayload)
-            )
-        }
-
-        guard let inspectionReport else {
-            return coverageArtifacts.textOutput
-        }
-        return coverageArtifacts.textOutput + "\n" + renderInspectionHuman(report: inspectionReport)
     }
 
     private func renderedHarnessCommandLine(request: HarnessCommandRequest) -> String {

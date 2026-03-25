@@ -517,22 +517,6 @@ public struct ArtifactManager {
 
     private func stableInspectionNames(for command: BuildCommandFamily) -> [String] {
         switch command {
-        case .coverage:
-            [
-                "log.txt",
-                "result.xcresult",
-                "summary.json",
-                "summary.txt",
-                "index.json",
-                "coverage.json",
-                "coverage.txt",
-                "diagnostics",
-                "attachments",
-                "process-stdout-stderr.txt",
-                "recording.mp4",
-                "screen.png",
-                "ui-tree.txt",
-            ]
         case .harness:
             [
                 "summary.json",
@@ -545,7 +529,27 @@ public struct ArtifactManager {
                 "server-inspection.json",
                 "server-inspection.txt",
             ]
-        case .build, .test, .run:
+        case .test:
+            [
+                "log.txt",
+                "result.xcresult",
+                "summary.json",
+                "summary.txt",
+                "index.json",
+                "coverage.json",
+                "coverage.txt",
+                "coverage-inspection.json",
+                "coverage-inspection.txt",
+                "coverage-inspection-raw.json",
+                "coverage-inspection-raw.txt",
+                "diagnostics",
+                "attachments",
+                "process-stdout-stderr.txt",
+                "recording.mp4",
+                "screen.png",
+                "ui-tree.txt",
+            ]
+        case .build, .run:
             [
                 "log.txt",
                 "result.xcresult",

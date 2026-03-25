@@ -529,14 +529,14 @@ import Testing
         let swiftPMExecution = try ExecutionContextBuilder().make(
             workspace: workspace,
             worker: swiftPMWorker,
-            command: .coverage,
+            command: .test,
             runID: "swiftpm",
             date: Date(timeIntervalSince1970: 1_700_000_610)
         )
         let swiftPMRecord = try ArtifactManager(processRunner: StubProcessRunner()).recordSwiftPMExecution(
             workspace: workspace,
             executionContext: swiftPMExecution,
-            command: .coverage,
+            command: .test,
             product: .server,
             scheme: "SymphonyServer",
             destination: ResolvedDestination(platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil, xcodeDestination: expectedHostMacOSDestination()),
@@ -595,7 +595,7 @@ import Testing
         let executionContext = try ExecutionContextBuilder().make(
             workspace: workspace,
             worker: worker,
-            command: .coverage,
+            command: .test,
             runID: "symphony",
             date: Date(timeIntervalSince1970: 1_700_000_260)
         )
@@ -622,7 +622,7 @@ import Testing
         _ = try manager.recordXcodeExecution(
             workspace: workspace,
             executionContext: executionContext,
-            command: .coverage,
+            command: .test,
             product: .server,
             scheme: "SymphonyServer",
             destination: ResolvedDestination(
@@ -641,7 +641,7 @@ import Testing
 
         let rendered = try manager.resolveArtifacts(
             workspace: workspace,
-            request: ArtifactsCommandRequest(command: .coverage, latest: true, runID: nil, currentDirectory: directory)
+            request: ArtifactsCommandRequest(command: .test, latest: true, runID: nil, currentDirectory: directory)
         )
 
         #expect(rendered.contains("coverage.json \(executionContext.artifactRoot.appendingPathComponent("coverage.json").path)"))
@@ -895,14 +895,23 @@ import Testing
                 )
             ]
         )
-        let clientWrapper = String(decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(clientInspection))), as: UTF8.self)
-        let serverWrapper = String(decoding: try JSONEncoder().encode(CoverageInspectionResponse(coverage: coverageReport, inspection: .normalized(serverInspection))), as: UTF8.self)
+        // Create artifact directories with coverage files for client and server
+        let clientArtifactRoot = directory.appendingPathComponent("client-artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: clientArtifactRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(coverageReport).write(to: clientArtifactRoot.appendingPathComponent("coverage.json"))
+        try JSONEncoder().encode(clientInspection).write(to: clientArtifactRoot.appendingPathComponent("coverage-inspection.json"))
+
+        let serverArtifactRoot = directory.appendingPathComponent("server-artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: serverArtifactRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(coverageReport).write(to: serverArtifactRoot.appendingPathComponent("coverage.json"))
+        try JSONEncoder().encode(serverInspection).write(to: serverArtifactRoot.appendingPathComponent("coverage-inspection.json"))
+
         let packageShowCommand = "xcrun llvm-cov show -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(repoRoot.appendingPathComponent("Sources/Foo.swift").path)"
         let packageFunctionsCommand = "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(repoRoot.appendingPathComponent("Sources/Foo.swift").path)"
         let runner = HarnessInspectionProcessRunner(
             packageCoveragePath: coveragePath.path,
-            clientJSON: clientWrapper,
-            serverJSON: serverWrapper,
+            clientArtifactRoot: clientArtifactRoot.path,
+            serverArtifactRoot: serverArtifactRoot.path,
             extraResults: [
                 packageShowCommand: StubProcessRunner.success(
                     """
@@ -1185,17 +1194,19 @@ import Testing
         #expect(!buildOutput.contains("\n"))
         #expect(buildOutput == "swift build --product SymphonyServer")
         #expect(!buildOutput.contains("xcodebuild"))
-        #expect(!testOutput.contains("\n"))
-        #expect(testOutput == "swift test --filter SymphonyServerTests")
+        let testLines = testOutput.split(separator: "\n").map(String.init)
+        #expect(testLines.count == 2)
+        #expect(testLines[0] == "swift test --enable-code-coverage --filter SymphonyServerTests")
+        #expect(testLines[1] == "swift test --show-code-coverage-path")
         #expect(!FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".build/symphony-build").path))
     }
 }
 
-@Test func coverageDryRunRendersSwiftPMCommandsWithoutSideEffects() throws {
+@Test func testDryRunRendersSwiftPMCommandsWithCoverageEnabled() throws {
     try withTemporaryRepositoryFixture { repoRoot in
         let tool = makeToolForFixture(repoRoot: repoRoot)
-        let output = try tool.coverage(
-            CoverageCommandRequest(
+        let output = try tool.test(
+            TestCommandRequest(
                 product: .server,
                 scheme: nil,
                 platform: nil,
@@ -1204,9 +1215,6 @@ import Testing
                 dryRun: true,
                 onlyTesting: [],
                 skipTesting: [],
-                json: false,
-                showFiles: false,
-                includeTestTargets: false,
                 outputMode: .filtered,
                 currentDirectory: repoRoot
             )
@@ -1466,14 +1474,14 @@ func expectedHostMacOSDestination() -> String {
 
 final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable {
     let packageCoveragePath: String
-    let clientJSON: String
-    let serverJSON: String
+    let clientArtifactRoot: String
+    let serverArtifactRoot: String
     let extraResults: [String: CommandResult]
 
-    init(packageCoveragePath: String, clientJSON: String, serverJSON: String, extraResults: [String: CommandResult]) {
+    init(packageCoveragePath: String, clientArtifactRoot: String, serverArtifactRoot: String, extraResults: [String: CommandResult]) {
         self.packageCoveragePath = packageCoveragePath
-        self.clientJSON = clientJSON
-        self.serverJSON = serverJSON
+        self.clientArtifactRoot = clientArtifactRoot
+        self.serverArtifactRoot = serverArtifactRoot
         self.extraResults = extraResults
     }
 
@@ -1488,11 +1496,11 @@ final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable 
         if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
             return StubProcessRunner.success(packageCoveragePath + "\n")
         }
-        if arguments.prefix(3) == ["coverage", "--product", "client"] {
-            return StubProcessRunner.success(clientJSON)
+        if arguments.prefix(3) == ["test", "--product", "client"] {
+            return StubProcessRunner.success(clientArtifactRoot + "\n")
         }
-        if arguments.prefix(3) == ["coverage", "--product", "server"] {
-            return StubProcessRunner.success(serverJSON)
+        if arguments.prefix(3) == ["test", "--product", "server"] {
+            return StubProcessRunner.success(serverArtifactRoot + "\n")
         }
         return StubProcessRunner.success()
     }
