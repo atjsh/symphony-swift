@@ -1,365 +1,669 @@
 import Darwin
 import Foundation
-import Network
 import Testing
 @testable import SymphonyRuntime
 import SymphonyShared
 
-@Test func httpWireParsesRequestsAndSerializesResponses() throws {
-    let api = try makeTransportAPI()
-    let requestData = Data("""
-    GET /api/v1/health HTTP/1.1\r
-    Host: localhost\r
-    Accept: application/json\r
-    \r
-    """.utf8)
-
-    let request = try SymphonyHTTPWire.parseRequest(from: requestData)
-    #expect(request.method == "GET")
-    #expect(request.path == "/api/v1/health")
-    #expect(request.headers["Host"] == "localhost")
-
-    let responseData = try SymphonyHTTPWire.response(for: requestData, api: api)
-    let responseText = try #require(String(data: responseData, encoding: .utf8))
-    #expect(responseText.contains("HTTP/1.1 200 OK"))
-    #expect(responseText.contains("Connection: close"))
-    #expect(responseText.contains("Content-Type: application/json; charset=utf-8"))
-    #expect(responseText.contains(#""tracker_kind":"github""#))
-
-    let serialized = SymphonyHTTPWire.serialize(
-        SymphonyHTTPResponse(
-            statusCode: 202,
-            headers: ["Content-Type": "application/json"],
-            body: Data(#"{"queued":true}"#.utf8)
-        )
+@Test func inProcessServerServesHTTPRoutesAndWebSocketBacklog() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: true)
+    let refreshCounter = Counter()
+    let serverTask = try launchInProcessServer(
+        fixture: fixture,
+        refresh: { refreshCounter.increment() }
     )
-    let serializedText = try #require(String(data: serialized, encoding: .utf8))
-    #expect(serializedText.contains("HTTP/1.1 202 Accepted"))
-    #expect(SymphonyHTTPWire.statusText(for: 200) == "OK")
-    #expect(SymphonyHTTPWire.statusText(for: 202) == "Accepted")
-    #expect(SymphonyHTTPWire.statusText(for: 400) == "Bad Request")
-    #expect(SymphonyHTTPWire.statusText(for: 404) == "Not Found")
-    #expect(SymphonyHTTPWire.statusText(for: 405) == "Method Not Allowed")
-    #expect(SymphonyHTTPWire.statusText(for: 500) == "Internal Server Error")
+    defer { serverTask.cancel() }
+
+    let health = try await requestHealth(endpoint: fixture.endpoint)
+    #expect(health.status == "ok")
+    #expect(health.trackerKind == "github")
+
+    let refreshResponse = try await request(
+        endpoint: fixture.endpoint,
+        path: "/api/v1/refresh",
+        method: "POST"
+    )
+    #expect(refreshResponse.statusCode == 202)
+    #expect(try decodeBody(RefreshResponse.self, from: refreshResponse.data).queued)
+    #expect(refreshCounter.value == 1)
+
+    let missingIssueResponse = try await request(
+        endpoint: fixture.endpoint,
+        path: "/api/v1/issues/missing",
+        method: "GET"
+    )
+    #expect(missingIssueResponse.statusCode == 404)
+    #expect(try decodeBody(ErrorEnvelope.self, from: missingIssueResponse.data).error.code == "issue_not_found")
+
+    let unsupportedResponse = try await request(
+        endpoint: fixture.endpoint,
+        path: "/api/v1/issues",
+        method: "DELETE"
+    )
+    #expect(unsupportedResponse.statusCode == 405)
+    #expect(try decodeBody(ErrorEnvelope.self, from: unsupportedResponse.data).error.code == "method_not_allowed")
+
+    let backlogCursor = EventCursor(
+        sessionID: fixture.session.sessionID,
+        lastDeliveredSequence: EventSequence(1)
+    )
+    let websocket = try WebSocketProbe(
+        endpoint: fixture.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: backlogCursor
+    )
+    defer { websocket.cancel() }
+
+    let events = try await websocket.collectEvents(count: 1)
+    #expect(events == [fixture.secondEvent])
 }
 
-@Test func httpWireReturnsBadRequestForMalformedRequests() throws {
-    let api = try makeTransportAPI()
-    let malformedRequest = Data("GET_ONLY\r\n\r\n".utf8)
-    let malformedResponse = try SymphonyHTTPWire.response(for: malformedRequest, api: api)
-    let malformedText = try #require(String(data: malformedResponse, encoding: .utf8))
-    #expect(malformedText.contains("HTTP/1.1 400 Bad Request"))
-    #expect(malformedText.contains(#""code":"bad_request""#))
+@Test func inProcessServerLiveTailPublishesNewEvents() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let serverTask = try launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
 
-    let invalidUTF8 = Data([0xFF, 0xFE, 0xFD])
-    let invalidUTF8Response = try SymphonyHTTPWire.response(for: invalidUTF8, api: api)
-    let invalidUTF8Text = try #require(String(data: invalidUTF8Response, encoding: .utf8))
-    #expect(invalidUTF8Text.contains("HTTP/1.1 400 Bad Request"))
+    let websocket = try WebSocketProbe(
+        endpoint: fixture.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: nil
+    )
+    defer { websocket.cancel() }
 
-    do {
-        _ = try SymphonyHTTPWire.parseRequest(from: Data())
-        Issue.record("Expected empty request bytes to fail parsing.")
-    } catch let error as SymphonyRuntimeError {
-        #expect(String(describing: error).contains("Missing HTTP request line"))
-    }
+    let firstEvent = try await websocket.nextEvent()
+    #expect(firstEvent == fixture.firstEvent)
+
+    let appendedEvent = try fixture.store.appendEvent(
+        sessionID: fixture.session.sessionID,
+        provider: fixture.session.provider,
+        timestamp: fixture.secondEvent.timestamp,
+        rawJSON: fixture.secondEvent.rawJSON,
+        providerEventType: fixture.secondEvent.providerEventType,
+        normalizedEventKind: fixture.secondEvent.normalizedEventKind
+    )
+    let secondEvent = try await websocket.nextEvent()
+    #expect(appendedEvent == fixture.secondEvent)
+    #expect(secondEvent == fixture.secondEvent)
 }
 
-@Test func httpServerRejectsInvalidPortsAndPortConflicts() throws {
-    let api = try makeTransportAPI()
+@Test func inProcessServerRejectsWebSocketUpgradeForMissingSessions() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let serverTask = try launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let task = URLSession(configuration: .ephemeral).webSocketTask(
+        with: try #require(URL(string: "ws://\(fixture.endpoint.host):\(fixture.endpoint.port)/api/v1/logs/stream?session_id=missing-session"))
+    )
+    task.resume()
+    defer { task.cancel(with: .goingAway, reason: nil) }
 
     do {
-        _ = try SymphonyHTTPServer(port: 70_000, api: api)
-        Issue.record("Expected invalid listener ports to throw.")
-    } catch let error as SymphonyRuntimeError {
-        #expect(String(describing: error).contains("Invalid listener port"))
-    }
+        _ = try await receiveWebSocketMessage(from: task)
+        Issue.record("Expected websocket upgrade to fail for missing sessions.")
+    } catch {}
+}
 
-    let port = try availableLoopbackPort()
-    let first = try SymphonyHTTPServer(port: port, api: api)
-    try first.start()
-    defer { first.stop() }
+@Test func inProcessServerWebSocketLoopExitsWhenServerIsCancelled() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let serverTask = try launchInProcessServer(fixture: fixture)
 
-    let second = try SymphonyHTTPServer(port: port, api: api)
+    let websocket = try WebSocketProbe(
+        endpoint: fixture.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: nil
+    )
+    defer { websocket.cancel() }
+
+    _ = try await websocket.nextEvent()
+    serverTask.cancel()
     do {
-        try second.start()
-        Issue.record("Expected conflicting listeners to fail.")
+        try await serverTask.value
     } catch {
-        #expect(String(describing: error).isEmpty == false)
+        Issue.record("Expected server cancellation to stop the websocket loop without surfacing an error.")
     }
 }
 
-@Test func httpServerServesChunkedLoopbackRequests() throws {
-    let api = try makeTransportAPI()
+@Test func inProcessSymphonyHTTPServerRunServesHealthEndpoint() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+    let api = SymphonyHTTPAPI(store: fixture.store, version: "1.0.0", trackerKind: "github")
+    let server = SymphonyHTTPServer(
+        endpoint: fixture.endpoint,
+        store: fixture.store,
+        api: api,
+        liveLogHub: fixture.liveLogHub
+    )
+    let startup = ServerStartupSignal()
+    let serverTask = Task {
+        try await server.run {
+            startup.ready()
+        }
+    }
+    defer { serverTask.cancel() }
+
+    try startup.wait()
+    try await waitForServerHealth(endpoint: fixture.endpoint)
+    serverTask.cancel()
+    _ = try? await serverTask.value
+}
+
+@Test func transportHelpersMapStatusAndParseQueries() throws {
+    #expect(SymphonyHTTPServer.status(for: 200) == .ok)
+    #expect(SymphonyHTTPServer.status(for: 202) == .accepted)
+    #expect(SymphonyHTTPServer.status(for: 400) == .badRequest)
+    #expect(SymphonyHTTPServer.status(for: 404) == .notFound)
+    #expect(SymphonyHTTPServer.status(for: 405) == .methodNotAllowed)
+    #expect(SymphonyHTTPServer.status(for: 503) == .init(code: 503))
+
+    let cursor = EventCursor(sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(7))
+    let encodedQuery = "session_id=session-42&cursor=\(cursor.rawValue)&message=hello%20world"
+    #expect(SymphonyHTTPServer.queryValue(named: "session_id", in: encodedQuery) == "session-42")
+    #expect(SymphonyHTTPServer.queryValue(named: "message", in: encodedQuery) == "hello world")
+    #expect(SymphonyHTTPServer.queryValue(named: "missing", in: encodedQuery) == nil)
+    #expect(SymphonyHTTPServer.queryValue(named: "session_id", in: nil) == nil)
+    #expect(SymphonyHTTPServer.sessionID(query: encodedQuery) == SessionID("session-42"))
+    #expect(SymphonyHTTPServer.cursor(query: encodedQuery) == cursor)
+
+    let encoder = SymphonyHTTPServer.makeEncoder()
+    let encoded = try encoder.encode(EncodingProbe(b: 2, a: 1))
+    #expect(String(decoding: encoded, as: UTF8.self) == #"{"a":1,"b":2}"#)
+
+    let sortedHeaders = SymphonyHTTPServer.httpFields(
+        from: [
+            "X-Zeta": "zeta",
+            "Bad Header\n": "ignored",
+            "Content-Type": "application/json; charset=utf-8",
+            "X-Alpha": "alpha",
+        ]
+    )
+    #expect(sortedHeaders.map { "\($0.name.rawName)=\($0.value)" } == [
+        "Content-Type=application/json; charset=utf-8",
+        "X-Alpha=alpha",
+        "X-Zeta=zeta",
+    ])
+}
+
+@Test func liveLogHubPublishesToSubscribersAndRemovesTerminatedStreams() async throws {
+    let hub = LiveLogHub()
+    let sessionID = SessionID("session-42")
+    let otherSessionID = SessionID("session-43")
+    let event = AgentRawEvent(
+        sessionID: sessionID,
+        provider: "claude_code",
+        sequence: EventSequence(1),
+        timestamp: "2026-03-24T03:00:01Z",
+        rawJSON: #"{"type":"message","payload":{"text":"hello"}}"#,
+        providerEventType: "message",
+        normalizedEventKind: "message"
+    )
+
+    await hub.publish(event)
+
+    let subscriberStream = await hub.subscribe(to: sessionID)
+    let otherStream = await hub.subscribe(to: otherSessionID)
+    #expect(await hub.subscriberCount(for: sessionID) == 1)
+    #expect(await hub.subscriberCount(for: otherSessionID) == 1)
+
+    let subscriberTask = Task {
+        var iterator = subscriberStream.makeAsyncIterator()
+        return await iterator.next()
+    }
+    let otherTask = Task {
+        var iterator = otherStream.makeAsyncIterator()
+        return await iterator.next()
+    }
+
+    await hub.publish(event)
+    let receivedEvent = try #require(await subscriberTask.value)
+    #expect(receivedEvent == event)
+
+    otherTask.cancel()
+    _ = await otherTask.result
+    try await waitUntil("other live-log subscriber is removed") {
+        await hub.subscriberCount(for: otherSessionID) == 0
+    }
+}
+
+@Test func websocketBacklogFromCursorDeliversEventsAfterTheCursor() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: true)
+    let server = try launchServer(fixture: fixture)
+    defer { server.process.terminateAndWait() }
+
+    try await waitForServerHealth(endpoint: server.endpoint)
+
+    let websocket = try WebSocketProbe(
+        endpoint: server.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: EventCursor(sessionID: fixture.session.sessionID, lastDeliveredSequence: EventSequence(1))
+    )
+    defer { websocket.cancel() }
+
+    let events = try await websocket.collectEvents(count: 1)
+    #expect(events == [fixture.secondEvent])
+}
+
+@Test func websocketLiveTailDeliversAppendedEventAfterBacklog() async throws {
+    let fixture = try makeWebSocketFixture(persistSecondEvent: false)
+    let server = try launchServer(fixture: fixture)
+    defer { server.process.terminateAndWait() }
+
+    try await waitForServerHealth(endpoint: server.endpoint)
+
+    let websocket = try WebSocketProbe(
+        endpoint: server.endpoint,
+        sessionID: fixture.session.sessionID,
+        cursor: nil
+    )
+    defer { websocket.cancel() }
+
+    let firstEvent = try await websocket.nextEvent()
+    #expect(firstEvent == fixture.firstEvent)
+
+    let appendTask = Task<AgentRawEvent, Error> {
+        try await Task.sleep(for: .milliseconds(200))
+        let store = try SQLiteServerStateStore(databaseURL: fixture.databaseURL)
+        return try store.appendEvent(
+            sessionID: fixture.session.sessionID,
+            provider: fixture.session.provider,
+            timestamp: fixture.secondEvent.timestamp,
+            rawJSON: fixture.secondEvent.rawJSON,
+            providerEventType: fixture.secondEvent.providerEventType,
+            normalizedEventKind: fixture.secondEvent.normalizedEventKind
+        )
+    }
+    defer { appendTask.cancel() }
+
+    let secondEvent = try await websocket.nextEvent()
+    let appendedEvent = try await appendTask.value
+    #expect(secondEvent == fixture.secondEvent)
+    #expect(appendedEvent == fixture.secondEvent)
+}
+
+private struct WebSocketFixture {
+    let store: SQLiteServerStateStore
+    let liveLogHub: LiveLogHub
+    let databaseURL: URL
+    let endpoint: BootstrapServerEndpoint
+    let session: AgentSession
+    let firstEvent: AgentRawEvent
+    let secondEvent: AgentRawEvent
+}
+
+private struct LaunchedServer {
+    let process: Process
+    let endpoint: BootstrapServerEndpoint
+}
+
+private func makeWebSocketFixture(persistSecondEvent: Bool, observeWrites: Bool = false) throws -> WebSocketFixture {
+    let root = try makeTemporaryDirectory()
+    let databaseURL = root.appendingPathComponent("symphony.sqlite3")
+    let liveLogHub = LiveLogHub()
+    let store = try SQLiteServerStateStore(
+        databaseURL: databaseURL,
+        eventObserver: observeWrites ? BootstrapServerRunner.makeEventObserver(liveLogHub: liveLogHub) : nil
+    )
     let port = try availableLoopbackPort()
-    let server = try SymphonyHTTPServer(port: port, api: api)
-    try server.start()
-    defer { server.stop() }
+    let identifierSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
 
-    let responseData = try sendRawHTTPRequest(
-        port: port,
-        chunks: [
-            Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n".utf8),
-            Data("Accept: application/json\r\n\r\n".utf8),
-        ],
-        pauseBetweenChunks: .milliseconds(50)
-    )
-    let responseText = try #require(String(data: responseData, encoding: .utf8))
-
-    #expect(responseText.contains("HTTP/1.1 200 OK"))
-    #expect(responseText.contains(#""tracker_kind":"github""#))
-}
-
-@Test func httpServerCancelsIncompleteLoopbackRequestsWhenPeerCloses() throws {
-    let api = try makeTransportAPI()
-    let port = try availableLoopbackPort()
-    let server = try SymphonyHTTPServer(port: port, api: api)
-    try server.start()
-    defer { server.stop() }
-
-    try sendAndCloseRawHTTPRequest(
-        port: port,
-        chunks: [Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n".utf8)]
+    let identifier = try IssueIdentifier(validating: "atjsh/example#42")
+    let issue = SymphonyShared.Issue(
+        id: IssueID("issue-\(identifierSuffix)"),
+        identifier: identifier,
+        repository: "atjsh/example",
+        number: 42,
+        title: "Implement provider-neutral server",
+        description: "The bootstrap runtime must become a real API.",
+        priority: 1,
+        state: "in_progress",
+        issueState: "OPEN",
+        projectItemID: "item-42",
+        url: "https://example.com/issues/42",
+        labels: ["Server", "Spec"],
+        blockedBy: [],
+        createdAt: "2026-03-24T01:00:00Z",
+        updatedAt: "2026-03-24T02:00:00Z"
     )
 
-    let responseData = try sendRawHTTPRequest(
-        port: port,
-        chunks: [Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8)]
+    let runDetail = RunDetail(
+        runID: RunID("run-\(identifierSuffix)"),
+        issueID: issue.id,
+        issueIdentifier: identifier,
+        attempt: 1,
+        status: "running",
+        provider: "claude_code",
+        providerSessionID: "provider-session-\(identifierSuffix)",
+        providerRunID: "provider-run-\(identifierSuffix)",
+        startedAt: "2026-03-24T03:00:00Z",
+        endedAt: nil,
+        workspacePath: "/tmp/symphony/atjsh_example_42",
+        sessionID: SessionID("session-\(identifierSuffix)"),
+        lastError: nil,
+        issue: issue,
+        turnCount: 1,
+        lastAgentEventType: "status",
+        lastAgentMessage: "starting",
+        tokens: try TokenUsage(inputTokens: 4, outputTokens: 3),
+        logs: RunLogStats(eventCount: 0, latestSequence: nil)
     )
-    let responseText = try #require(String(data: responseData, encoding: .utf8))
-    #expect(responseText.contains("HTTP/1.1 200 OK"))
-}
 
-@Test func httpServerCancelsAcceptedConnectionsAfterServerRelease() throws {
-    let api = try makeTransportAPI()
-    let port = try availableLoopbackPort()
-    var server: SymphonyHTTPServer? = try SymphonyHTTPServer(port: port, api: api)
-    try #require(server).start()
-
-    let connection = NWConnection(
-        host: NWEndpoint.Host("127.0.0.1"),
-        port: NWEndpoint.Port(rawValue: UInt16(port))!,
-        using: .tcp
+    let session = AgentSession(
+        sessionID: runDetail.sessionID!,
+        provider: runDetail.provider,
+        providerSessionID: runDetail.providerSessionID,
+        providerThreadID: "thread-\(identifierSuffix)",
+        providerTurnID: "turn-\(identifierSuffix)",
+        providerRunID: runDetail.providerRunID,
+        runID: runDetail.runID,
+        providerProcessPID: "999",
+        status: "active",
+        lastEventType: "status",
+        lastEventAt: "2026-03-24T03:00:01Z",
+        turnCount: 1,
+        tokenUsage: try TokenUsage(inputTokens: 4, outputTokens: 3),
+        latestRateLimitPayload: #"{"remaining":100}"#
     )
-    let queue = DispatchQueue(label: "dev.atjsh.symphony.http-server-tests.release")
-    let ready = DispatchSemaphore(value: 0)
-    let sent = DispatchSemaphore(value: 0)
-    let completed = DispatchSemaphore(value: 0)
-    let box = LoopbackResponseBox()
-    let sendState = SendState()
 
-    connection.stateUpdateHandler = { state in
-        switch state {
-        case .ready:
-            ready.signal()
-        case .failed(let error):
-            box.stateError = error
-            ready.signal()
-            completed.signal()
-        default:
-            break
-        }
-    }
-    connection.start(queue: queue)
-
-    guard ready.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    if let stateError = box.stateError {
-        connection.cancel()
-        throw stateError
-    }
-
-    Thread.sleep(forTimeInterval: 0.1)
-
-    let releasedServer = WeakReference(server)
-    server = nil
-    #expect(releasedServer.value == nil)
-
-    connection.send(
-        content: Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8),
-        completion: .contentProcessed { error in
-            sendState.error = error
-            sent.signal()
-        }
+    let firstEvent = AgentRawEvent(
+        sessionID: session.sessionID,
+        provider: session.provider,
+        sequence: EventSequence(1),
+        timestamp: "2026-03-24T03:00:01Z",
+        rawJSON: #"{"type":"status","payload":{"message":"starting"}}"#,
+        providerEventType: "status",
+        normalizedEventKind: "status"
     )
-    guard sent.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    if let sendError = sendState.error {
-        connection.cancel()
-        throw sendError
-    }
 
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
-        box.append(data ?? Data())
-        if let error {
-            box.receiveError = error
-        }
-        if error != nil || isComplete || (data?.isEmpty ?? true) {
-            completed.signal()
-            return
-        }
-        completed.signal()
-    }
-
-    guard completed.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    connection.cancel()
-
-    #expect(box.response.isEmpty)
-}
-
-@Test func httpReceiveActionCoversUnavailableErrorCompleteAndContinueBranches() throws {
-    let requestTail = Data("Accept: application/json\r\n".utf8)
-    let delimiter = Data("\r\n\r\n".utf8)
-    let cannedResponse = Data("HTTP/1.1 200 OK\r\n\r\n".utf8)
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: false,
-        data: nil,
-        isComplete: false,
-        error: nil,
-        accumulated: Data(),
-        responder: { _ in cannedResponse }
-    ) {
-    case .cancel:
-        break
-    default:
-        Issue.record("Expected unavailable server instances to cancel the connection.")
-    }
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: true,
-        data: nil,
-        isComplete: false,
-        error: .posix(.ECONNRESET),
-        accumulated: Data(),
-        responder: { _ in cannedResponse }
-    ) {
-    case .cancel:
-        break
-    default:
-        Issue.record("Expected network errors to cancel the connection.")
-    }
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: true,
-        data: requestTail,
-        isComplete: false,
-        error: nil,
-        accumulated: Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n".utf8),
-        responder: { _ in cannedResponse }
-    ) {
-    case .continueReceiving(let accumulated):
-        #expect(String(decoding: accumulated, as: UTF8.self).contains("Accept: application/json"))
-    default:
-        Issue.record("Expected partial requests to keep accumulating bytes.")
-    }
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: true,
-        data: delimiter,
-        isComplete: false,
-        error: nil,
-        accumulated: Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n".utf8),
-        responder: { requestData in
-            #expect(String(decoding: requestData, as: UTF8.self).contains("GET /api/v1/health"))
-            return cannedResponse
-        }
-    ) {
-    case .send(let response):
-        #expect(response == cannedResponse)
-    default:
-        Issue.record("Expected complete requests to produce a response.")
-    }
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: true,
-        data: requestTail,
-        isComplete: true,
-        error: nil,
-        accumulated: Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n".utf8),
-        responder: { _ in cannedResponse }
-    ) {
-    case .cancel:
-        break
-    default:
-        Issue.record("Expected incomplete but closed connections to cancel.")
-    }
-
-    var didCancel = false
-    var sentResponse: Data?
-    var continuedAccumulated: Data?
-    SymphonyHTTPServer.applyReceiveAction(
-        .cancel,
-        cancel: { didCancel = true },
-        send: { sentResponse = $0 },
-        receive: { continuedAccumulated = $0 }
+    let secondEvent = AgentRawEvent(
+        sessionID: session.sessionID,
+        provider: session.provider,
+        sequence: EventSequence(2),
+        timestamp: "2026-03-24T03:00:02Z",
+        rawJSON: #"{"type":"message","payload":{"text":"working"}}"#,
+        providerEventType: "message",
+        normalizedEventKind: "message"
     )
-    #expect(didCancel)
-    #expect(sentResponse == nil)
-    #expect(continuedAccumulated == nil)
 
-    didCancel = false
-    SymphonyHTTPServer.applyReceiveAction(
-        .send(cannedResponse),
-        cancel: { didCancel = true },
-        send: { sentResponse = $0 },
-        receive: { continuedAccumulated = $0 }
+    try store.upsertIssue(issue)
+    try store.upsertRun(runDetail)
+    try store.upsertSession(session)
+    _ = try store.appendEvent(
+        sessionID: session.sessionID,
+        provider: session.provider,
+        timestamp: firstEvent.timestamp,
+        rawJSON: firstEvent.rawJSON,
+        providerEventType: firstEvent.providerEventType,
+        normalizedEventKind: firstEvent.normalizedEventKind
     )
-    #expect(!didCancel)
-    #expect(sentResponse == cannedResponse)
-    #expect(continuedAccumulated == nil)
 
-    sentResponse = nil
-    continuedAccumulated = nil
-    SymphonyHTTPServer.applyReceiveAction(
-        .continueReceiving(Data("next".utf8)),
-        cancel: { didCancel = true },
-        send: { sentResponse = $0 },
-        receive: { continuedAccumulated = $0 }
-    )
-    #expect(!didCancel)
-    #expect(continuedAccumulated == Data("next".utf8))
-
-    switch SymphonyHTTPServer.receiveAction(
-        isServerAvailable: true,
-        data: nil,
-        isComplete: false,
-        error: nil,
-        accumulated: Data("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8),
-        responder: { requestData in
-            #expect(String(decoding: requestData, as: UTF8.self).contains("Host: localhost"))
-            return cannedResponse
-        }
-    ) {
-    case .send(let response):
-        #expect(response == cannedResponse)
-    default:
-        Issue.record("Expected already-complete accumulated requests to produce a response.")
+    if persistSecondEvent {
+        _ = try store.appendEvent(
+            sessionID: session.sessionID,
+            provider: session.provider,
+            timestamp: secondEvent.timestamp,
+            rawJSON: secondEvent.rawJSON,
+            providerEventType: secondEvent.providerEventType,
+            normalizedEventKind: secondEvent.normalizedEventKind
+        )
     }
-}
 
-private func makeTransportAPI() throws -> SymphonyHTTPAPI {
-    let databaseURL = try makeTransportTemporaryDirectory().appendingPathComponent("transport.sqlite3")
-    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
-    return SymphonyHTTPAPI(
+    return WebSocketFixture(
         store: store,
-        version: "1.0.0",
-        trackerKind: "github",
-        now: { Date(timeIntervalSince1970: 1_711_281_600) },
-        refresh: {}
+        liveLogHub: liveLogHub,
+        databaseURL: databaseURL,
+        endpoint: BootstrapServerEndpoint(scheme: "http", host: "127.0.0.1", port: port),
+        session: session,
+        firstEvent: firstEvent,
+        secondEvent: secondEvent
     )
 }
 
-private func makeTransportTemporaryDirectory() throws -> URL {
+private func launchServer(fixture: WebSocketFixture) throws -> LaunchedServer {
+    let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
+    #expect(FileManager.default.isExecutableFile(atPath: executable.path))
+
+    let endpoint = BootstrapServerEndpoint(
+        scheme: fixture.endpoint.scheme,
+        host: fixture.endpoint.host,
+        port: try availableLoopbackPort()
+    )
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = executable
+    var environment = ProcessInfo.processInfo.environment
+    environment[BootstrapEnvironment.serverHostKey] = endpoint.host
+    environment[BootstrapEnvironment.serverPortKey] = String(endpoint.port)
+    environment[BootstrapEnvironment.serverSQLitePathKey] = fixture.databaseURL.path
+    process.environment = environment
+    process.standardOutput = output
+    process.standardError = output
+    try process.run()
+    return LaunchedServer(process: process, endpoint: endpoint)
+}
+
+private func waitForServerHealth(endpoint: BootstrapServerEndpoint) async throws {
+    let url = try #require(URL(string: "http://\(endpoint.host):\(endpoint.port)/api/v1/health"))
+    let session = URLSession(configuration: .ephemeral)
+
+    for _ in 0..<30 {
+        do {
+            let (data, response) = try await session.data(from: url)
+            let httpResponse = try #require(response as? HTTPURLResponse)
+            if httpResponse.statusCode == 200 {
+                let health = try JSONDecoder().decode(HealthResponse.self, from: data)
+                #expect(health.status == "ok")
+                return
+            }
+        } catch {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    Issue.record("Expected the server to become healthy before websocket assertions.")
+    throw POSIXError(.ETIMEDOUT)
+}
+
+private final class WebSocketProbe: @unchecked Sendable {
+    private let session: URLSession
+    private let task: URLSessionWebSocketTask
+    private let decoder = JSONDecoder()
+
+    init(endpoint: BootstrapServerEndpoint, sessionID: SessionID, cursor: EventCursor?) throws {
+        let session = URLSession(configuration: .ephemeral)
+        self.session = session
+        self.task = session.webSocketTask(with: try makeWebSocketURL(endpoint: endpoint, sessionID: sessionID, cursor: cursor))
+        self.task.resume()
+    }
+
+    func cancel() {
+        task.cancel(with: .goingAway, reason: nil)
+    }
+
+    func nextEvent(timeout: Duration = .seconds(3)) async throws -> AgentRawEvent {
+        let payload = try await nextPayload(timeout: timeout)
+        return try decoder.decode(AgentRawEvent.self, from: payload)
+    }
+
+    func collectEvents(count: Int, timeout: Duration = .seconds(3)) async throws -> [AgentRawEvent] {
+        var events = [AgentRawEvent]()
+        events.reserveCapacity(count)
+        for _ in 0..<count {
+            events.append(try await nextEvent(timeout: timeout))
+        }
+        return events
+    }
+
+    private func nextPayload(timeout: Duration) async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.task.receive { result in
+                        switch result {
+                        case .success(let message):
+                            do {
+                                continuation.resume(returning: try Self.payloadData(from: message))
+                            } catch {
+                                continuation.resume(throwing: error)
+                            }
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+            }
+
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw POSIXError(.ETIMEDOUT)
+            }
+
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+
+    private static func payloadData(from message: URLSessionWebSocketTask.Message) throws -> Data {
+        switch message {
+        case .data(let data):
+            return data
+        case .string(let string):
+            return Data(string.utf8)
+        @unknown default:
+            throw SymphonyRuntimeError.encoding("Unsupported websocket message payload.")
+        }
+    }
+}
+
+private func makeWebSocketURL(
+    endpoint: BootstrapServerEndpoint,
+    sessionID: SessionID,
+    cursor: EventCursor?
+) throws -> URL {
+    var components = URLComponents()
+    components.scheme = "ws"
+    components.host = endpoint.host
+    components.port = endpoint.port
+    components.path = "/api/v1/logs/stream"
+    var queryItems = [URLQueryItem(name: "session_id", value: sessionID.rawValue)]
+    if let cursor {
+        queryItems.append(URLQueryItem(name: "cursor", value: cursor.rawValue))
+    }
+    components.queryItems = queryItems
+    return try #require(components.url)
+}
+
+private func decodeBody<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    return try JSONDecoder().decode(T.self, from: data)
+}
+
+private func makeTemporaryDirectory() throws -> URL {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     return root
+}
+
+private func launchInProcessServer(
+    fixture: WebSocketFixture,
+    refresh: @escaping @Sendable () -> Void = {}
+) throws -> Task<Void, Error> {
+    let api = SymphonyHTTPAPI(
+        store: fixture.store,
+        version: "1.0.0",
+        trackerKind: "github",
+        refresh: refresh
+    )
+    let server = SymphonyHTTPServer(
+        endpoint: fixture.endpoint,
+        store: fixture.store,
+        api: api,
+        liveLogHub: fixture.liveLogHub
+    )
+    let startup = ServerStartupSignal()
+    let serverTask = Task {
+        try await server.run {
+            startup.ready()
+        }
+    }
+    do {
+        try startup.wait()
+        return serverTask
+    } catch {
+        serverTask.cancel()
+        throw error
+    }
+}
+
+private func requestHealth(endpoint: BootstrapServerEndpoint) async throws -> HealthResponse {
+    let response = try await request(endpoint: endpoint, path: "/api/v1/health", method: "GET")
+    #expect(response.statusCode == 200)
+    return try decodeBody(HealthResponse.self, from: response.data)
+}
+
+private func request(
+    endpoint: BootstrapServerEndpoint,
+    path: String,
+    method: String
+) async throws -> (data: Data, statusCode: Int) {
+    let url = try #require(URL(string: "http://\(endpoint.host):\(endpoint.port)\(path)"))
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    let (data, response) = try await URLSession(configuration: .ephemeral).data(for: request)
+    let httpResponse = try #require(response as? HTTPURLResponse)
+    return (data, httpResponse.statusCode)
+}
+
+private func receiveWebSocketMessage(from task: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
+    try await withCheckedThrowingContinuation { continuation in
+        task.receive { result in
+            continuation.resume(with: result)
+        }
+    }
+}
+
+private struct EncodingProbe: Codable, Equatable {
+    let b: Int
+    let a: Int
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var value = 0
+
+    func increment() {
+        lock.lock()
+        value += 1
+        lock.unlock()
+    }
+}
+
+private func waitUntil(
+    _ description: String,
+    timeout: Duration = .seconds(1),
+    interval: Duration = .milliseconds(20),
+    condition: @escaping @Sendable () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return
+        }
+        try await Task.sleep(for: interval)
+    }
+
+    Issue.record("Timed out waiting for \(description).")
+    throw POSIXError(.ETIMEDOUT)
+}
+
+private func builtProductsDirectory() -> URL {
+    Bundle(for: BundleLocator.self).bundleURL.deletingLastPathComponent()
+}
+
+private final class BundleLocator {}
+
+private extension Process {
+    func terminateAndWait() {
+        if isRunning {
+            terminate()
+            waitUntilExit()
+        }
+    }
 }
 
 private func availableLoopbackPort() throws -> Int {
@@ -395,180 +699,4 @@ private func availableLoopbackPort() throws -> Int {
     }
 
     return Int(UInt16(bigEndian: address.sin_port))
-}
-
-private func sendRawHTTPRequest(port: Int, chunks: [Data], pauseBetweenChunks: Duration? = nil) throws -> Data {
-    let connection = NWConnection(
-        host: NWEndpoint.Host("127.0.0.1"),
-        port: NWEndpoint.Port(rawValue: UInt16(port))!,
-        using: .tcp
-    )
-    let queue = DispatchQueue(label: "dev.atjsh.symphony.http-server-tests")
-
-    let ready = DispatchSemaphore(value: 0)
-    let completed = DispatchSemaphore(value: 0)
-    let box = LoopbackResponseBox()
-
-    connection.stateUpdateHandler = { state in
-        switch state {
-        case .ready:
-            ready.signal()
-        case .failed(let error):
-            box.stateError = error
-            ready.signal()
-            completed.signal()
-        default:
-            break
-        }
-    }
-    connection.start(queue: queue)
-
-    guard ready.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    if let stateError = box.stateError {
-        connection.cancel()
-        throw stateError
-    }
-
-    for chunk in chunks {
-        let sent = DispatchSemaphore(value: 0)
-        let sendState = SendState()
-        connection.send(content: chunk, completion: .contentProcessed { error in
-            sendState.error = error
-            sent.signal()
-        })
-        guard sent.wait(timeout: .now() + 3) == .success else {
-            connection.cancel()
-            throw POSIXError(.ETIMEDOUT)
-        }
-        if let sendError = sendState.error {
-            connection.cancel()
-            throw sendError
-        }
-        if let pauseBetweenChunks {
-            Thread.sleep(forTimeInterval: pauseBetweenChunks.timeInterval)
-        }
-    }
-
-    @Sendable func receiveNext() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
-            box.append(data ?? Data())
-
-            if let error {
-                box.receiveError = error
-                completed.signal()
-                return
-            }
-
-            if isComplete {
-                completed.signal()
-                return
-            }
-
-            receiveNext()
-        }
-    }
-
-    receiveNext()
-    guard completed.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    connection.cancel()
-
-    if let receiveError = box.receiveError {
-        throw receiveError
-    }
-    return box.response
-}
-
-private func sendAndCloseRawHTTPRequest(port: Int, chunks: [Data]) throws {
-    let connection = NWConnection(
-        host: NWEndpoint.Host("127.0.0.1"),
-        port: NWEndpoint.Port(rawValue: UInt16(port))!,
-        using: .tcp
-    )
-    let queue = DispatchQueue(label: "dev.atjsh.symphony.http-server-tests.close")
-    let ready = DispatchSemaphore(value: 0)
-    let state = LoopbackCloseState()
-
-    connection.stateUpdateHandler = { newState in
-        switch newState {
-        case .ready:
-            ready.signal()
-        case .failed(let error):
-            state.error = error
-            ready.signal()
-        default:
-            break
-        }
-    }
-    connection.start(queue: queue)
-
-    guard ready.wait(timeout: .now() + 3) == .success else {
-        connection.cancel()
-        throw POSIXError(.ETIMEDOUT)
-    }
-    if let error = state.error {
-        connection.cancel()
-        throw error
-    }
-
-    for chunk in chunks {
-        let sent = DispatchSemaphore(value: 0)
-        let sendState = SendState()
-        connection.send(content: chunk, completion: .contentProcessed { error in
-            sendState.error = error
-            sent.signal()
-        })
-        guard sent.wait(timeout: .now() + 3) == .success else {
-            connection.cancel()
-            throw POSIXError(.ETIMEDOUT)
-        }
-        if let error = sendState.error {
-            connection.cancel()
-            throw error
-        }
-    }
-
-    connection.cancel()
-    Thread.sleep(forTimeInterval: 0.1)
-}
-
-private final class LoopbackResponseBox: @unchecked Sendable {
-    private let lock = NSLock()
-    var stateError: Error?
-    var receiveError: Error?
-    private(set) var response = Data()
-
-    func append(_ data: Data) {
-        lock.lock()
-        response.append(data)
-        lock.unlock()
-    }
-}
-
-private final class SendState: @unchecked Sendable {
-    var error: NWError?
-}
-
-private final class LoopbackCloseState: @unchecked Sendable {
-    var error: NWError?
-}
-
-private final class WeakReference<Object: AnyObject>: @unchecked Sendable {
-    weak var value: Object?
-
-    init(_ value: Object?) {
-        self.value = value
-    }
-}
-
-private extension Duration {
-    var timeInterval: TimeInterval {
-        let components = components
-        return Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
-    }
 }

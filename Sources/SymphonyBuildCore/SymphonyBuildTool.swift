@@ -1130,6 +1130,9 @@ public final class SymphonyBuildTool {
         if request.json {
             arguments.append("--json")
         }
+        if request.outputMode != .filtered {
+            arguments += ["--output-mode", request.outputMode.rawValue]
+        }
         return ShellQuoting.render(command: "symphony-build", arguments: arguments)
     }
 

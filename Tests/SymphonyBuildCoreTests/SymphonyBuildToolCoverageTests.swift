@@ -1787,6 +1787,68 @@ import Testing
     }
 }
 
+@Test func buildToolHarnessRendersExplicitOutputModeInSummaryInvocation() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coveragePath = repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+        try FileManager.default.createDirectory(at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/Foo.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+              ]
+            }
+          ]
+        }
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+        let perfectCoverage = CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+        )
+        let harnessRunner = StubProcessRunner(results: [
+            "swift test --enable-code-coverage": StubProcessRunner.success(),
+            "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+        ])
+        let tool = SymphonyBuildTool(
+            workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+            processRunner: StubProcessRunner(),
+            artifactManager: ArtifactManager(processRunner: StubProcessRunner()),
+            commitHarness: CommitHarness(
+                processRunner: harnessRunner,
+                statusSink: { _ in },
+                clientCoverageLoader: { _ in perfectCoverage },
+                serverCoverageLoader: { _ in perfectCoverage }
+            )
+        )
+
+        _ = try tool.harness(
+            HarnessCommandRequest(minimumCoveragePercent: 50, json: false, outputMode: .quiet, currentDirectory: repoRoot)
+        )
+
+        let artifactRoot = workspace.buildStateRoot.appendingPathComponent("artifacts/harness/latest").resolvingSymlinksInPath()
+        let summary = try String(contentsOf: artifactRoot.appendingPathComponent("summary.txt"), encoding: .utf8)
+        #expect(summary.contains("invocation: symphony-build harness --minimum-coverage 50.00 --output-mode quiet"))
+    }
+}
+
 @Test func buildToolHarnessFailureUsesCompactPreviewMessage() throws {
     try withTemporaryDirectory { directory in
         let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)

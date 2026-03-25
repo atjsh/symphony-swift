@@ -1079,6 +1079,21 @@ import Testing
     #expect(!messages.values.contains(where: { $0.contains("CompileSwift normal arm64 Foo.swift") }))
 }
 
+@Test func processOutputReporterCanSuppressSwiftTestCompileNoise() {
+    let messages = SignalBox()
+    let reporter = XcodeOutputReporter(mode: .filtered, sink: { messages.append($0) }, commandName: "swift test")
+    let observation = reporter.makeObservation(label: "swift test")
+
+    observation.onLine?(.stdout, "Compiling NIOCore AsyncChannel.swift")
+    observation.onLine?(.stdout, "warning: package deprecation warning")
+    observation.onLine?(.stderr, "Linking SymphonyServer")
+    reporter.finish()
+
+    #expect(messages.values.contains(where: { $0.contains("[swift test] warning: package deprecation warning") }))
+    #expect(messages.values.contains(where: { $0.contains("suppressed 2 low-signal lines") }))
+    #expect(!messages.values.contains(where: { $0.contains("Compiling NIOCore AsyncChannel.swift") }))
+}
+
 @Test func xcodeOutputReporterQuietModeEmitsNothing() {
     let messages = SignalBox()
     let reporter = XcodeOutputReporter(mode: .quiet, sink: { messages.append($0) })
@@ -1119,12 +1134,12 @@ import Testing
 
     let result = try runner.run(
         command: "sh",
-        arguments: ["-c", "sleep 0.2"],
+        arguments: ["-c", "sleep 2"],
         environment: [:],
         currentDirectory: nil,
         observation: ProcessObservation(
             label: "test command",
-            staleInterval: 0.05,
+            staleInterval: 0.2,
             onStaleSignal: { message in
                 messages.append(message)
             }

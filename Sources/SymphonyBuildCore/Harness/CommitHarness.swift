@@ -61,12 +61,14 @@ public struct CommitHarness {
         let coveragePathInvocation = ShellQuoting.render(command: "swift", arguments: ["test", "--show-code-coverage-path"])
 
         statusSink("[symphony-build] running commit harness tests")
+        let harnessReporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink, commandName: "swift test")
+        defer { harnessReporter.finish() }
         let testResult = try processRunner.run(
             command: "swift",
             arguments: ["test", "--enable-code-coverage"],
             environment: [:],
             currentDirectory: workspace.projectRoot,
-            observation: forwardingObservation(label: "swift test")
+            observation: harnessReporter.makeObservation(label: "swift test")
         )
         guard testResult.exitStatus == 0 else {
             throw SymphonyBuildCommandFailure(message: "Commit harness failed because `swift test --enable-code-coverage` did not pass.")
@@ -94,26 +96,11 @@ public struct CommitHarness {
         )
         let clientCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: [
-                "coverage",
-                "--product", "client",
-                "--platform", "macos",
-                "--show-files",
-                "--show-functions",
-                "--show-missing-lines",
-                "--json",
-            ]
+            arguments: Self.coverageSuiteArguments(product: "client", platform: "macos", outputMode: request.outputMode)
         )
         let serverCoverageInvocation = ShellQuoting.render(
             command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-            arguments: [
-                "coverage",
-                "--product", "server",
-                "--show-files",
-                "--show-functions",
-                "--show-missing-lines",
-                "--json",
-            ]
+            arguments: Self.coverageSuiteArguments(product: "server", platform: nil, outputMode: request.outputMode)
         )
         let capabilities = try toolchainCapabilitiesResolver.resolve()
         let clientExecution: CoverageSuiteExecution?
@@ -131,15 +118,7 @@ public struct CommitHarness {
             clientExecution = try Self.runCoverageSuiteExecution(
                 processRunner: processRunner,
                 executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: [
-                    "coverage",
-                    "--product", "client",
-                    "--platform", "macos",
-                    "--show-files",
-                    "--show-functions",
-                    "--show-missing-lines",
-                    "--json",
-                ],
+                arguments: Self.coverageSuiteArguments(product: "client", platform: "macos", outputMode: request.outputMode),
                 currentDirectory: workspace.projectRoot,
                 statusSink: statusSink
             )
@@ -153,14 +132,7 @@ public struct CommitHarness {
             serverExecution = try Self.runCoverageSuiteExecution(
                 processRunner: processRunner,
                 executablePath: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
-                arguments: [
-                    "coverage",
-                    "--product", "server",
-                    "--show-files",
-                    "--show-functions",
-                    "--show-missing-lines",
-                    "--json",
-                ],
+                arguments: Self.coverageSuiteArguments(product: "server", platform: nil, outputMode: request.outputMode),
                 currentDirectory: workspace.projectRoot,
                 statusSink: statusSink
             )
@@ -204,22 +176,6 @@ public struct CommitHarness {
 
     public func renderHuman(report: HarnessReport) -> String {
         coverageReporter.renderHuman(report: report)
-    }
-
-    func forwardingObservation(label: String) -> ProcessObservation {
-        ProcessObservation(
-            label: label,
-            onStaleSignal: { [statusSink] message in
-                statusSink(message)
-            },
-            onLine: { [statusSink] _, line in
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else {
-                    return
-                }
-                statusSink(trimmed)
-            }
-        )
     }
 
     static func runCoverageSuite(
@@ -309,6 +265,26 @@ public struct CommitHarness {
             return raw
         }
         return URL(fileURLWithPath: raw, relativeTo: workingDirectory).standardizedFileURL.path
+    }
+
+    static func coverageSuiteArguments(product: String, platform: String?, outputMode: XcodeOutputMode) -> [String] {
+        var arguments = [
+            "coverage",
+            "--product", product,
+        ]
+        if let platform {
+            arguments += ["--platform", platform]
+        }
+        arguments += [
+            "--show-files",
+            "--show-functions",
+            "--show-missing-lines",
+            "--json",
+        ]
+        if outputMode != .filtered {
+            arguments.append(contentsOf: ["--xcode-output-mode", outputMode.rawValue])
+        }
+        return arguments
     }
 }
 

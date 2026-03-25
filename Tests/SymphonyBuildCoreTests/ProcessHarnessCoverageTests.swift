@@ -896,10 +896,94 @@ import Testing
     }
 }
 
+@Test func commitHarnessFiltersSwiftTestCompileNoiseAndPropagatesOutputModeToCoverageCommands() throws {
+    try withTemporaryDirectory { directory in
+        let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let packageCoveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+        try FileManager.default.createDirectory(at: packageCoveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"""
+        {
+          "data": [
+            {
+              "files": [
+                { "filename": "__REPO__/Sources/Foo.swift", "summary": { "lines": { "count": 1, "covered": 1 } } }
+              ]
+            }
+          ]
+        }
+        """#
+            .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+            .write(to: packageCoveragePath, atomically: true, encoding: .utf8)
+
+        let workspace = WorkspaceContext(
+            projectRoot: repoRoot,
+            buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+            xcodeWorkspacePath: nil,
+            xcodeProjectPath: nil
+        )
+        let coverageJSON = #"""
+        {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+        """#
+
+        let filteredStatus = SignalBox()
+        let filteredRunner = HarnessOutputControlProcessRunner(
+            packageCoveragePath: packageCoveragePath.path,
+            coverageJSON: coverageJSON
+        )
+        _ = try CommitHarness(
+            processRunner: filteredRunner,
+            statusSink: { filteredStatus.append($0) },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
+        ).run(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+        )
+
+        #expect(filteredStatus.values.contains(where: { $0.contains("warning: important harness warning") }))
+        #expect(!filteredStatus.values.contains(where: { $0.contains("Compiling NIOCore AsyncChannel.swift") }))
+        #expect(filteredStatus.values.contains(where: { $0.contains("suppressed 1 low-signal lines") }))
+
+        let quietStatus = SignalBox()
+        let quietRunner = HarnessOutputControlProcessRunner(
+            packageCoveragePath: packageCoveragePath.path,
+            coverageJSON: coverageJSON
+        )
+        _ = try CommitHarness(
+            processRunner: quietRunner,
+            statusSink: { quietStatus.append($0) },
+            toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .fullyAvailableForTests)
+        ).run(
+            workspace: workspace,
+            request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, outputMode: .quiet, currentDirectory: repoRoot)
+        )
+
+        #expect(!quietStatus.values.contains(where: { $0.contains("warning: important harness warning") }))
+        #expect(!quietStatus.values.contains(where: { $0.contains("Compiling NIOCore AsyncChannel.swift") }))
+        #expect(quietRunner.commands.contains(where: { $0.contains("coverage --product client") && $0.contains("--xcode-output-mode quiet") }))
+        #expect(quietRunner.commands.contains(where: { $0.contains("coverage --product server") && $0.contains("--xcode-output-mode quiet") }))
+    }
+}
+
 @Test func commitHarnessHelperClosuresForwardSignalsAndFilterCoverageOutput() throws {
     let status = SignalBox()
-    let harness = CommitHarness(processRunner: StubProcessRunner(), statusSink: { status.append($0) })
-    let observation = harness.forwardingObservation(label: "swift test")
+    let observation = ProcessObservation(
+        label: "swift test",
+        onStaleSignal: { message in
+            status.append(message)
+        },
+        onLine: { stream, line in
+            guard stream == .stderr else {
+                return
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return
+            }
+            status.append(trimmed)
+        }
+    )
     observation.onStaleSignal?("stale-signal")
     observation.onLine?(.stdout, "   ")
     observation.onLine?(.stderr, "observed line")
@@ -1084,6 +1168,20 @@ import Testing
     #expect(staleSignals.values.isEmpty)
 }
 
+@Test func staleSignalControllerWritesHeartbeatWhenNoCallbackIsConfigured() {
+    let collector = DataCollector()
+    let controller = StaleSignalController(
+        observation: ProcessObservation(label: "heartbeat", staleInterval: 0.01),
+        collector: collector
+    )
+
+    Thread.sleep(forTimeInterval: 0.02)
+    controller.signalIfNeeded()
+
+    let message = String(decoding: collector.data, as: UTF8.self)
+    #expect(message.contains("heartbeat still running"))
+}
+
 @Test func artifactManagerRecursiveFilesSkipsPlainFilesWhenEnumerationIsUnavailable() throws {
     let manager = ArtifactManager(processRunner: StubProcessRunner(), enumeratorFactory: { _ in nil })
     #expect(manager.recursiveFiles(in: [URL(fileURLWithPath: "/tmp/missing", isDirectory: true)]).isEmpty)
@@ -1105,6 +1203,48 @@ private struct CoverageCommandProcessRunner: ProcessRunning {
         if arguments.prefix(3) == ["coverage", "--product", "client"] || arguments.prefix(3) == ["coverage", "--product", "server"] {
             observation?.onLine?(.stderr, "coverage stderr")
             return coverageResult
+        }
+        return StubProcessRunner.success()
+    }
+
+    func startDetached(executablePath: String, arguments: [String], environment: [String : String], currentDirectory: URL?, output: URL) throws -> Int32 {
+        0
+    }
+}
+
+private final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecked Sendable {
+    let packageCoveragePath: String
+    let coverageJSON: String
+    private let lock = NSLock()
+    private var storage = [String]()
+
+    init(packageCoveragePath: String, coverageJSON: String) {
+        self.packageCoveragePath = packageCoveragePath
+        self.coverageJSON = coverageJSON
+    }
+
+    var commands: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func run(command: String, arguments: [String], environment: [String : String], currentDirectory: URL?, observation: ProcessObservation?) throws -> CommandResult {
+        let rendered = ([command] + arguments).joined(separator: " ")
+        lock.lock()
+        storage.append(rendered)
+        lock.unlock()
+
+        if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+            observation?.onLine?(.stdout, "Compiling NIOCore AsyncChannel.swift")
+            observation?.onLine?(.stderr, "warning: important harness warning")
+            return StubProcessRunner.success()
+        }
+        if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+            return StubProcessRunner.success(packageCoveragePath + "\n")
+        }
+        if arguments.first == "coverage" {
+            return StubProcessRunner.success(coverageJSON)
         }
         return StubProcessRunner.success()
     }

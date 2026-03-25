@@ -18,6 +18,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.21.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.6.0"),
     ],
     targets: [
         .target(
@@ -26,7 +28,11 @@ let package = Package(
         ),
         .target(
             name: "SymphonyRuntime",
-            dependencies: ["SymphonyShared"],
+            dependencies: [
+                "SymphonyShared",
+                .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
+            ],
             path: "Sources/SymphonyRuntime"
         ),
         .target(
@@ -59,7 +65,12 @@ let package = Package(
         ),
         .testTarget(
             name: "SymphonyServerTests",
-            dependencies: ["SymphonyRuntime", "SymphonyServer"],
+            dependencies: [
+                "SymphonyRuntime",
+                "SymphonyServer",
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+                .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
+            ],
             path: "Tests/SymphonyServerTests"
         ),
         .testTarget(

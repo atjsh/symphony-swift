@@ -1,243 +1,161 @@
 import Foundation
-import Network
+import HTTPTypes
+import Hummingbird
+import HummingbirdWebSocket
 import SymphonyShared
 
+@available(macOS 14, iOS 17, tvOS 17, *)
 final class SymphonyHTTPServer: @unchecked Sendable {
-    private let listener: NWListener
+    private let endpoint: BootstrapServerEndpoint
+    private let store: SQLiteServerStateStore
     private let api: SymphonyHTTPAPI
-    private let queue = DispatchQueue(label: "dev.atjsh.symphony.http-server")
+    private let liveLogHub: LiveLogHub
 
-    init(port: Int, api: SymphonyHTTPAPI) throws {
-        let requestedPort = port
-        guard let rawPort = UInt16(exactly: requestedPort),
-              let port = NWEndpoint.Port(rawValue: rawPort) else {
-            throw SymphonyRuntimeError.sqlite("Invalid listener port \(requestedPort).")
-        }
-        self.listener = try NWListener(using: .tcp, on: port)
-        self.api = api
-    }
-
-    func start() throws {
-        let started = DispatchSemaphore(value: 0)
-        let startup = StartupState()
-
-        listener.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                started.signal()
-            case .failed(let error):
-                startup.error = error
-                started.signal()
-            default:
-                break
-            }
-        }
-
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.handle(connection)
-        }
-        listener.start(queue: queue)
-        started.wait()
-
-        if let startupError = startup.error {
-            throw startupError
-        }
-    }
-
-    func stop() {
-        listener.cancel()
-    }
-
-    private func handle(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        receive(on: connection, accumulated: Data())
-    }
-
-    private func receive(on connection: NWConnection, accumulated: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
-            guard let self else {
-                connection.cancel()
-                return
-            }
-            let action = Self.receiveAction(
-                isServerAvailable: true,
-                data: data,
-                isComplete: isComplete,
-                error: error,
-                accumulated: accumulated,
-                responder: self.response(for:)
-            )
-            Self.applyReceiveAction(
-                action,
-                cancel: { connection.cancel() },
-                send: { response in
-                    connection.send(content: response, completion: .contentProcessed { _ in
-                        connection.cancel()
-                    })
-                },
-                receive: { nextAccumulated in
-                    self.receive(on: connection, accumulated: nextAccumulated)
-                }
-            )
-        }
-    }
-
-    private func response(for requestData: Data) -> Data {
-        try! SymphonyHTTPWire.response(for: requestData, api: api)
-    }
-
-    static func receiveAction(
-        isServerAvailable: Bool,
-        data: Data?,
-        isComplete: Bool,
-        error: NWError?,
-        accumulated: Data,
-        responder: (Data) -> Data
-    ) -> SymphonyHTTPReceiveAction {
-        guard isServerAvailable else {
-            return .cancel
-        }
-
-        if let error {
-            _ = error
-            return .cancel
-        }
-
-        let nextAccumulated = accumulated + (data ?? Data())
-        let delimiter = Data("\r\n\r\n".utf8)
-
-        if let range = nextAccumulated.range(of: delimiter) {
-            let headerData = nextAccumulated[..<range.upperBound]
-            return .send(responder(Data(headerData)))
-        }
-
-        if isComplete {
-            return .cancel
-        }
-
-        return .continueReceiving(nextAccumulated)
-    }
-
-    static func applyReceiveAction(
-        _ action: SymphonyHTTPReceiveAction,
-        cancel: () -> Void,
-        send: (Data) -> Void,
-        receive: (Data) -> Void
+    init(
+        endpoint: BootstrapServerEndpoint,
+        store: SQLiteServerStateStore,
+        api: SymphonyHTTPAPI,
+        liveLogHub: LiveLogHub
     ) {
-        switch action {
-        case .cancel:
-            cancel()
-        case .send(let response):
-            send(response)
-        case .continueReceiving(let accumulated):
-            receive(accumulated)
-        }
-    }
-}
-
-private final class StartupState: @unchecked Sendable {
-    var error: Error?
-}
-
-enum SymphonyHTTPWire {
-    static func response(for requestData: Data, api: SymphonyHTTPAPI) throws -> Data {
-        let response: SymphonyHTTPResponse
-        do {
-            let request = try parseRequest(from: requestData)
-            response = try api.respond(to: request)
-        } catch {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            let body = try! encoder.encode(
-                ErrorEnvelope(
-                    error: ErrorPayload(
-                        code: "bad_request",
-                        message: "The HTTP request could not be parsed."
-                    )
-                )
-            )
-            return serialize(
-                SymphonyHTTPResponse(
-                    statusCode: 400,
-                    headers: ["Content-Type": "application/json; charset=utf-8"],
-                    body: body
-                )
-            )
-        }
-
-        return serialize(response)
+        self.endpoint = endpoint
+        self.store = store
+        self.api = api
+        self.liveLogHub = liveLogHub
     }
 
-    static func parseRequest(from data: Data) throws -> SymphonyAPIRequest {
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw SymphonyRuntimeError.encoding("Failed to decode HTTP request bytes.")
-        }
-        guard !text.isEmpty else {
-            throw SymphonyRuntimeError.encoding("Missing HTTP request line.")
-        }
-
-        let sections = text.components(separatedBy: "\r\n")
-        let requestLine = sections[0]
-
-        let requestParts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
-        guard requestParts.count >= 2 else {
-            throw SymphonyRuntimeError.encoding("Malformed HTTP request line.")
-        }
-
-        var headers = [String: String]()
-        for line in sections.dropFirst() {
-            if line.isEmpty {
-                break
+    func run(onReady: @escaping @Sendable () async -> Void) async throws {
+        let httpRouter = Self.makeHTTPRouter(api: api)
+        let webSocketRouter = Self.makeWebSocketRouter(store: store, liveLogHub: liveLogHub)
+        let app = Application(
+            router: httpRouter,
+            server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter),
+            configuration: .init(address: .hostname(endpoint.host, port: endpoint.port)),
+            onServerRunning: { _ in
+                await onReady()
             }
-            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2 else {
-                continue
+        )
+
+        try await app.runService(gracefulShutdownSignals: [])
+    }
+
+    static func makeHTTPRouter(api: SymphonyHTTPAPI) -> Router<BasicRequestContext> {
+        let router = Router(context: BasicRequestContext.self)
+
+        for method in supportedMethods {
+            router.on("/api/v1/**", method: method) { request, _ in
+                try response(for: request, api: api)
             }
-            headers[String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)] = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        return SymphonyAPIRequest(
-            method: String(requestParts[0]),
-            path: String(requestParts[1]),
-            headers: headers
+        return router
+    }
+
+    static func makeWebSocketRouter(
+        store: SQLiteServerStateStore,
+        liveLogHub _: LiveLogHub
+    ) -> Router<BasicWebSocketRequestContext> {
+        let router = Router(context: BasicWebSocketRequestContext.self)
+
+        router.ws("/api/v1/logs/stream") { request, _ in
+            guard let sessionID = sessionID(query: request.uri.query),
+                  try store.session(sessionID: sessionID) != nil else {
+                return .dontUpgrade
+            }
+            return .upgrade()
+        } onUpgrade: { _, outbound, context in
+            let sessionID = sessionID(query: context.request.uri.query)!
+
+            let encoder = makeEncoder()
+            let initialCursor = cursor(query: context.request.uri.query)
+            var lastDeliveredSequence = initialCursor?.lastDeliveredSequence ?? EventSequence(0)
+
+            do {
+                while true {
+                    try Task.checkCancellation()
+
+                    let pollingCursor = lastDeliveredSequence.rawValue > 0
+                        ? EventCursor(sessionID: sessionID, lastDeliveredSequence: lastDeliveredSequence)
+                        : nil
+                    let page = try store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100)!
+
+                    guard !page.items.isEmpty else {
+                        try await Task.sleep(for: .milliseconds(100))
+                        continue
+                    }
+
+                    for event in page.items {
+                        try await outbound.write(.text(String(decoding: try encoder.encode(event), as: UTF8.self)))
+                        lastDeliveredSequence = event.sequence
+                    }
+                }
+            } catch is CancellationError {}
+        }
+
+        return router
+    }
+
+    static func response(
+        for request: Request,
+        api: SymphonyHTTPAPI
+    ) throws -> Response {
+        let response = try api.respond(
+            to: SymphonyAPIRequest(
+                method: request.method.rawValue,
+                path: request.uri.string
+            )
+        )
+
+        return Response(
+            status: status(for: response.statusCode),
+            headers: httpFields(from: response.headers),
+            body: .init(byteBuffer: ByteBuffer(bytes: response.body))
         )
     }
 
-    static func serialize(_ response: SymphonyHTTPResponse) -> Data {
-        var headers = response.headers
-        headers["Content-Length"] = String(response.body.count)
-        headers["Connection"] = "close"
-
-        var lines = ["HTTP/1.1 \(response.statusCode) \(statusText(for: response.statusCode))"]
-        lines.append(contentsOf: headers.sorted(by: { $0.key < $1.key }).map { "\($0.key): \($0.value)" })
-        lines.append("")
-        lines.append("")
-
-        var data = Data(lines.joined(separator: "\r\n").utf8)
-        data.append(response.body)
-        return data
-    }
-
-    static func statusText(for statusCode: Int) -> String {
-        switch statusCode {
-        case 200:
-            return "OK"
-        case 202:
-            return "Accepted"
-        case 400:
-            return "Bad Request"
-        case 404:
-            return "Not Found"
-        case 405:
-            return "Method Not Allowed"
-        default:
-            return "Internal Server Error"
+    static func httpFields(from headers: [String: String]) -> HTTPFields {
+        var httpFields = HTTPFields()
+        for header in headers.sorted(by: { $0.key < $1.key }).compactMap({ name, value in
+            HTTPField.Name(name).map { HTTPField(name: $0, value: value) }
+        }) {
+            httpFields.append(header)
         }
+        return httpFields
     }
-}
 
-enum SymphonyHTTPReceiveAction {
-    case cancel
-    case send(Data)
-    case continueReceiving(Data)
+    static func status(for statusCode: Int) -> HTTPResponse.Status {
+        HTTPResponse.Status(code: statusCode)
+    }
+
+    static func sessionID(query: String?) -> SessionID? {
+        queryValue(named: "session_id", in: query).map(SessionID.init)
+    }
+
+    static func cursor(query: String?) -> EventCursor? {
+        queryValue(named: "cursor", in: query).map(EventCursor.init(rawValue:))
+    }
+
+    static func queryValue(named name: String, in query: String?) -> String? {
+        guard let query else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.percentEncodedQuery = query
+        return components.queryItems?.first(where: { $0.name == name })?.value
+    }
+
+    static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private static let supportedMethods: [HTTPRequest.Method] = [
+        .get,
+        .post,
+        .put,
+        .patch,
+        .delete,
+        .head,
+    ]
 }

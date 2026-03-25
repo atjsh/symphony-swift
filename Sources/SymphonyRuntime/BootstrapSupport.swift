@@ -280,17 +280,37 @@ public enum BootstrapServerRunner {
 
         state.startupLogLines.forEach(output)
 
-        var server: SymphonyHTTPServer?
+        var serverTask: Task<Void, Error>?
         if startServer {
             let databaseURL = BootstrapEnvironment.effectiveSQLitePath(environment: environment)
-            let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+            let liveLogHub = LiveLogHub()
+            let store = try SQLiteServerStateStore(
+                databaseURL: databaseURL,
+                eventObserver: makeEventObserver(liveLogHub: liveLogHub)
+            )
             let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
-            server = try SymphonyHTTPServer(port: state.endpoint.port, api: api)
-            try server?.start()
+            let server = SymphonyHTTPServer(
+                endpoint: state.endpoint,
+                store: store,
+                api: api,
+                liveLogHub: liveLogHub
+            )
+            let startup = ServerStartupSignal()
+            serverTask = Task {
+                do {
+                    try await server.run {
+                        startup.ready()
+                    }
+                } catch {
+                    startup.fail(error)
+                    throw error
+                }
+            }
+            try startup.wait()
         }
 
         keepAlive()
-        server?.stop()
+        serverTask?.cancel()
     }
 
     public static func startupState(
@@ -307,6 +327,49 @@ public enum BootstrapServerRunner {
             launchArguments: launchArguments,
             startedAt: startedAt
         )
+    }
+
+    static func makeEventObserver(liveLogHub: LiveLogHub) -> @Sendable (AgentRawEvent) -> Void {
+        { event in
+            Task {
+                await liveLogHub.publish(event)
+            }
+        }
+    }
+}
+
+final class ServerStartupSignal: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var startupError: Error?
+    private var didSignal = false
+
+    func ready() {
+        signal(error: nil)
+    }
+
+    func fail(_ error: Error) {
+        signal(error: error)
+    }
+
+    func wait() throws {
+        semaphore.wait()
+        if let startupError {
+            throw startupError
+        }
+    }
+
+    private func signal(error: Error?) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !didSignal else {
+            return
+        }
+
+        startupError = error
+        didSignal = true
+        semaphore.signal()
     }
 }
 

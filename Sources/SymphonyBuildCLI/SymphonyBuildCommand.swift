@@ -255,6 +255,7 @@ extension SymphonyBuildCommand {
         static let configuration = CommandConfiguration(abstract: "Run the commit harness: package tests plus first-party source coverage gating.")
 
         @Option(name: .long) var minimumCoverage: Double = 100
+        @Option(name: .long) var outputMode: XcodeOutputMode = .filtered
         @Flag(name: .long) var json = false
 
         mutating func run() throws {
@@ -263,6 +264,7 @@ extension SymphonyBuildCommand {
                 HarnessCommandRequest(
                     minimumCoveragePercent: minimumCoverage,
                     json: json,
+                    outputMode: outputMode,
                     currentDirectory: CLIContext.currentDirectory()
                 )
             )

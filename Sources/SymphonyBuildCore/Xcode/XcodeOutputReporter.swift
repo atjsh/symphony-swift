@@ -2,12 +2,14 @@ import Foundation
 
 final class XcodeOutputReporter: @unchecked Sendable {
     private let mode: XcodeOutputMode
+    private let commandName: String
     private let sink: @Sendable (String) -> Void
     private let lock = NSLock()
     private var suppressedLineCount = 0
 
-    init(mode: XcodeOutputMode, sink: @escaping @Sendable (String) -> Void) {
+    init(mode: XcodeOutputMode, sink: @escaping @Sendable (String) -> Void, commandName: String = "xcodebuild") {
         self.mode = mode
+        self.commandName = commandName
         self.sink = sink
     }
 
@@ -35,7 +37,7 @@ final class XcodeOutputReporter: @unchecked Sendable {
         lock.unlock()
 
         if suppressedCount > 0 {
-            sink(timestamped("[xcodebuild] suppressed \(suppressedCount) low-signal lines"))
+            sink(timestamped("[\(commandName)] suppressed \(suppressedCount) low-signal lines"))
         }
     }
 
@@ -49,10 +51,10 @@ final class XcodeOutputReporter: @unchecked Sendable {
         case .quiet:
             return
         case .full:
-            sink(timestamped("[xcodebuild/\(stream.rawValue)] \(trimmed)"))
+            sink(timestamped("[\(commandName)/\(stream.rawValue)] \(trimmed)"))
         case .filtered:
             if isHighSignal(trimmed) {
-                sink(timestamped("[xcodebuild] \(trimmed)"))
+                sink(timestamped("[\(commandName)] \(trimmed)"))
             } else {
                 lock.lock()
                 suppressedLineCount += 1

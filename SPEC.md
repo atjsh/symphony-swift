@@ -1,21 +1,32 @@
 # Symphony Specification
 
-Status: Draft v2
+Status: Draft v3
 
-Purpose: Define Symphony as a Swift-native issue orchestration system made up of a standalone
-`Symphony Server`, a cross-platform `Symphony` SwiftUI client, and the repository-local
-`SymphonyBuild` build tool.
+Purpose: Define Symphony as a phased Swift-native issue orchestration system made up of a Phase 1
+`Symphony Server` bootstrap runtime, a cross-platform `Symphony` SwiftUI client, and the
+repository-local `SymphonyBuild` build tool.
+
+Phase 1 is the current implementation target:
+
+- a Hummingbird-backed server process
+- SQLite-backed HTTP query endpoints for server state and logs
+- WebSocket log streaming for live tailing
+- the existing SwiftUI client and repository-local build tool
+
+Later sections describe future orchestration phases that are intentionally not part of the current
+implementation target.
 
 ## 1. Product Definition
 
 Symphony consists of three required products:
 
 1. `Symphony Server`
-   - A standalone Swift 6.2 server process.
-   - Owns GitHub issue polling, orchestration state, workspace lifecycle, provider integration,
-     persistence, and network APIs.
-   - Remains the single authoritative runtime for dispatch, retries, reconciliation, and
-     observability data.
+   - A standalone Swift 6.2 server process built on Hummingbird and HummingbirdWebSocket.
+   - Owns the Phase 1 SQLite-backed runtime state, HTTP query API, WebSocket log stream, refresh
+     trigger, and persisted observability data.
+   - Remains the single authoritative runtime for server state exposed to the client in Phase 1.
+   - Future phases add GitHub issue polling, orchestration state, workspace lifecycle, provider
+     integration, dispatch, retries, and reconciliation.
 
 2. `Symphony`
    - A SwiftUI client that supports iOS and macOS by default.
@@ -34,7 +45,7 @@ Symphony consists of three required products:
 Important boundaries:
 
 - The UI is not embedded in the server process.
-- GitHub issue orchestration remains the core workflow in this specification version.
+- GitHub issue orchestration is a future-phase capability, not the current Phase 1 runtime.
 - Authentication is out of scope for v1. Operators connect directly to a trusted server endpoint.
 - The default client endpoint is `http://localhost:8080`.
 - `SymphonyBuild` is repository-specific developer tooling and is not part of the deployed
@@ -49,26 +60,30 @@ This specification targets the following default stack:
 - Swift Testing for unit, integration, and UI-adjacent logic tests
 - Xcode as the default development environment
 - SQLite as the required durable store for server metadata and event indexing
+- Hummingbird as the default server framework
+- HummingbirdWebSocket as the default WebSocket transport companion
+- HummingbirdTesting and HummingbirdWSTesting as the default server test companions
 
-The specification describes product behavior and contracts. It does not require a specific Swift
-HTTP framework so long as the HTTP and WebSocket behavior defined here is satisfied.
+The specification describes product behavior and contracts. Phase 1 requires Hummingbird-backed
+HTTP routing and WebSocket handling rather than a custom transport.
 
 `SymphonyBuild`-specific defaults, commands, and filesystem contracts are defined in Section 20.
 
-## 3. Goals and Non-Goals
+## 3. Phase 1 Goals and Non-Goals
 
 ### 3.1 Goals
 
-- Poll GitHub Projects v2 on a fixed cadence and dispatch eligible issues with bounded concurrency.
-- Keep one authoritative orchestrator state inside `Symphony Server`.
-- Reuse deterministic per-issue workspaces across runs.
-- Run configured agent providers in per-issue workspaces only.
-- Persist logs and execution metadata so history survives server restarts.
+- Serve a Hummingbird-backed server process on the configured host and port.
+- Persist server state in SQLite so issues, runs, sessions, workspaces, and logs survive restarts.
+- Expose HTTP JSON endpoints for health, issue lists, issue detail, run detail, log replay, and
+  refresh.
+- Expose WebSocket log streaming with backlog replay followed by live tailing.
 - Expose a required HTTP/JSON and WebSocket API for the native client.
 - Let the SwiftUI client view current work, replay prior logs, and live-tail active sessions.
 - Preserve raw provider-event fidelity end-to-end.
 - Support restart recovery for historical state and observability without requiring active session
   resumption.
+- Keep future orchestration sections explicit so they do not read as Phase 1 commitments.
 
 ### 3.2 Non-Goals
 
@@ -78,10 +93,32 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
 - Requiring a web dashboard in addition to the native client.
 - Defining a single mandatory provider sandbox, tool, or approval posture for every deployment.
 - Resuming interrupted provider sessions after process restart.
+- GitHub issue polling, dispatch, and provider-backed orchestration in Phase 1.
 
 ## 4. System Overview
 
 ### 4.1 Main Components
+
+Phase 1 components:
+
+1. `API Layer`
+   - Serves the Hummingbird-backed HTTP endpoints and HummingbirdWebSocket log stream.
+   - Reads from SQLite-backed state and persisted history.
+
+2. `Persistence Layer`
+   - Uses SQLite for durable metadata.
+   - Persists issue, run, session, workspace, and raw event records used by the client.
+
+3. `Symphony` Client
+   - Connects to the server.
+   - Displays issue lists, run details, session details, and a provider-aware raw-event log
+     viewer.
+
+4. `SymphonyBuild`
+   - Owns deterministic build, test, run, simulator, artifact, and diagnostics workflows for the
+     Symphony repository.
+
+Future-phase components:
 
 1. `Workflow Loader`
    - Reads and parses repository-owned `WORKFLOW.md`.
@@ -106,28 +143,21 @@ HTTP framework so long as the HTTP and WebSocket behavior defined here is satisf
    - Starts provider-backed agent sessions in the issue workspace.
    - Streams raw provider events back to the server.
 
-7. `Persistence Layer`
-   - Uses SQLite for durable metadata.
-   - Persists append-only raw provider events and indexed server state.
-
-8. `API Layer`
-   - Serves required HTTP/JSON endpoints and WebSocket log streams.
-   - Reads from authoritative in-memory state plus persisted history.
-
-9. `Symphony` Client
-   - Connects to the server.
-   - Displays issue lists, run details, session details, and a provider-aware raw-event log
-     viewer.
-
 ### 4.2 Data Flow
+
+Phase 1 data flow:
+
+1. `Symphony Server` starts the Hummingbird runtime and loads SQLite-backed state.
+2. The API exposes current state, historical state, and log replay/streaming.
+3. `Symphony` fetches baseline data over HTTP and uses WebSocket for live log tails.
+
+Future-phase data flow:
 
 1. `Symphony Server` loads `WORKFLOW.md` and validates config.
 2. The orchestrator polls GitHub for active issues.
 3. Eligible issues are claimed and dispatched into deterministic workspaces.
 4. The configured provider runs in the workspace and emits raw provider events.
 5. The server persists those events and updates indexed runtime metadata.
-6. The API exposes current state, historical state, and log replay/streaming.
-7. `Symphony` fetches baseline data over HTTP and uses WebSocket for live log tails.
 
 ### 4.3 Deployment Defaults
 
@@ -295,7 +325,7 @@ Fields:
 - `Event Sequence`
   - Server-assigned, strictly increasing per-session sequence number.
 
-## 6. Workflow and Configuration
+## 6. Future Phase: Workflow and Configuration
 
 ### 6.1 File Discovery
 
@@ -493,7 +523,7 @@ Reload does not require:
 - hot-rebinding server ports
 - mutating historical persisted records
 
-## 7. GitHub Orchestration Contract
+## 7. Future Phase: GitHub Orchestration Contract
 
 ### 7.1 Required Operations
 
@@ -544,7 +574,7 @@ Rules:
 On startup, the server should fetch terminal issues and remove their workspaces before entering the
 steady-state loop.
 
-## 8. Orchestrator State Machine
+## 8. Future Phase: Orchestrator State Machine
 
 ### 8.1 Runtime Authority
 
@@ -604,7 +634,7 @@ Retry queue records:
 - When `<= 0`, stall detection is disabled.
 - Stalled sessions are terminated and retried.
 
-## 9. Workspace Management
+## 9. Future Phase: Workspace Management
 
 ### 9.1 Layout
 
@@ -645,7 +675,7 @@ Failure semantics:
 - `after_run` failure is logged and ignored.
 - `before_remove` failure is logged and ignored.
 
-## 10. Agent Provider Contracts
+## 10. Future Phase: Agent Provider Contracts
 
 ### 10.1 Core Launch Contract
 
@@ -804,13 +834,15 @@ Copilot-specific notes:
 - `tool_execution_mode` is `provider_managed` unless a future ACP integration externalizes tool
   execution
 
-## 11. Persistence and Restart Recovery
+## 11. Phase 1 and Future Phase: Persistence and Restart Recovery
 
 ### 11.1 Storage Requirement
 
 SQLite is required for v1.
 
 The SQLite database is the durable source of truth for historical metadata and indexed event access.
+Phase 1 uses this store for server state exposed over HTTP and WebSocket. Future phases extend it
+with orchestration and provider recovery metadata.
 
 ### 11.2 Required Durable Records
 
@@ -871,7 +903,7 @@ Conformant behavior guarantees:
 - stable event ordering for replay,
 - no claim that partially executed provider work was resumed if it was not.
 
-## 12. Raw Provider Event Contract
+## 12. Shared Raw Provider Event Contract
 
 ### 12.1 Canonical Format
 
@@ -914,14 +946,16 @@ Rendering expectations:
 - API consumers must not infer order from socket receive time or client clock.
 - Historical replay and live tail must use the same ordering model.
 
-## 13. Required Network API
+## 13. Phase 1 Required Network API
 
 ### 13.1 Transport
 
-`Symphony Server` must expose:
+Phase 1 `Symphony Server` must expose:
 
 - HTTP/JSON for queries and commands
 - WebSocket for live log streaming
+- Hummingbird routes for the HTTP surface
+- HummingbirdWebSocket for the WebSocket surface
 
 Required defaults:
 
@@ -1163,7 +1197,7 @@ Default values:
 - multi-user collaboration features
 - embedded server hosting on iPhone or iPad
 
-## 15. Logging and Observability
+## 15. Phase 1 Logging and Observability
 
 ### 15.1 Structured Server Logging
 
@@ -1198,7 +1232,7 @@ This may be served through the required APIs rather than a separate dashboard-on
 - Preserve latest seen rate-limit payload separately from aggregate token totals when the provider
   exposes it.
 
-## 16. Failure Model and Security
+## 16. Phase 1 Failure Model and Security
 
 ### 16.1 Failure Classes
 
@@ -1234,6 +1268,9 @@ Because no auth exists in v1:
 ## 17. Swift Testing Matrix
 
 This section defines the minimum validation matrix for conformant implementations.
+Phase 1 must satisfy the transport, persistence, client, and build-tool coverage listed here.
+Future-phase items remain normative for later milestones, but they are not gating for Phase 1
+implementation work unless the touched area explicitly requires them.
 
 ### 17.1 Workflow and Config
 
@@ -1326,22 +1363,21 @@ This section defines the minimum validation matrix for conformant implementation
 - diagnostics reporting for missing toolchain or repository prerequisites
 - local client endpoint injection defaults and override behavior
 
-## 18. Definition of Done
+## 18. Phase 1 Definition of Done
 
-An implementation is conformant when all of the following are true:
+Phase 1 is conformant when all of the following are true:
 
-- `Symphony Server` is implemented in Swift 6.2.
+- `Symphony Server` is implemented in Swift 6.2 using Hummingbird and HummingbirdWebSocket.
 - `Symphony` is implemented in SwiftUI for iOS and macOS.
 - `SymphonyBuild` is implemented as a macOS-only repository-local build tool with the command,
   artifact, and diagnostics contracts defined in Section 20.
-- GitHub issue orchestration remains server-owned and authoritative.
 - SQLite persists issue, run, session, workspace, and raw event metadata.
+- The server exposes HTTP JSON endpoints and WebSocket log streaming required by Section 13.
 - Raw provider events survive restart and are replayable by cursor.
-- HTTP/JSON endpoints required by Section 13 are implemented.
-- WebSocket log streaming required by Section 13 is implemented.
 - The client defaults to `localhost:8080` and allows manual host/domain entry.
 - The client can render the required normalized event kinds and unknown-event raw fallback.
 - The Swift Testing matrix in Section 17 is satisfied.
+- Future orchestration sections remain documented as future phases rather than current behavior.
 
 ## 19. Implementation Notes
 
@@ -1350,6 +1386,8 @@ An implementation is conformant when all of the following are true:
 - The server may maintain additional indexes or caches, but the raw event body remains canonical.
 - The client should prefer a thin rendering layer over server-owned behavior rather than duplicating
   orchestration rules locally.
+- Hummingbird is the normative server framework for Phase 1, and custom HTTP parsing is not a
+  target architecture for this milestone.
 - `tmux` may be used as a local supervision technique for a CLI wrapper, but it is not part of the
   normative provider contract.
 

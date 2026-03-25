@@ -148,6 +148,46 @@ final class SymphonyOperatorModelTests: XCTestCase {
         XCTAssertEqual(model.selectedIssueID?.rawValue, "issue-42")
     }
 
+    func testRefreshStartedBeforeSelectionDoesNotRerequestIssueDetail() async throws {
+        let client = MockSymphonyAPIClient()
+        let issueSummary = makeIssueSummary()
+        client.healthResponse = HealthResponse(status: "ok", serverTime: "2026-03-24T12:00:00Z", version: "1.0.0", trackerKind: "github")
+        client.issuesResponse = IssuesResponse(items: [issueSummary])
+        client.issueDetailResponse = makeIssueDetail()
+        client.runDetailResponse = makeRunDetail()
+        client.logsResponse = LogEntriesResponse(
+            sessionID: SessionID("session-42"),
+            provider: "claude_code",
+            items: [],
+            nextCursor: nil,
+            hasMore: false
+        )
+        client.suspendRefresh = true
+
+        let model = SymphonyOperatorModel(client: client)
+        await model.connect()
+
+        let refreshTask = Task {
+            await model.refresh()
+        }
+
+        try await waitUntil {
+            client.refreshCallCount == 1 && model.isRefreshing
+        }
+
+        await model.selectIssue(issueSummary)
+        client.resumeRefresh()
+        await refreshTask.value
+
+        try await waitUntil {
+            model.issueDetail?.issue.id == IssueID("issue-42")
+                && model.runDetail?.runID == RunID("run-42")
+                && model.liveStatus == "Ended"
+        }
+
+        XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
+    }
+
     func testInvalidEndpointAndFailuresUpdateConnectionState() async throws {
         let client = MockSymphonyAPIClient()
         client.healthError = TestModelFailure.failed("health")
@@ -645,6 +685,7 @@ private final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
     var refreshError: Error?
     var streamError: Error?
     var suspendStream = false
+    var suspendRefresh = false
 
     private(set) var recordedHosts = [String]()
     private(set) var refreshCallCount = 0
@@ -653,6 +694,7 @@ private final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
     private(set) var logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
     private(set) var streamStartCount = 0
     private(set) var streamTerminationCount = 0
+    private var refreshContinuation: CheckedContinuation<Void, Never>?
 
     init() {
         self.healthResponse = HealthResponse(status: "ok", serverTime: "", version: "", trackerKind: "")
@@ -744,7 +786,17 @@ private final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
             throw refreshError
         }
         refreshCallCount += 1
+        if suspendRefresh {
+            await withCheckedContinuation { continuation in
+                refreshContinuation = continuation
+            }
+        }
         return RefreshResponse(queued: true, requestedAt: "2026-03-24T12:00:00Z")
+    }
+
+    func resumeRefresh() {
+        refreshContinuation?.resume()
+        refreshContinuation = nil
     }
 
     func logStream(endpoint: ServerEndpoint, sessionID: SessionID, cursor: EventCursor?) throws -> AsyncThrowingStream<AgentRawEvent, Error> {
@@ -776,5 +828,22 @@ private enum TestModelFailure: LocalizedError {
         case .failed(let message):
             return message
         }
+    }
+}
+
+@MainActor
+private func waitUntil(
+    timeout: Duration = .seconds(2),
+    pollInterval: Duration = .milliseconds(10),
+    condition: @escaping @MainActor () -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+        if clock.now >= deadline {
+            XCTFail("Timed out waiting for condition.")
+            return
+        }
+        try await Task.sleep(for: pollInterval)
     }
 }

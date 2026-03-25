@@ -60,6 +60,7 @@ public final class SymphonyOperatorModel: ObservableObject {
             return
         }
 
+        let selectionToRestore = selectedIssueID
         connectionError = nil
         isConnecting = true
         defer { isConnecting = false }
@@ -67,7 +68,7 @@ public final class SymphonyOperatorModel: ObservableObject {
         do {
             health = try await client.health(endpoint: endpoint)
             issues = try await client.issues(endpoint: endpoint).items
-            if let selectedIssueID, let summary = issues.first(where: { $0.issueID == selectedIssueID }) {
+            if let selectionToRestore, let summary = issues.first(where: { $0.issueID == selectionToRestore }) {
                 await selectIssue(summary)
             }
         } catch {
@@ -83,13 +84,14 @@ public final class SymphonyOperatorModel: ObservableObject {
             return
         }
 
+        let selectionToRestore = selectedIssueID
         isRefreshing = true
         defer { isRefreshing = false }
 
         do {
             _ = try await client.refresh(endpoint: endpoint)
             issues = try await client.issues(endpoint: endpoint).items
-            if let selectedIssueID, let summary = issues.first(where: { $0.issueID == selectedIssueID }) {
+            if let selectionToRestore, let summary = issues.first(where: { $0.issueID == selectionToRestore }) {
                 await selectIssue(summary)
             }
         } catch {

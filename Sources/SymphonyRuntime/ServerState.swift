@@ -14,12 +14,17 @@ public final class SQLiteServerStateStore: @unchecked Sendable {
     private let lock = NSLock()
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let eventObserver: (@Sendable (AgentRawEvent) -> Void)?
     private var database: OpaquePointer?
 
-    public init(databaseURL: URL) throws {
+    public init(
+        databaseURL: URL,
+        eventObserver: (@Sendable (AgentRawEvent) -> Void)? = nil
+    ) throws {
         self.databaseURL = databaseURL
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
+        self.eventObserver = eventObserver
 
         let parent = databaseURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -223,6 +228,7 @@ public final class SQLiteServerStateStore: @unchecked Sendable {
             try upsertSession(session)
         }
 
+        eventObserver?(event)
         return event
     }
 

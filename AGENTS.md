@@ -22,45 +22,45 @@ This repository uses a test-first workflow for all changes.
 - Tests and implementation may be developed incrementally in a topic branch, but they should be committed together only after the topic passes.
 - Do not inherit the current git index blindly. Stage intentionally for each commit.
 - The repository-level pre-commit harness is authoritative once installed. Do not bypass it with `--no-verify` unless the user explicitly tells you to do so for a one-off emergency.
-- After cloning a fresh checkout, run `swift run symphony-build hooks install` once so the committed `.githooks/pre-commit` hook is active for that clone and any future worktrees attached to it.
+- After cloning a fresh checkout, run `swift run --quiet symphony-build hooks install` once so the committed `.githooks/pre-commit` hook is active for that clone and any future worktrees attached to it.
 
 ## Required validation
 
 - Minimum gate for any code change:
-  - `swift run symphony-build harness`
-  - `swift run symphony-build doctor`
+  - `swift run --quiet symphony-build harness`
+  - `swift run --quiet symphony-build doctor`
   - Those commands are environment-aware. On machines without Xcode, they must still pass for SwiftPM/server work while reporting any skipped Xcode-backed checks as notes or explicit skip reasons instead of hard failures.
 - The commit harness is the canonical gate for package-level changes:
-  - It runs `swift test --enable-code-coverage`.
+  - It runs `swift test --quiet --enable-code-coverage`.
   - It measures first-party code coverage from SwiftPM’s exported coverage JSON, filtered to tracked files under `Sources/`.
   - On machines where Xcode-backed tooling is available, it also runs Xcode-backed coverage passes for the bootstrap client and server products:
-    - `swift run symphony-build coverage --product client --platform macos --json`
-    - `swift run symphony-build coverage --product server --json`
+    - `swift run --quiet symphony-build coverage --product client --platform macos --json`
+    - `swift run --quiet symphony-build coverage --product server --json`
   - On machines where Xcode-backed tooling is unavailable, the harness must skip those Apple-only coverage passes automatically and report the skip explicitly.
   - Test files, generated runners, and checked-out dependency sources are excluded from the threshold calculation.
   - Commits must not proceed if source coverage falls below `100%`.
   - The current threshold is intentionally lower than the long-term goal; treat regressions below the current floor as hard failures.
 - If the change touches `SymphonyBuildCore`, `SymphonyBuildCLI`, `project.yml`, `Symphony.xcworkspace`, `SymphonyApps.xcodeproj`, or the bootstrap app/server targets, run the dry-run command surface as well:
-  - `swift run symphony-build build --product server --dry-run --xcode-output-mode filtered`
-  - `swift run symphony-build test --product server --dry-run --xcode-output-mode filtered`
-  - `swift run symphony-build run --product server --dry-run --xcode-output-mode quiet`
-  - `swift run symphony-build coverage --product server --dry-run --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build build --product server --dry-run --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build test --product server --dry-run --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build run --product server --dry-run --xcode-output-mode quiet`
+  - `swift run --quiet symphony-build coverage --product server --dry-run --xcode-output-mode filtered`
 - If the change touches commit gating, validation plumbing, or agent harness behavior, validate the harness explicitly:
-  - `swift run symphony-build harness`
-  - `swift run symphony-build hooks install`
+  - `swift run --quiet symphony-build harness`
+  - `swift run --quiet symphony-build hooks install`
 - If the change touches simulator resolution, destination defaults, runtime endpoint injection, or the client bootstrap target, also validate the client path:
-  - `swift run symphony-build build --dry-run`
-  - `swift run symphony-build run --product client --dry-run`
-  - `swift run symphony-build coverage --product client --dry-run`
+  - `swift run --quiet symphony-build build --dry-run`
+  - `swift run --quiet symphony-build run --product client --dry-run`
+  - `swift run --quiet symphony-build coverage --product client --dry-run`
   - On machines without Xcode, also confirm that non-dry-run client/app commands fail with the explicit unsupported-environment warning: `not supported because the current environment has no Xcode available; Editing those sources is not encouraged`.
   - On machines where the default `iPhone 17` destination is ambiguous, those two commands must fail with a clear `ambiguous_simulator_name` error. Use an explicit UDID for all remaining client validations.
-  - Use `swift run symphony-build sim list` to select the simulator UDID for explicit client runs only when Xcode-backed simulator tooling is available.
+  - Use `swift run --quiet symphony-build sim list` to select the simulator UDID for explicit client runs only when Xcode-backed simulator tooling is available.
 - If the change touches artifact generation, xcresult export, launch behavior, or any real Xcode invocation path, run the live smoke checks:
-  - `swift run symphony-build build --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run symphony-build test --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run symphony-build run --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run symphony-build build --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
-  - `swift run symphony-build run --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build build --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build test --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build run --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build build --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
+  - `swift run --quiet symphony-build run --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
   - These live Xcode-backed smoke checks are required only when the current environment provides Xcode-backed tooling. On Xcode-less environments, validate the SwiftPM/server path and the explicit unsupported-environment warning instead.
 - Always clean up long-lived processes after live verification:
   - Stop detached `SymphonyServer` processes after `run --product server`.
@@ -71,11 +71,11 @@ This repository uses a test-first workflow for all changes.
 ## Canonical artifact inspection
 
 - Use the tool itself to resolve artifact roots; do not guess paths manually:
-  - `swift run symphony-build artifacts build`
-  - `swift run symphony-build artifacts test`
-  - `swift run symphony-build artifacts coverage`
-  - `swift run symphony-build artifacts run`
-  - Use `swift run symphony-build artifacts <build|test|coverage|run> --run <run-id>` when you need a non-latest run.
+  - `swift run --quiet symphony-build artifacts build`
+  - `swift run --quiet symphony-build artifacts test`
+  - `swift run --quiet symphony-build artifacts coverage`
+  - `swift run --quiet symphony-build artifacts run`
+  - Use `swift run --quiet symphony-build artifacts <build|test|coverage|run> --run <run-id>` when you need a non-latest run.
 - Inspect artifacts in this order:
   1. `summary.txt`
   2. `index.json`
@@ -96,7 +96,7 @@ This repository uses a test-first workflow for all changes.
 - Coverage artifacts add two extra canonical outputs:
   - `coverage.txt` is the primary human-readable coverage summary for the `coverage` command family.
   - `coverage.json` is the machine-readable coverage summary derived from `xccov`.
-  - For the commit harness, the equivalent machine-readable source is SwiftPM’s exported coverage JSON path printed by `swift test --show-code-coverage-path`, but the rendered `swift run symphony-build harness --json` output is the canonical normalized view.
+  - For the commit harness, the equivalent machine-readable source is SwiftPM’s exported coverage JSON path printed by `swift test --quiet --show-code-coverage-path`, but the rendered `swift run --quiet symphony-build harness --json` output is the canonical normalized view.
 - `summary.json` must contain exported xcresult JSON for successful Xcode-backed runs. An empty `{}` payload is only acceptable when the run legitimately produced no result bundle and the summary/index record that explicitly.
 - `process-stdout-stderr.txt` is the canonical raw transcript for diagnosing filtered output. Use it when:
   - filtered mode suppressed too much detail

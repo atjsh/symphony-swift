@@ -986,11 +986,13 @@ public struct CoverageCommandRequest: Sendable {
 public struct HarnessCommandRequest: Sendable {
     public let minimumCoveragePercent: Double
     public let json: Bool
+    public let outputMode: XcodeOutputMode
     public let currentDirectory: URL
 
-    public init(minimumCoveragePercent: Double, json: Bool, currentDirectory: URL) {
+    public init(minimumCoveragePercent: Double, json: Bool, outputMode: XcodeOutputMode = .filtered, currentDirectory: URL) {
         self.minimumCoveragePercent = minimumCoveragePercent
         self.json = json
+        self.outputMode = outputMode
         self.currentDirectory = currentDirectory
     }
 }

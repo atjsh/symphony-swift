@@ -1,7 +1,114 @@
+import Darwin
 import Foundation
 import Testing
 @testable import SymphonyRuntime
 import SymphonyShared
+
+@Test func bootstrapServerRunnerEventObserverPublishesToLiveLogHub() async throws {
+    let hub = LiveLogHub()
+    let event = AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "claude_code",
+        sequence: EventSequence(1),
+        timestamp: "2026-03-24T03:00:01Z",
+        rawJSON: #"{"type":"status","payload":{"message":"starting"}}"#,
+        providerEventType: "status",
+        normalizedEventKind: "status"
+    )
+    let stream = await hub.subscribe(to: event.sessionID)
+    let observer = BootstrapServerRunner.makeEventObserver(liveLogHub: hub)
+
+    let receiveTask = Task {
+        var iterator = stream.makeAsyncIterator()
+        return await iterator.next()
+    }
+    observer(event)
+
+    let received = try #require(await receiveTask.value)
+    #expect(received == event)
+}
+
+@Test func bootstrapServerRunnerRunStartsServerAndReturnsAfterKeepAlive() async throws {
+    let root = try makeTemporaryDirectory()
+    let databaseURL = root.appendingPathComponent("bootstrap.sqlite3")
+    let port = try availableLoopbackPort()
+    let keepAliveEntered = LockedFlag()
+    let allowReturn = DispatchSemaphore(value: 0)
+
+    let runTask = Task {
+        try BootstrapServerRunner.run(
+            componentName: "InProcessServer",
+            environment: [
+                BootstrapEnvironment.serverHostKey: "127.0.0.1",
+                BootstrapEnvironment.serverPortKey: String(port),
+                BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+            ],
+            output: { _ in },
+            keepAlive: {
+                keepAliveEntered.setTrue()
+                allowReturn.wait()
+            }
+        )
+    }
+    defer { allowReturn.signal() }
+
+    try await waitUntil("bootstrap runner enters keepAlive") {
+        keepAliveEntered.value
+    }
+
+    let url = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/health"))
+    let (data, response) = try await URLSession(configuration: .ephemeral).data(from: url)
+    let httpResponse = try #require(response as? HTTPURLResponse)
+    let health = try JSONDecoder().decode(HealthResponse.self, from: data)
+    #expect(httpResponse.statusCode == 200)
+    #expect(health.status == "ok")
+
+    allowReturn.signal()
+    try await runTask.value
+}
+
+@Test func bootstrapServerRunnerRunPropagatesStartupFailuresAndSignalOnlyFiresOnce() async throws {
+    let firstSignal = ServerStartupSignal()
+    Task.detached {
+        firstSignal.ready()
+        firstSignal.fail(POSIXError(.EIO))
+    }
+    try firstSignal.wait()
+
+    let secondSignal = ServerStartupSignal()
+    let expectedError = POSIXError(.EADDRINUSE)
+    Task.detached {
+        secondSignal.fail(expectedError)
+        secondSignal.ready()
+    }
+
+    do {
+        try secondSignal.wait()
+        Issue.record("Expected startup failure to be reported.")
+    } catch let error as POSIXError {
+        #expect(error.code == expectedError.code)
+    }
+
+    let occupiedSocket = try makeListeningSocket(port: try availableLoopbackPort())
+    defer { close(occupiedSocket) }
+    let occupiedPort = try listeningPort(for: occupiedSocket)
+    let root = try makeTemporaryDirectory()
+    let databaseURL = root.appendingPathComponent("bind-failure.sqlite3")
+
+    do {
+        try BootstrapServerRunner.run(
+            componentName: "BindFailureServer",
+            environment: [
+                BootstrapEnvironment.serverHostKey: "127.0.0.1",
+                BootstrapEnvironment.serverPortKey: String(occupiedPort),
+                BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+            ],
+            output: { _ in },
+            keepAlive: {}
+        )
+        Issue.record("Expected startup on an occupied port to fail.")
+    } catch {}
+}
 
 @Test func startupStateUsesProvidedLaunchArguments() {
     let state = BootstrapServerRunner.startupState(
@@ -246,4 +353,128 @@ private final class EmptyApplicationSupportFileManager: FileManager, @unchecked 
     override var homeDirectoryForCurrentUser: URL {
         testHomeDirectory
     }
+}
+
+private func makeTemporaryDirectory() throws -> URL {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return root
+}
+
+private func availableLoopbackPort() throws -> Int {
+    let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard descriptor >= 0 else {
+        throw POSIXError(.EIO)
+    }
+    defer { close(descriptor) }
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(0).bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+    let bindResult = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+        }
+    }
+    guard bindResult == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    var length = socklen_t(MemoryLayout<sockaddr_in>.stride)
+    let nameResult = withUnsafeMutablePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            getsockname(descriptor, $0, &length)
+        }
+    }
+    guard nameResult == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    return Int(UInt16(bigEndian: address.sin_port))
+}
+
+private func makeListeningSocket(port: Int) throws -> Int32 {
+    let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard descriptor >= 0 else {
+        throw POSIXError(.EIO)
+    }
+
+    var reuseAddress = 1
+    setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuseAddress, socklen_t(MemoryLayout<Int32>.size))
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(UInt16(port).bigEndian)
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+    let bindResult = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+        }
+    }
+    guard bindResult == 0 else {
+        close(descriptor)
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    guard listen(descriptor, 1) == 0 else {
+        close(descriptor)
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    return descriptor
+}
+
+private func listeningPort(for descriptor: Int32) throws -> Int {
+    var address = sockaddr_in()
+    var length = socklen_t(MemoryLayout<sockaddr_in>.stride)
+    let result = withUnsafeMutablePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            getsockname(descriptor, $0, &length)
+        }
+    }
+    guard result == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    return Int(UInt16(bigEndian: address.sin_port))
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func setTrue() {
+        lock.lock()
+        storedValue = true
+        lock.unlock()
+    }
+}
+
+private func waitUntil(
+    _ description: String,
+    timeout: Duration = .seconds(2),
+    interval: Duration = .milliseconds(20),
+    condition: @escaping @Sendable () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return
+        }
+        try await Task.sleep(for: interval)
+    }
+
+    Issue.record("Timed out waiting for \(description).")
+    throw POSIXError(.ETIMEDOUT)
 }

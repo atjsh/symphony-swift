@@ -64,6 +64,13 @@ import SymphonyBuildCore
 
     #expect(command.minimumCoverage == 100)
     #expect(command.json == false)
+    #expect(command.outputMode == .filtered)
+}
+
+@Test func harnessCommandParsesOutputMode() throws {
+    let command = try SymphonyBuildCommand.Harness.parseAsRoot(["--output-mode", "quiet"]) as! SymphonyBuildCommand.Harness
+
+    #expect(command.outputMode == .quiet)
 }
 
 @Test func commandsParseExplicitXcodeOutputModes() throws {
@@ -243,6 +250,7 @@ import SymphonyBuildCore
     #expect(tool.harnessRequests.count == 1)
     #expect(tool.harnessRequests[0].minimumCoveragePercent == 88)
     #expect(tool.harnessRequests[0].json == true)
+    #expect(tool.harnessRequests[0].outputMode == .filtered)
 
     #expect(tool.simListDirectories == [currentDirectory])
     #expect(tool.simBootRequests.map(\.simulator) == ["AAAA-BBBB"])
