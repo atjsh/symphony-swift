@@ -32,9 +32,16 @@ struct SymphonyApp: App {
         }
     }
 
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-testing")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
+                .task {
+                    if isUITesting { await model.connect() }
+                }
         }
     }
 }

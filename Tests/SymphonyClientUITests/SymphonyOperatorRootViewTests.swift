@@ -12,6 +12,11 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
         let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
         let view = SymphonyOperatorRootView(model: model)
 
+        // No issue selected — ContentUnavailableView
+        _ = view.body
+
+        // Issue selected but no detail loaded — loading empty states
+        model.selectedIssueID = IssueID("issue-42")
         _ = view.body
     }
 
@@ -151,6 +156,11 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
         let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
         let hostingView = host(SymphonyOperatorRootView(model: model))
         render(hostingView)
+
+        // Render with selectedIssueID but no detail loaded (loading state)
+        model.selectedIssueID = IssueID("issue-42")
+        render(hostingView)
+        model.selectedIssueID = nil
 
         model.health = HealthResponse(status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github")
         model.connectionError = "refresh failed"
