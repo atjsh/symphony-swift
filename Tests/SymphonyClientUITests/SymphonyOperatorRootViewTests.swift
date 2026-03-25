@@ -12,6 +12,11 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
         let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
         let view = SymphonyOperatorRootView(model: model)
 
+        // No issue selected — ContentUnavailableView
+        _ = view.body
+
+        // Issue selected but no detail loaded — loading empty states
+        model.selectedIssueID = IssueID("issue-42")
         _ = view.body
     }
 
@@ -39,11 +44,123 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
         _ = view.body
     }
 
+    func testBodyEvaluatesWithTokensErrorBlockersLabelsAndAllEventKinds() throws {
+        let model = SymphonyOperatorModel(
+            client: PassiveSymphonyAPIClient(),
+            initialEndpoint: try ServerEndpoint(host: "localhost", port: 8080)
+        )
+
+        let blockerRef = BlockerReference(
+            issueID: IssueID("issue-99"),
+            identifier: try! IssueIdentifier(validating: "atjsh/example#99"),
+            state: "in_progress",
+            issueState: "OPEN",
+            url: "https://example.com/issues/99"
+        )
+        let issueWithBlockers = SymphonyShared.Issue(
+            id: IssueID("issue-42"),
+            identifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+            repository: "atjsh/example",
+            number: 42,
+            title: "Blocked issue",
+            description: "Testing all fields",
+            priority: 1,
+            state: "in_progress",
+            issueState: "OPEN",
+            projectItemID: "item-42",
+            url: "https://example.com/issues/42",
+            labels: ["Bug", "Server"],
+            blockedBy: [blockerRef],
+            createdAt: "2026-03-24T00:00:00Z",
+            updatedAt: "2026-03-24T01:00:00Z"
+        )
+        let session = AgentSession(
+            sessionID: SessionID("session-42"),
+            provider: "claude_code",
+            providerSessionID: "ps-42",
+            providerThreadID: nil,
+            providerTurnID: nil,
+            providerRunID: nil,
+            runID: RunID("run-42"),
+            providerProcessPID: nil,
+            status: "active",
+            lastEventType: "message",
+            lastEventAt: "2026-03-24T01:00:00Z",
+            turnCount: 5,
+            tokenUsage: try! TokenUsage(inputTokens: 10, outputTokens: 20),
+            latestRateLimitPayload: nil
+        )
+        model.issueDetail = IssueDetail(
+            issue: issueWithBlockers,
+            latestRun: makeRunSummary(),
+            workspacePath: "/tmp/ws",
+            recentSessions: [session]
+        )
+        model.issues = [
+            IssueSummary(
+                issueID: IssueID("issue-42"),
+                identifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+                title: "Priority issue",
+                state: "in_progress",
+                issueState: "OPEN",
+                priority: 1,
+                currentProvider: "claude_code",
+                currentRunID: RunID("run-42"),
+                currentSessionID: SessionID("session-42")
+            ),
+            IssueSummary(
+                issueID: IssueID("issue-43"),
+                identifier: try! IssueIdentifier(validating: "atjsh/example#43"),
+                title: "No priority issue",
+                state: "queued",
+                issueState: "OPEN",
+                priority: nil,
+                currentProvider: nil,
+                currentRunID: nil,
+                currentSessionID: nil
+            ),
+        ]
+        model.runDetail = RunDetail(
+            runID: RunID("run-42"),
+            issueID: IssueID("issue-42"),
+            issueIdentifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+            attempt: 1,
+            status: "failed",
+            provider: "claude_code",
+            providerSessionID: "ps-42",
+            providerRunID: nil,
+            startedAt: "2026-03-24T00:00:00Z",
+            endedAt: "2026-03-24T01:00:00Z",
+            workspacePath: "/tmp/ws",
+            sessionID: SessionID("session-42"),
+            lastError: "Provider timed out after 300s",
+            issue: issueWithBlockers,
+            turnCount: 5,
+            lastAgentEventType: "error",
+            lastAgentMessage: "Timeout exceeded",
+            tokens: try! TokenUsage(inputTokens: 1000, outputTokens: 500),
+            logs: RunLogStats(eventCount: 10, latestSequence: EventSequence(10))
+        )
+        model.logEvents = [
+            makeEvent(sequence: 1, kind: "error", rawJSON: #"{"message":"fail"}"#),
+            makeEvent(sequence: 2, kind: "approval_request", rawJSON: #"{"message":"approve?"}"#),
+            makeEvent(sequence: 3, kind: "status", rawJSON: #"{"status":"done"}"#),
+        ]
+
+        let view = SymphonyOperatorRootView(model: model)
+        _ = view.body
+    }
+
     func testHostedViewLayoutsAcrossEmptyAndLoadedBranches() throws {
 #if canImport(AppKit)
         let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
         let hostingView = host(SymphonyOperatorRootView(model: model))
         render(hostingView)
+
+        // Render with selectedIssueID but no detail loaded (loading state)
+        model.selectedIssueID = IssueID("issue-42")
+        render(hostingView)
+        model.selectedIssueID = nil
 
         model.health = HealthResponse(status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github")
         model.connectionError = "refresh failed"
@@ -99,6 +216,38 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
         model.logEvents = []
         model.isConnecting = false
         model.isRefreshing = false
+        render(hostingView)
+
+        let blockerRef = BlockerReference(
+            issueID: IssueID("issue-99"),
+            identifier: try! IssueIdentifier(validating: "atjsh/example#99"),
+            state: "in_progress",
+            issueState: "OPEN",
+            url: "https://example.com/issues/99"
+        )
+        let issueWithBlockers = SymphonyShared.Issue(
+            id: IssueID("issue-42"),
+            identifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+            repository: "atjsh/example",
+            number: 42,
+            title: "Blocked issue",
+            description: "Testing blockers",
+            priority: 1,
+            state: "in_progress",
+            issueState: "OPEN",
+            projectItemID: "item-42",
+            url: "https://example.com/issues/42",
+            labels: ["Bug"],
+            blockedBy: [blockerRef],
+            createdAt: "2026-03-24T00:00:00Z",
+            updatedAt: "2026-03-24T01:00:00Z"
+        )
+        model.issueDetail = IssueDetail(issue: issueWithBlockers, latestRun: makeRunSummary(), workspacePath: "/tmp/ws", recentSessions: [])
+        model.logEvents = [
+            makeEvent(sequence: 1, kind: "error", rawJSON: #"{"message":"fail"}"#),
+            makeEvent(sequence: 2, kind: "approval_request", rawJSON: #"{"message":"approve?"}"#),
+            makeEvent(sequence: 3, kind: "status", rawJSON: #"{"status":"done"}"#),
+        ]
         render(hostingView)
 #endif
     }

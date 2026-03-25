@@ -35,6 +35,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Symphony
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         MACOSX_DEPLOYMENT_TARGET: "15.0"
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -42,8 +43,10 @@ targets:
   SymphonyTests:
     type: bundle.unit-test
     supportedDestinations:
+      - iOS
       - macOS
     deploymentTarget:
+      iOS: "18.0"
       macOS: "15.0"
     sources:
       - path: Applications/SymphonyTests
@@ -61,7 +64,34 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.tests
         GENERATE_INFOPLIST_FILE: YES
         MACOSX_DEPLOYMENT_TARGET: "15.0"
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+      configs:
+        Debug:
+          TEST_HOST[sdk=macosx*]: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Contents/MacOS/Symphony"
+          TEST_HOST[sdk=iphoneos*]: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Symphony"
+          TEST_HOST[sdk=iphonesimulator*]: "$(BUILT_PRODUCTS_DIR)/Symphony.app/Symphony"
+
+  SymphonyUITests:
+    type: bundle.ui-testing
+    supportedDestinations:
+      - iOS
+      - macOS
+    deploymentTarget:
+      iOS: "18.0"
+      macOS: "15.0"
+    sources:
+      - path: Applications/SymphonyUITests
+    dependencies:
+      - target: Symphony
+      - package: SymphonyPackage
+        product: SymphonyShared
+    settings:
+      base:
+        PRODUCT_NAME: SymphonyUITests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atjsh.symphony.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
 
 schemes:
   Symphony:
