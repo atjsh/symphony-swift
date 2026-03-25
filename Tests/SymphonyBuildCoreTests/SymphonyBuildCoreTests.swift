@@ -664,6 +664,7 @@ import Testing
         let artifacts = try reporter.export(
             resultBundlePath: resultBundlePath,
             artifactRoot: artifactRoot,
+            product: .server,
             includeTestTargets: false,
             showFiles: true
         )

@@ -199,9 +199,6 @@ final class BootstrapSupportTests: XCTestCase {
         let view = ContentView(endpoint: endpoint)
         _ = view.body
 
-        let app = SymphonyApp(testEndpoint: endpoint)
-        _ = app.body
-
         let defaultApp = SymphonyApp()
         _ = defaultApp.body
     }

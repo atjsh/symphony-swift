@@ -49,10 +49,6 @@ public struct SessionID: Codable, Hashable, Sendable {
         self.rawValue = rawValue
     }
 
-    public init(threadID: String, turnID: String) {
-        self.rawValue = "\(threadID)-\(turnID)"
-    }
-
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         self.init(try container.decode(String.self))
@@ -142,8 +138,7 @@ public struct IssueIdentifier: Codable, Hashable, Sendable, CustomStringConverti
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-        self = try IssueIdentifier(validating: rawValue)
+        self = try IssueIdentifier(validating: try container.decode(String.self))
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -220,44 +215,45 @@ public struct ServerEndpoint: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let scheme = try container.decode(String.self, forKey: .scheme)
-        let host = try container.decode(String.self, forKey: .host)
-        let port = try container.decode(Int.self, forKey: .port)
-        self = try ServerEndpoint(scheme: scheme, host: host, port: port)
+        self = try ServerEndpoint(
+            scheme: container.decode(String.self, forKey: .scheme),
+            host: container.decode(String.self, forKey: .host),
+            port: container.decode(Int.self, forKey: .port)
+        )
     }
 }
 
 public struct TokenUsage: Codable, Hashable, Sendable {
-    public let inputTokens: Int
-    public let outputTokens: Int
-    public let totalTokens: Int
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+    public let totalTokens: Int?
 
-    public init(inputTokens: Int, outputTokens: Int) {
-        self.inputTokens = inputTokens
-        self.outputTokens = outputTokens
-        self.totalTokens = inputTokens + outputTokens
-    }
-
-    public init(inputTokens: Int, outputTokens: Int, totalTokens: Int) throws {
-        let expectedTotal = inputTokens + outputTokens
-        guard expectedTotal == totalTokens else {
-            throw SymphonySharedValidationError.invalidTokenUsage(expectedTotal: expectedTotal, actualTotal: totalTokens)
+    public init(inputTokens: Int? = nil, outputTokens: Int? = nil, totalTokens: Int? = nil) throws {
+        if let inputTokens, let outputTokens, let totalTokens {
+            let expectedTotal = inputTokens + outputTokens
+            guard expectedTotal == totalTokens else {
+                throw SymphonySharedValidationError.invalidTokenUsage(expectedTotal: expectedTotal, actualTotal: totalTokens)
+            }
         }
 
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
-        self.totalTokens = totalTokens
+        if let totalTokens {
+            self.totalTokens = totalTokens
+        } else if let inputTokens, let outputTokens {
+            self.totalTokens = inputTokens + outputTokens
+        } else {
+            self.totalTokens = nil
+        }
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let inputTokens = try container.decode(Int.self, forKey: .inputTokens)
-        let outputTokens = try container.decode(Int.self, forKey: .outputTokens)
-        if let totalTokens = try container.decodeIfPresent(Int.self, forKey: .totalTokens) {
-            self = try TokenUsage(inputTokens: inputTokens, outputTokens: outputTokens, totalTokens: totalTokens)
-        } else {
-            self = TokenUsage(inputTokens: inputTokens, outputTokens: outputTokens)
-        }
+        self = try TokenUsage(
+            inputTokens: try container.decodeIfPresent(Int.self, forKey: .inputTokens),
+            outputTokens: try container.decodeIfPresent(Int.self, forKey: .outputTokens),
+            totalTokens: try container.decodeIfPresent(Int.self, forKey: .totalTokens)
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -280,6 +276,17 @@ public struct RunLogStats: Codable, Hashable, Sendable {
         case eventCount = "event_count"
         case latestSequence = "latest_sequence"
     }
+}
+
+public enum NormalizedEventKind: String, Codable, Hashable, CaseIterable, Sendable {
+    case message
+    case toolCall = "tool_call"
+    case toolResult = "tool_result"
+    case status
+    case usage
+    case approvalRequest = "approval_request"
+    case error
+    case unknown
 }
 
 public struct BlockerReference: Codable, Hashable, Sendable {
@@ -376,16 +383,8 @@ public struct Issue: Codable, Hashable, Sendable {
         self.issueState = try container.decode(String.self, forKey: .issueState)
         self.projectItemID = try container.decodeIfPresent(String.self, forKey: .projectItemID)
         self.url = try container.decodeIfPresent(String.self, forKey: .url)
-        if let labels = try container.decodeIfPresent([String].self, forKey: .labels) {
-            self.labels = labels.map { $0.lowercased() }
-        } else {
-            self.labels = []
-        }
-        if let blockedBy = try container.decodeIfPresent([BlockerReference].self, forKey: .blockedBy) {
-            self.blockedBy = blockedBy
-        } else {
-            self.blockedBy = []
-        }
+        self.labels = (try container.decodeIfPresent([String].self, forKey: .labels) ?? []).map { $0.lowercased() }
+        self.blockedBy = try container.decodeIfPresent([BlockerReference].self, forKey: .blockedBy) ?? []
         self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
     }
@@ -416,6 +415,7 @@ public struct IssueSummary: Codable, Hashable, Sendable {
     public let state: String
     public let issueState: String
     public let priority: Int?
+    public let currentProvider: String?
     public let currentRunID: RunID?
     public let currentSessionID: SessionID?
 
@@ -426,6 +426,7 @@ public struct IssueSummary: Codable, Hashable, Sendable {
         state: String,
         issueState: String,
         priority: Int?,
+        currentProvider: String?,
         currentRunID: RunID?,
         currentSessionID: SessionID?
     ) {
@@ -435,6 +436,7 @@ public struct IssueSummary: Codable, Hashable, Sendable {
         self.state = state
         self.issueState = issueState
         self.priority = priority
+        self.currentProvider = currentProvider
         self.currentRunID = currentRunID
         self.currentSessionID = currentSessionID
     }
@@ -446,6 +448,7 @@ public struct IssueSummary: Codable, Hashable, Sendable {
         case state
         case issueState = "issue_state"
         case priority
+        case currentProvider = "current_provider"
         case currentRunID = "current_run_id"
         case currentSessionID = "current_session_id"
     }
@@ -457,6 +460,9 @@ public struct RunSummary: Codable, Hashable, Sendable {
     public let issueIdentifier: IssueIdentifier
     public let attempt: Int
     public let status: String
+    public let provider: String
+    public let providerSessionID: String?
+    public let providerRunID: String?
     public let startedAt: String
     public let endedAt: String?
     public let workspacePath: String
@@ -469,6 +475,9 @@ public struct RunSummary: Codable, Hashable, Sendable {
         issueIdentifier: IssueIdentifier,
         attempt: Int,
         status: String,
+        provider: String,
+        providerSessionID: String?,
+        providerRunID: String?,
         startedAt: String,
         endedAt: String?,
         workspacePath: String,
@@ -480,6 +489,9 @@ public struct RunSummary: Codable, Hashable, Sendable {
         self.issueIdentifier = issueIdentifier
         self.attempt = attempt
         self.status = status
+        self.provider = provider
+        self.providerSessionID = providerSessionID
+        self.providerRunID = providerRunID
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.workspacePath = workspacePath
@@ -493,6 +505,9 @@ public struct RunSummary: Codable, Hashable, Sendable {
         case issueIdentifier = "issue_identifier"
         case attempt
         case status
+        case provider
+        case providerSessionID = "provider_session_id"
+        case providerRunID = "provider_run_id"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case workspacePath = "workspace_path"
@@ -505,13 +520,13 @@ public struct IssueDetail: Codable, Hashable, Sendable {
     public let issue: Issue
     public let latestRun: RunSummary?
     public let workspacePath: String?
-    public let recentSessions: [CodexSession]
+    public let recentSessions: [AgentSession]
 
     public init(
         issue: Issue,
         latestRun: RunSummary?,
         workspacePath: String?,
-        recentSessions: [CodexSession]
+        recentSessions: [AgentSession]
     ) {
         self.issue = issue
         self.latestRun = latestRun
@@ -533,6 +548,9 @@ public struct RunDetail: Codable, Hashable, Sendable {
     public let issueIdentifier: IssueIdentifier
     public let attempt: Int
     public let status: String
+    public let provider: String
+    public let providerSessionID: String?
+    public let providerRunID: String?
     public let startedAt: String
     public let endedAt: String?
     public let workspacePath: String
@@ -540,8 +558,8 @@ public struct RunDetail: Codable, Hashable, Sendable {
     public let lastError: String?
     public let issue: Issue
     public let turnCount: Int
-    public let lastCodexEvent: String?
-    public let lastCodexMessage: String?
+    public let lastAgentEventType: String?
+    public let lastAgentMessage: String?
     public let tokens: TokenUsage
     public let logs: RunLogStats
 
@@ -551,6 +569,9 @@ public struct RunDetail: Codable, Hashable, Sendable {
         issueIdentifier: IssueIdentifier,
         attempt: Int,
         status: String,
+        provider: String,
+        providerSessionID: String?,
+        providerRunID: String?,
         startedAt: String,
         endedAt: String?,
         workspacePath: String,
@@ -558,8 +579,8 @@ public struct RunDetail: Codable, Hashable, Sendable {
         lastError: String?,
         issue: Issue,
         turnCount: Int,
-        lastCodexEvent: String?,
-        lastCodexMessage: String?,
+        lastAgentEventType: String?,
+        lastAgentMessage: String?,
         tokens: TokenUsage,
         logs: RunLogStats
     ) {
@@ -568,6 +589,9 @@ public struct RunDetail: Codable, Hashable, Sendable {
         self.issueIdentifier = issueIdentifier
         self.attempt = attempt
         self.status = status
+        self.provider = provider
+        self.providerSessionID = providerSessionID
+        self.providerRunID = providerRunID
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.workspacePath = workspacePath
@@ -575,8 +599,8 @@ public struct RunDetail: Codable, Hashable, Sendable {
         self.lastError = lastError
         self.issue = issue
         self.turnCount = turnCount
-        self.lastCodexEvent = lastCodexEvent
-        self.lastCodexMessage = lastCodexMessage
+        self.lastAgentEventType = lastAgentEventType
+        self.lastAgentMessage = lastAgentMessage
         self.tokens = tokens
         self.logs = logs
     }
@@ -587,6 +611,9 @@ public struct RunDetail: Codable, Hashable, Sendable {
         case issueIdentifier = "issue_identifier"
         case attempt
         case status
+        case provider
+        case providerSessionID = "provider_session_id"
+        case providerRunID = "provider_run_id"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case workspacePath = "workspace_path"
@@ -594,94 +621,122 @@ public struct RunDetail: Codable, Hashable, Sendable {
         case lastError = "last_error"
         case issue
         case turnCount = "turn_count"
-        case lastCodexEvent = "last_codex_event"
-        case lastCodexMessage = "last_codex_message"
+        case lastAgentEventType = "last_agent_event_type"
+        case lastAgentMessage = "last_agent_message"
         case tokens
         case logs
     }
 }
 
-public struct CodexSession: Codable, Hashable, Sendable {
+public struct AgentSession: Codable, Hashable, Sendable {
     public let sessionID: SessionID
-    public let threadID: String
-    public let turnID: String
+    public let provider: String
+    public let providerSessionID: String?
+    public let providerThreadID: String?
+    public let providerTurnID: String?
+    public let providerRunID: String?
     public let runID: RunID
-    public let codexAppServerPID: String?
+    public let providerProcessPID: String?
     public let status: String
     public let lastEventType: String?
     public let lastEventAt: String?
     public let turnCount: Int
     public let tokenUsage: TokenUsage
+    public let latestRateLimitPayload: String?
 
     public init(
         sessionID: SessionID,
-        threadID: String,
-        turnID: String,
+        provider: String,
+        providerSessionID: String?,
+        providerThreadID: String?,
+        providerTurnID: String?,
+        providerRunID: String?,
         runID: RunID,
-        codexAppServerPID: String?,
+        providerProcessPID: String?,
         status: String,
         lastEventType: String?,
         lastEventAt: String?,
         turnCount: Int,
-        tokenUsage: TokenUsage
+        tokenUsage: TokenUsage,
+        latestRateLimitPayload: String?
     ) {
         self.sessionID = sessionID
-        self.threadID = threadID
-        self.turnID = turnID
+        self.provider = provider
+        self.providerSessionID = providerSessionID
+        self.providerThreadID = providerThreadID
+        self.providerTurnID = providerTurnID
+        self.providerRunID = providerRunID
         self.runID = runID
-        self.codexAppServerPID = codexAppServerPID
+        self.providerProcessPID = providerProcessPID
         self.status = status
         self.lastEventType = lastEventType
         self.lastEventAt = lastEventAt
         self.turnCount = turnCount
         self.tokenUsage = tokenUsage
+        self.latestRateLimitPayload = latestRateLimitPayload
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
-        case threadID = "thread_id"
-        case turnID = "turn_id"
+        case provider
+        case providerSessionID = "provider_session_id"
+        case providerThreadID = "provider_thread_id"
+        case providerTurnID = "provider_turn_id"
+        case providerRunID = "provider_run_id"
         case runID = "run_id"
-        case codexAppServerPID = "codex_app_server_pid"
+        case providerProcessPID = "provider_process_pid"
         case status
         case lastEventType = "last_event_type"
         case lastEventAt = "last_event_at"
         case turnCount = "turn_count"
         case tokenUsage = "token_usage"
+        case latestRateLimitPayload = "latest_rate_limit_payload"
     }
 }
 
-public struct CodexRolloutEvent: Codable, Hashable, Sendable {
+public struct AgentRawEvent: Codable, Hashable, Sendable {
     public let sessionID: SessionID
+    public let provider: String
     public let sequence: EventSequence
     public let timestamp: String
     public let rawJSON: String
-    public let topLevelType: String
-    public let payloadType: String?
+    public let providerEventType: String
+    public let normalizedEventKind: String?
 
     public init(
         sessionID: SessionID,
+        provider: String,
         sequence: EventSequence,
         timestamp: String,
         rawJSON: String,
-        topLevelType: String,
-        payloadType: String?
+        providerEventType: String,
+        normalizedEventKind: String?
     ) {
         self.sessionID = sessionID
+        self.provider = provider
         self.sequence = sequence
         self.timestamp = timestamp
         self.rawJSON = rawJSON
-        self.topLevelType = topLevelType
-        self.payloadType = payloadType
+        self.providerEventType = providerEventType
+        self.normalizedEventKind = normalizedEventKind
+    }
+
+    public var normalizedKind: NormalizedEventKind {
+        guard let normalizedEventKind,
+              let kind = NormalizedEventKind(rawValue: normalizedEventKind) else {
+            return .unknown
+        }
+        return kind
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
+        case provider
         case sequence
         case timestamp
         case rawJSON = "raw_json"
-        case topLevelType = "top_level_type"
-        case payloadType = "payload_type"
+        case providerEventType = "provider_event_type"
+        case normalizedEventKind = "normalized_event_kind"
     }
 }
 
@@ -749,9 +804,102 @@ public struct EventCursor: Codable, Hashable, Sendable, CustomStringConvertible 
     }
 }
 
+public struct HealthResponse: Codable, Hashable, Sendable {
+    public let status: String
+    public let serverTime: String
+    public let version: String
+    public let trackerKind: String
+
+    public init(status: String, serverTime: String, version: String, trackerKind: String) {
+        self.status = status
+        self.serverTime = serverTime
+        self.version = version
+        self.trackerKind = trackerKind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case serverTime = "server_time"
+        case version
+        case trackerKind = "tracker_kind"
+    }
+}
+
+public struct IssuesResponse: Codable, Hashable, Sendable {
+    public let items: [IssueSummary]
+
+    public init(items: [IssueSummary]) {
+        self.items = items
+    }
+}
+
+public struct LogEntriesResponse: Codable, Hashable, Sendable {
+    public let sessionID: SessionID
+    public let provider: String
+    public let items: [AgentRawEvent]
+    public let nextCursor: EventCursor?
+    public let hasMore: Bool
+
+    public init(
+        sessionID: SessionID,
+        provider: String,
+        items: [AgentRawEvent],
+        nextCursor: EventCursor?,
+        hasMore: Bool
+    ) {
+        self.sessionID = sessionID
+        self.provider = provider
+        self.items = items
+        self.nextCursor = nextCursor
+        self.hasMore = hasMore
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id"
+        case provider
+        case items
+        case nextCursor = "next_cursor"
+        case hasMore = "has_more"
+    }
+}
+
+public struct RefreshResponse: Codable, Hashable, Sendable {
+    public let queued: Bool
+    public let requestedAt: String
+
+    public init(queued: Bool, requestedAt: String) {
+        self.queued = queued
+        self.requestedAt = requestedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case queued
+        case requestedAt = "requested_at"
+    }
+}
+
+public struct ErrorPayload: Codable, Hashable, Sendable {
+    public let code: String
+    public let message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
+}
+
+public struct ErrorEnvelope: Codable, Hashable, Sendable {
+    public let error: ErrorPayload
+
+    public init(error: ErrorPayload) {
+        self.error = error
+    }
+}
+
 private extension Data {
     init?(base64URLEncoded rawValue: String) {
-        var base64 = rawValue.replacingOccurrences(of: "-", with: "+")
+        var base64 = rawValue
+            .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
 
         let remainder = base64.count % 4

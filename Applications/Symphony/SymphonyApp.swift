@@ -1,15 +1,20 @@
 import SwiftUI
+import SymphonyClientUI
+import SymphonyShared
 #if canImport(AppKit)
 import AppKit
 #endif
 
 @main
 struct SymphonyApp: App {
-    private let endpoint: BootstrapServerEndpoint
+    @StateObject private var model: SymphonyOperatorModel
 
     init() {
         let environment = ProcessInfo.processInfo.environment
-        self.endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: environment)
+        let endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: environment)
+        let sharedEndpoint = try! ServerEndpoint(scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+        _model = StateObject(wrappedValue: SymphonyOperatorModel(initialEndpoint: sharedEndpoint))
+
         if BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: environment) {
             let state = BootstrapStartupState.current(componentName: "Symphony", environment: environment)
             state.startupLogLines.forEach { print($0) }
@@ -21,13 +26,9 @@ struct SymphonyApp: App {
         }
     }
 
-    init(testEndpoint: BootstrapServerEndpoint) {
-        self.endpoint = testEndpoint
-    }
-
     var body: some Scene {
         WindowGroup {
-            ContentView(endpoint: endpoint)
+            ContentView(model: model)
         }
     }
 }

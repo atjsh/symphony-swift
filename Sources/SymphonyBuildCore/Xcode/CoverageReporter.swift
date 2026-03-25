@@ -7,31 +7,21 @@ public struct CoverageArtifacts: Sendable {
     public let jsonOutput: String
     public let textOutput: String
 
-    public init(report: CoverageReport, jsonPath: URL, textPath: URL, jsonOutput: String, textOutput: String) {
-        self.report = report
-        self.jsonPath = jsonPath
-        self.textPath = textPath
-        self.jsonOutput = jsonOutput
-        self.textOutput = textOutput
-    }
+    public init(report: CoverageReport, jsonPath: URL, textPath: URL, jsonOutput: String, textOutput: String) { self.report = report; self.jsonPath = jsonPath; self.textPath = textPath; self.jsonOutput = jsonOutput; self.textOutput = textOutput }
 }
 
 public struct CoverageReporter {
     private let processRunner: ProcessRunning
     private let fileManager: FileManager
 
-    public init(processRunner: ProcessRunning = SystemProcessRunner(), fileManager: FileManager = .default) {
-        self.processRunner = processRunner
-        self.fileManager = fileManager
-    }
+    public init(processRunner: ProcessRunning = SystemProcessRunner(), fileManager: FileManager = .default) { self.processRunner = processRunner; self.fileManager = fileManager }
 
-    public func renderedCommandLine(resultBundlePath: URL) -> String {
-        ShellQuoting.render(command: "xcrun", arguments: ["xccov", "view", "--report", "--json", resultBundlePath.path])
-    }
+    public func renderedCommandLine(resultBundlePath: URL) -> String { ShellQuoting.render(command: "xcrun", arguments: ["xccov", "view", "--report", "--json", resultBundlePath.path]) }
 
     public func export(
         resultBundlePath: URL,
         artifactRoot: URL,
+        product: ProductKind,
         includeTestTargets: Bool,
         showFiles: Bool
     ) throws -> CoverageArtifacts {
@@ -57,16 +47,20 @@ public struct CoverageReporter {
             throw SymphonyBuildError(code: "coverage_report_decode_failed", message: "The xccov JSON output could not be decoded.")
         }
 
-        let excludedTargets = includeTestTargets ? [] : rawReport.targets.filter(\.isTestBundle).map(\.name)
-        let includedTargets = includeTestTargets ? rawReport.targets : rawReport.targets.filter { !$0.isTestBundle }
-        guard !includedTargets.isEmpty else {
-            throw SymphonyBuildError(
-                code: "coverage_targets_missing",
-                message: includeTestTargets
-                    ? "The xcresult bundle did not contain any coverage targets."
-                    : "The xcresult bundle did not contain any non-test coverage targets."
-            )
+        let filteredTargets = rawReport.targets.filter { target in
+            if !includeTestTargets, target.isTestBundle {
+                return false
+            }
+            if product == .client, target.isSwiftPackageProduct {
+                return false
+            }
+            return true
         }
+        let excludedTargets = rawReport.targets
+            .filter { candidate in !filteredTargets.contains(where: { $0.name == candidate.name && $0.buildProductPath == candidate.buildProductPath }) }
+            .map(\.name)
+        let includedTargets = filteredTargets
+        guard !includedTargets.isEmpty else { throw SymphonyBuildError(code: "coverage_targets_missing", message: includeTestTargets ? "The xcresult bundle did not contain any coverage targets." : "The xcresult bundle did not contain any non-test coverage targets.") }
 
         let targets = includedTargets.map { target in
             CoverageTargetReport(
@@ -142,16 +136,9 @@ public struct CoverageReporter {
         return lines.joined(separator: "\n")
     }
 
-    static func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double {
-        guard executableLines > 0 else {
-            return 0
-        }
-        return Double(coveredLines) / Double(executableLines)
-    }
+    static func normalizedCoverage(coveredLines: Int, executableLines: Int) -> Double { executableLines > 0 ? Double(coveredLines) / Double(executableLines) : 0 }
 
-    private func percentage(_ coverage: Double) -> String {
-        String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), coverage * 100)
-    }
+    private func percentage(_ coverage: Double) -> String { String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), coverage * 100) }
 }
 
 private struct RawCoverageReport: Decodable {
@@ -165,15 +152,8 @@ private struct RawCoverageTarget: Decodable {
     let files: [RawCoverageFile]
     let name: String
 
-    var isTestBundle: Bool {
-        if name.hasSuffix(".xctest") {
-            return true
-        }
-        if let buildProductPath {
-            return buildProductPath.contains(".xctest/")
-        }
-        return false
-    }
+    var isTestBundle: Bool { name.hasSuffix(".xctest") || buildProductPath?.contains(".xctest/") == true }
+    var isSwiftPackageProduct: Bool { buildProductPath?.contains("/PackageFrameworks/") == true }
 }
 
 private struct RawCoverageFile: Decodable {

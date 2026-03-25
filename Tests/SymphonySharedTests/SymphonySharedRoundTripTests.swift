@@ -5,7 +5,7 @@ import SymphonyShared
 @Test func scalarValueTypesRoundTripAndValidate() throws {
     #expect(try roundTrip(IssueID("issue-1")) == IssueID("issue-1"))
     #expect(try roundTrip(RunID("run-1")) == RunID("run-1"))
-    #expect(try roundTrip(SessionID(threadID: "thread-1", turnID: "turn-2")) == SessionID("thread-1-turn-2"))
+    #expect(try roundTrip(SessionID("session-2")) == SessionID("session-2"))
     #expect(try roundTrip(EventSequence(42)) == EventSequence(42))
     #expect(EventSequence(1) < EventSequence(2))
     #expect(try roundTrip(WorkspaceKey("owner/repo#17")) == WorkspaceKey("owner/repo#17"))
@@ -62,9 +62,15 @@ import SymphonyShared
     let derived = try roundTrip(TokenUsage(inputTokens: 9, outputTokens: 4))
     #expect(derived.totalTokens == 13)
 
-    let explicitJSON = #"{"input_tokens":3,"output_tokens":2,"total_tokens":5}"#
-    let explicit = try JSONDecoder().decode(TokenUsage.self, from: Data(explicitJSON.utf8))
-    #expect(explicit == TokenUsage(inputTokens: 3, outputTokens: 2))
+    let nullableJSON = #"{"input_tokens":3,"output_tokens":2}"#
+    let explicit = try JSONDecoder().decode(TokenUsage.self, from: Data(nullableJSON.utf8))
+    let expectedExplicit = try TokenUsage(inputTokens: 3, outputTokens: 2)
+    #expect(explicit == expectedExplicit)
+
+    let partial = try JSONDecoder().decode(TokenUsage.self, from: Data(#"{"total_tokens":5}"#.utf8))
+    #expect(partial.inputTokens == nil)
+    #expect(partial.outputTokens == nil)
+    #expect(partial.totalTokens == 5)
 
     do {
         _ = try JSONDecoder().decode(TokenUsage.self, from: Data(#"{"input_tokens":3,"output_tokens":2,"total_tokens":6}"#.utf8))
@@ -76,12 +82,9 @@ import SymphonyShared
     let stats = try roundTrip(RunLogStats(eventCount: 8, latestSequence: EventSequence(7)))
     #expect(stats.eventCount == 8)
     #expect(stats.latestSequence == EventSequence(7))
-
-    let derivedFromDecode = try JSONDecoder().decode(TokenUsage.self, from: Data(#"{"input_tokens":4,"output_tokens":6}"#.utf8))
-    #expect(derivedFromDecode.totalTokens == 10)
 }
 
-@Test func issueAndRunDTOsRoundTrip() throws {
+@Test func issueRunSessionAndEnvelopeDTOsRoundTrip() throws {
     let identifier = try IssueIdentifier(validating: "atjsh/example#42")
     let blocker = BlockerReference(
         issueID: IssueID("issue-2"),
@@ -115,8 +118,9 @@ import SymphonyShared
         state: issue.state,
         issueState: issue.issueState,
         priority: issue.priority,
+        currentProvider: "claude_code",
         currentRunID: RunID("run-1"),
-        currentSessionID: SessionID(threadID: "thread-1", turnID: "turn-2")
+        currentSessionID: SessionID("session-1")
     )
 
     let runSummary = RunSummary(
@@ -125,24 +129,31 @@ import SymphonyShared
         issueIdentifier: identifier,
         attempt: 2,
         status: "running",
+        provider: "claude_code",
+        providerSessionID: "provider-session-77",
+        providerRunID: "provider-run-88",
         startedAt: "2026-03-24T02:00:00Z",
         endedAt: "2026-03-24T03:00:00Z",
         workspacePath: "/tmp/workspace",
-        sessionID: SessionID(threadID: "thread-1", turnID: "turn-2"),
+        sessionID: SessionID("session-1"),
         lastError: "none"
     )
 
-    let session = CodexSession(
-        sessionID: SessionID(threadID: "thread-1", turnID: "turn-2"),
-        threadID: "thread-1",
-        turnID: "turn-2",
+    let session = AgentSession(
+        sessionID: SessionID("session-1"),
+        provider: "claude_code",
+        providerSessionID: "provider-session-77",
+        providerThreadID: "thread-1",
+        providerTurnID: "turn-2",
+        providerRunID: "provider-run-88",
         runID: RunID("run-1"),
-        codexAppServerPID: "123",
+        providerProcessPID: "123",
         status: "active",
-        lastEventType: "assistant",
+        lastEventType: "message",
         lastEventAt: "2026-03-24T04:00:00Z",
         turnCount: 3,
-        tokenUsage: TokenUsage(inputTokens: 11, outputTokens: 13)
+        tokenUsage: try TokenUsage(inputTokens: 11, outputTokens: 13),
+        latestRateLimitPayload: #"{"remaining":99}"#
     )
 
     let runDetail = RunDetail(
@@ -151,6 +162,9 @@ import SymphonyShared
         issueIdentifier: identifier,
         attempt: 2,
         status: "running",
+        provider: "claude_code",
+        providerSessionID: "provider-session-77",
+        providerRunID: "provider-run-88",
         startedAt: "2026-03-24T02:00:00Z",
         endedAt: "2026-03-24T03:00:00Z",
         workspacePath: "/tmp/workspace",
@@ -158,13 +172,34 @@ import SymphonyShared
         lastError: "none",
         issue: issue,
         turnCount: 3,
-        lastCodexEvent: "assistant",
-        lastCodexMessage: "hello",
-        tokens: TokenUsage(inputTokens: 11, outputTokens: 13),
+        lastAgentEventType: "message",
+        lastAgentMessage: "hello",
+        tokens: try TokenUsage(inputTokens: 11, outputTokens: 13),
         logs: RunLogStats(eventCount: 3, latestSequence: EventSequence(2))
     )
 
     let issueDetail = IssueDetail(issue: issue, latestRun: runSummary, workspacePath: "/tmp/workspace", recentSessions: [session])
+    let health = HealthResponse(status: "ok", serverTime: "2026-03-24T12:00:00Z", version: "1.0.0", trackerKind: "github")
+    let logs = LogEntriesResponse(
+        sessionID: session.sessionID,
+        provider: "claude_code",
+        items: [
+            AgentRawEvent(
+                sessionID: session.sessionID,
+                provider: "claude_code",
+                sequence: EventSequence(1),
+                timestamp: "2026-03-24T12:00:01Z",
+                rawJSON: #"{"type":"message","payload":{"text":"hello"}}"#,
+                providerEventType: "message",
+                normalizedEventKind: "message"
+            )
+        ],
+        nextCursor: EventCursor(sessionID: session.sessionID, lastDeliveredSequence: EventSequence(1)),
+        hasMore: false
+    )
+    let refresh = RefreshResponse(queued: true, requestedAt: "2026-03-24T12:00:00Z")
+    let errorEnvelope = ErrorEnvelope(error: ErrorPayload(code: "missing_issue", message: "Issue not found."))
+    let issueList = IssuesResponse(items: [issueSummary])
 
     #expect(try roundTrip(blocker) == blocker)
     #expect((try roundTrip(issue)).labels == ["bug", "needs-test"])
@@ -173,6 +208,11 @@ import SymphonyShared
     #expect(try roundTrip(session) == session)
     #expect(try roundTrip(runDetail) == runDetail)
     #expect(try roundTrip(issueDetail) == issueDetail)
+    #expect(try roundTrip(health) == health)
+    #expect(try roundTrip(issueList) == issueList)
+    #expect(try roundTrip(logs) == logs)
+    #expect(try roundTrip(refresh) == refresh)
+    #expect(try roundTrip(errorEnvelope) == errorEnvelope)
     #expect(identifier.description == identifier.rawValue)
     #expect(issue.identifier.workspaceKey.description == "atjsh_example_42")
 
@@ -192,8 +232,8 @@ import SymphonyShared
     #expect(sparseIssue.blockedBy.isEmpty)
 }
 
-@Test func eventCursorAndRolloutEventRoundTrip() throws {
-    let sessionID = SessionID(threadID: "thread-1", turnID: "turn-9")
+@Test func eventCursorAndRawEventRoundTrip() throws {
+    let sessionID = SessionID("session-9")
     let cursor = EventCursor(sessionID: sessionID, lastDeliveredSequence: EventSequence(99))
     let decoded = try roundTrip(cursor)
 
@@ -204,13 +244,14 @@ import SymphonyShared
     #expect(EventCursor(rawValue: "%%%").lastDeliveredSequence == nil)
 
     let rawJSON = #"{"type":"message","payload":{"text":"hello"}}"#
-    let event = CodexRolloutEvent(
+    let event = AgentRawEvent(
         sessionID: sessionID,
+        provider: "copilot_cli",
         sequence: EventSequence(4),
         timestamp: "2026-03-24T10:00:00Z",
         rawJSON: rawJSON,
-        topLevelType: "message",
-        payloadType: "assistant"
+        providerEventType: "message",
+        normalizedEventKind: "message"
     )
     let roundTripped = try roundTrip(event)
     #expect(roundTripped == event)

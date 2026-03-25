@@ -1,26 +1,21 @@
 import SwiftUI
+import SymphonyClientUI
+import SymphonyShared
 
 struct ContentView: View {
-    let endpoint: BootstrapServerEndpoint
+    @ObservedObject var model: SymphonyOperatorModel
+
+    init(model: SymphonyOperatorModel) {
+        self.model = model
+    }
+
+    init(endpoint: BootstrapServerEndpoint) {
+        let sharedEndpoint = try! ServerEndpoint(scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+        self.model = SymphonyOperatorModel(initialEndpoint: sharedEndpoint)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Symphony")
-                .font(.largeTitle.weight(.semibold))
-
-            Text("Effective server endpoint")
-                .font(.headline)
-
-            Text(endpoint.displayString)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-
-            Text("Configured from `SYMPHONY_SERVER_SCHEME`, `SYMPHONY_SERVER_HOST`, and `SYMPHONY_SERVER_PORT`.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(24)
+        SymphonyOperatorRootView(model: model)
     }
 }
 

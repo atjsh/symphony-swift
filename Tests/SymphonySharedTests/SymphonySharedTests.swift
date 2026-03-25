@@ -56,11 +56,16 @@ import SymphonyShared
     #expect(issue.labels == ["bug", "fixme", "mixed-case"])
 }
 
-@Test func tokenUsageDerivesAndValidatesTotals() throws {
-    let derived = TokenUsage(inputTokens: 7, outputTokens: 5)
+@Test func tokenUsageSupportsDerivedAndPartialTotals() throws {
+    let derived = try TokenUsage(inputTokens: 7, outputTokens: 5)
     #expect(derived.inputTokens == 7)
     #expect(derived.outputTokens == 5)
     #expect(derived.totalTokens == 12)
+
+    let partial = try TokenUsage(totalTokens: 13)
+    #expect(partial.inputTokens == nil)
+    #expect(partial.outputTokens == nil)
+    #expect(partial.totalTokens == 13)
 
     var didThrow = false
     do {
@@ -72,21 +77,22 @@ import SymphonyShared
     #expect(didThrow)
 }
 
-@Test func codexRolloutEventPreservesRawJSONThroughCodableRoundTrip() throws {
+@Test func agentRawEventPreservesRawJSONThroughCodableRoundTrip() throws {
     let rawJSON = #"{"timestamp":"2026-03-24T12:00:01Z","type":"session_meta","payload":{"message":"hello","count":1}}"#
-    let event = CodexRolloutEvent(
-        sessionID: SessionID(threadID: "thread-1", turnID: "turn-7"),
+    let event = AgentRawEvent(
+        sessionID: SessionID("session-7"),
+        provider: "codex",
         sequence: EventSequence(1),
         timestamp: "2026-03-24T12:00:01Z",
         rawJSON: rawJSON,
-        topLevelType: "session_meta",
-        payloadType: nil
+        providerEventType: "session_meta",
+        normalizedEventKind: "status"
     )
 
     let data = try JSONEncoder().encode(event)
-    let decoded = try JSONDecoder().decode(CodexRolloutEvent.self, from: data)
+    let decoded = try JSONDecoder().decode(AgentRawEvent.self, from: data)
 
     #expect(decoded.rawJSON == rawJSON)
-    #expect(decoded.sessionID.rawValue == "thread-1-turn-7")
+    #expect(decoded.sessionID.rawValue == "session-7")
     #expect(decoded.sequence.rawValue == 1)
 }

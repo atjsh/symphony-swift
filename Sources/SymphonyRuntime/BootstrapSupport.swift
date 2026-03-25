@@ -1,4 +1,5 @@
 import Foundation
+import SymphonyShared
 
 enum BootstrapRuntimeHooks {
     private final class Storage: @unchecked Sendable {
@@ -85,11 +86,28 @@ public enum BootstrapEnvironment {
     public static let serverSchemeKey = "SYMPHONY_SERVER_SCHEME"
     public static let serverHostKey = "SYMPHONY_SERVER_HOST"
     public static let serverPortKey = "SYMPHONY_SERVER_PORT"
+    public static let serverSQLitePathKey = "SYMPHONY_STORAGE_SQLITE_PATH"
 
     public static func effectiveServerEndpoint(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> BootstrapServerEndpoint {
         BootstrapServerEndpoint.resolved(from: environment)
+    }
+
+    public static func effectiveSQLitePath(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> URL {
+        if let rawValue = environment[serverSQLitePathKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawValue.isEmpty {
+            return URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath)
+        }
+
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("symphony", isDirectory: true)
+            .appendingPathComponent("symphony.sqlite3", isDirectory: false)
     }
 }
 
@@ -247,8 +265,9 @@ public enum BootstrapServerRunner {
         launchArguments: [String] = ProcessInfo.processInfo.arguments,
         startedAt: Date = Date(),
         output: ((String) -> Void)? = nil,
-        keepAlive: (() -> Void)? = nil
-    ) {
+        keepAlive: (() -> Void)? = nil,
+        startServer: Bool = true
+    ) throws {
         let output = output ?? BootstrapRuntimeHooks.defaultOutput
         let keepAlive = keepAlive ?? BootstrapRuntimeHooks.keepAlive
         let state = BootstrapStartupState.current(
@@ -260,7 +279,18 @@ public enum BootstrapServerRunner {
         )
 
         state.startupLogLines.forEach(output)
+
+        var server: SymphonyHTTPServer?
+        if startServer {
+            let databaseURL = BootstrapEnvironment.effectiveSQLitePath(environment: environment)
+            let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+            let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+            server = try SymphonyHTTPServer(port: state.endpoint.port, api: api)
+            try server?.start()
+        }
+
         keepAlive()
+        server?.stop()
     }
 
     public static func startupState(

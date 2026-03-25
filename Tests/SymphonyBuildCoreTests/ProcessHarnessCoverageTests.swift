@@ -198,7 +198,7 @@ import Testing
         do {
             _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
                 "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.failure("xccov broke"),
-            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: false)
             Issue.record("Expected xccov failures to surface.")
         } catch let error as SymphonyBuildError {
             #expect(error.code == "coverage_export_failed")
@@ -207,7 +207,7 @@ import Testing
         do {
             _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
                 "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success("not json"),
-            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: false)
             Issue.record("Expected invalid xccov JSON to fail.")
         } catch let error as SymphonyBuildError {
             #expect(error.code == "coverage_report_decode_failed")
@@ -219,7 +219,7 @@ import Testing
         do {
             _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
                 "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(onlyTestsJSON),
-            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: false)
             Issue.record("Expected missing non-test targets to fail.")
         } catch let error as SymphonyBuildError {
             #expect(error.code == "coverage_targets_missing")
@@ -228,12 +228,48 @@ import Testing
 
         let included = try CoverageReporter(processRunner: StubProcessRunner(results: [
             "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(onlyTestsJSON),
-        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: true, showFiles: false)
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: true, showFiles: false)
         #expect(included.report.includeTestTargets)
         #expect(included.report.excludedTargets.isEmpty)
         #expect(included.textOutput.contains("scope including_test_targets"))
         #expect(CoverageReporter.normalizedCoverage(coveredLines: 0, executableLines: 0) == 0)
+
+        let noTargetsJSON = #"{"targets":[]}"#
+        do {
+            _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
+                "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(noTargetsJSON),
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: true, showFiles: false)
+            Issue.record("Expected missing targets to fail even when test targets are included.")
+        } catch let error as SymphonyBuildError {
+            #expect(error.code == "coverage_targets_missing")
+            #expect(error.message == "The xcresult bundle did not contain any coverage targets.")
+        }
     }
+}
+
+@Test func coverageReporterDefaultInitializerAndArtifactsValueRemainUsable() {
+    let reporter = CoverageReporter()
+    let resultBundlePath = URL(fileURLWithPath: "/tmp/Result Bundle.xcresult")
+    #expect(reporter.renderedCommandLine(resultBundlePath: resultBundlePath) == "xcrun xccov view --report --json '/tmp/Result Bundle.xcresult'")
+
+    let report = CoverageReport(
+        coveredLines: 1,
+        executableLines: 1,
+        lineCoverage: 1,
+        includeTestTargets: false,
+        excludedTargets: [],
+        targets: []
+    )
+    let artifacts = CoverageArtifacts(
+        report: report,
+        jsonPath: URL(fileURLWithPath: "/tmp/coverage.json"),
+        textPath: URL(fileURLWithPath: "/tmp/coverage.txt"),
+        jsonOutput: "{}",
+        textOutput: "overall 100.00% (1/1)"
+    )
+    #expect(artifacts.report.coveredLines == 1)
+    #expect(artifacts.jsonPath.lastPathComponent == "coverage.json")
+    #expect(artifacts.textPath.lastPathComponent == "coverage.txt")
 }
 
 @Test func coverageReporterTreatsPathBasedTestBundlesAsExcludedTests() throws {
@@ -247,7 +283,7 @@ import Testing
         do {
             _ = try CoverageReporter(processRunner: StubProcessRunner(results: [
                 "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(pathOnlyTestsJSON),
-            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: false)
             Issue.record("Expected path-based test bundles to be excluded.")
         } catch let error as SymphonyBuildError {
             #expect(error.code == "coverage_targets_missing")
@@ -265,7 +301,7 @@ import Testing
 
         let artifacts = try CoverageReporter(processRunner: StubProcessRunner(results: [
             "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(nonTestJSON),
-        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .server, includeTestTargets: false, showFiles: false)
 
         #expect(artifacts.report.targets.map { $0.name } == ["SymphonyServer"])
     }
@@ -282,7 +318,7 @@ import Testing
         #expect(reporter.renderedCommandLine(resultBundlePath: resultBundlePath) == "xcrun xccov view --report --json \(resultBundlePath.path)")
 
         do {
-            _ = try reporter.export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: false)
+            _ = try reporter.export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: false)
             Issue.record("Expected empty xccov output to use the fallback coverage-export message.")
         } catch let error as SymphonyBuildError {
             #expect(error.code == "coverage_export_failed")
@@ -323,7 +359,7 @@ import Testing
 
         let artifacts = try CoverageReporter(processRunner: StubProcessRunner(results: [
             "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json),
-        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, includeTestTargets: false, showFiles: true)
+        ])).export(resultBundlePath: resultBundlePath, artifactRoot: artifactRoot, product: .client, includeTestTargets: false, showFiles: true)
 
         #expect(artifacts.report.excludedTargets == ["SymphonyTests.xctest"])
         #expect(artifacts.report.targets.count == 1)
@@ -331,6 +367,52 @@ import Testing
         #expect(artifacts.textOutput.contains("excluded_targets SymphonyTests.xctest"))
         #expect(artifacts.textOutput.contains("file Symphony Alpha.swift 100.00% (2/2)"))
         #expect(artifacts.textOutput.contains("file Symphony Beta.swift 50.00% (1/2)"))
+    }
+}
+
+@Test func coverageReporterExcludesSwiftPackageFrameworkTargetsForClientCoverage() throws {
+    try withTemporaryDirectory { directory in
+        let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+        let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+        let json = #"""
+        {
+          "targets": [
+            {
+              "buildProductPath": "/tmp/Build/Products/Debug/Symphony.app/Contents/MacOS/Symphony",
+              "coveredLines": 5,
+              "executableLines": 5,
+              "files": [
+                { "coveredLines": 5, "executableLines": 5, "name": "ContentView.swift", "path": "/tmp/ContentView.swift" }
+              ],
+              "name": "Symphony.app"
+            },
+            {
+              "buildProductPath": "/tmp/Build/Products/Debug/PackageFrameworks/SymphonyShared_ABC123_PackageProduct.framework/SymphonyShared_ABC123_PackageProduct",
+              "coveredLines": 1,
+              "executableLines": 4,
+              "files": [
+                { "coveredLines": 1, "executableLines": 4, "name": "SymphonyShared.swift", "path": "/tmp/SymphonyShared.swift" }
+              ],
+              "name": "SymphonyShared"
+            }
+          ]
+        }
+        """#
+
+        let artifacts = try CoverageReporter(processRunner: StubProcessRunner(results: [
+            "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json),
+        ])).export(
+            resultBundlePath: resultBundlePath,
+            artifactRoot: artifactRoot,
+            product: .client,
+            includeTestTargets: false,
+            showFiles: true
+        )
+
+        #expect(artifacts.report.targets.map(\.name) == ["Symphony.app"])
+        #expect(artifacts.report.excludedTargets == ["SymphonyShared"])
+        #expect(artifacts.report.coveredLines == 5)
+        #expect(artifacts.report.executableLines == 5)
     }
 }
 
@@ -933,6 +1015,42 @@ import Testing
             currentDirectory: nil,
             observation: ProcessObservation(label: "stderr-heartbeat", staleInterval: 0.05)
         )
+    }
+}
+
+@Test func systemProcessRunnerDefaultArgumentsAndEmptyCombinedOutputRemainUsable() throws {
+    try withTemporaryDirectory { directory in
+        #expect(CommandResult(exitStatus: 0, stdout: "", stderr: "").combinedOutput.isEmpty)
+
+        let runner = SystemProcessRunner()
+        let result = try runner.run(
+            command: "/bin/sh",
+            arguments: ["-c", "printf 'defaults-covered'"]
+        )
+        #expect(result.stdout == "defaults-covered")
+        #expect(result.stderr.isEmpty)
+
+        let output = directory.appendingPathComponent("detached-existing.txt")
+        try "stale".write(to: output, atomically: true, encoding: .utf8)
+
+        let pid = try runner.startDetached(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "printf 'existing-file-covered'"],
+            output: output
+        )
+        #expect(pid > 0)
+
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if let contents = try? String(contentsOf: output, encoding: .utf8), contents.contains("existing-file-covered") {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        let contents = try String(contentsOf: output, encoding: .utf8)
+        #expect(contents.contains("existing-file-covered"))
+        #expect(!contents.contains("stale"))
     }
 }
 

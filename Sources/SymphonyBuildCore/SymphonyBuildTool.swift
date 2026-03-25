@@ -423,6 +423,7 @@ public final class SymphonyBuildTool {
                 let exportedArtifacts = try coverageReporter.export(
                     resultBundlePath: executionContext.resultBundlePath,
                     artifactRoot: executionContext.artifactRoot,
+                    product: request.product,
                     includeTestTargets: request.includeTestTargets,
                     showFiles: request.showFiles || wantsInspection
                 )
