@@ -545,7 +545,7 @@ private func makeIssue(
   let orchestrator = Orchestrator(tracker: tracker, config: initialConfig, delegate: delegate)
 
   let issue = try makeIssue(id: "reload-1", number: 1, state: "Queued")
-  tracker.setCandidates([issue])
+  tracker.setAllIssues([issue])
 
   let initialResult = try await orchestrator.tick()
   #expect(initialResult.dispatched == 0)
@@ -566,7 +566,7 @@ private func makeIssue(
   let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
 
   let issue = try makeIssue(id: "1", number: 1, state: "In Progress")
-  tracker.setCandidates([issue])
+  tracker.setAllIssues([issue])
 
   let result = try await orchestrator.tick()
   #expect(result.dispatched == 1)
@@ -585,7 +585,7 @@ private func makeIssue(
     try makeIssue(id: "1", number: 1),
     try makeIssue(id: "2", number: 2),
   ]
-  tracker.setCandidates(issues)
+  tracker.setAllIssues(issues)
 
   let result = try await orchestrator.tick()
   #expect(result.dispatched == 1)
@@ -656,6 +656,22 @@ private func makeIssue(
   #expect(result.retriesProcessed == 0)
 }
 
+@Test func orchestratorTickSynchronizesAllIssuesBeforeFilteringCandidates() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let active = try makeIssue(id: "active-1", number: 1, state: "In Progress")
+  let backlog = try makeIssue(id: "backlog-1", number: 2, state: "Backlog")
+  tracker.setAllIssues([active, backlog])
+
+  let result = try await orchestrator.tick()
+  #expect(result.candidatesFetched == 2)
+  #expect(result.dispatched == 1)
+  #expect(delegate.synced.count == 2)
+  #expect(delegate.synced.map { $0.state } == ["In Progress", "Backlog"])
+}
+
 @Test func orchestratorTickReconciliation() async throws {
   let tracker = StubTracker()
   let delegate = StubOrchestratorDelegate()
@@ -663,7 +679,7 @@ private func makeIssue(
 
   let issue = try makeIssue(id: "running-1", state: "In Progress", issueState: "OPEN")
   orchestrator.markRunning(issue: issue)
-  tracker.setStatesByIDs([IssueID("running-1"): "OPEN"])
+  tracker.setAllIssues([issue])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
@@ -685,6 +701,9 @@ private func makeIssue(
 }
 
 private struct ReconcileOnlyErrorTracker: TrackerAdapting {
+  func fetchAllIssues() async throws -> [SymphonyShared.Issue] {
+    throw OrchestratorError.noTrackerConfigured
+  }
   func fetchCandidateIssues() async throws -> [SymphonyShared.Issue] { [] }
   func fetchIssuesByStates(_ stateNames: [String]) async throws -> [SymphonyShared.Issue] { [] }
   func fetchIssueStatesByIDs(_ issueIDs: [IssueID]) async throws -> [IssueID: String] {
@@ -711,11 +730,30 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
 
   orchestrator.markRunning(issueID: IssueID("running-1"), state: "In Progress")
-  tracker.setStatesByIDs([:])
+  tracker.setAllIssues([])
 
   let result = try await orchestrator.tick()
-  #expect(result.reconciled == 0)
+  #expect(result.reconciled == 1)
+  #expect(delegate.canceled.isEmpty)
   #expect(result.candidatesFetched == 0)
+}
+
+@Test func reconcileCancelsCachedIssueMissingFromLatestSnapshot() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "missing-1", state: "In Progress", issueState: "OPEN")
+  orchestrator.markRunning(issue: issue)
+  tracker.setAllIssues([])
+
+  let result = try await orchestrator.tick()
+  #expect(result.reconciled == 1)
+  #expect(delegate.canceled.count == 1)
+  #expect(delegate.canceled[0].0 == IssueID("missing-1"))
+  #expect(delegate.canceled[0].2 == "Issue no longer present in project snapshot")
+  #expect(delegate.canceled[0].3 == false)
+  #expect(orchestrator.runningIssueIDs.isEmpty)
 }
 
 // MARK: - Reconciliation Delegation Tests
@@ -727,7 +765,7 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
 
   let issue = try makeIssue(id: "r1", state: "In Progress", issueState: "OPEN")
   orchestrator.markRunning(issue: issue)
-  tracker.setStatesByIDs([IssueID("r1"): "CLOSED"])
+  tracker.setAllIssues([try makeIssue(id: "r1", state: "In Progress", issueState: "CLOSED")])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
@@ -747,7 +785,7 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
 
   let issue = try makeIssue(id: "r2", state: "Done", issueState: "OPEN")
   orchestrator.markRunning(issue: issue)
-  tracker.setStatesByIDs([IssueID("r2"): "OPEN"])
+  tracker.setAllIssues([try makeIssue(id: "r2", state: "Done", issueState: "OPEN")])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
@@ -757,14 +795,14 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   #expect(orchestrator.runningIssueIDs.isEmpty)
 }
 
-@Test func reconcileCancelsNonActiveProjectState() async throws {
+@Test func reconcileCancelsWhenLatestProjectStateBecomesNonActive() async throws {
   let tracker = StubTracker()
   let delegate = StubOrchestratorDelegate()
   let orchestrator = Orchestrator(tracker: tracker, config: .defaults, delegate: delegate)
 
-  let issue = try makeIssue(id: "r3", state: "Backlog", issueState: "OPEN")
+  let issue = try makeIssue(id: "r3", state: "In Progress", issueState: "OPEN")
   orchestrator.markRunning(issue: issue)
-  tracker.setStatesByIDs([IssueID("r3"): "OPEN"])
+  tracker.setAllIssues([try makeIssue(id: "r3", state: "Backlog", issueState: "OPEN")])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
@@ -781,7 +819,7 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
 
   let issue = try makeIssue(id: "r4", state: "In Progress", issueState: "OPEN")
   orchestrator.markRunning(issue: issue)
-  tracker.setStatesByIDs([IssueID("r4"): "OPEN"])
+  tracker.setAllIssues([issue])
 
   let result = try await orchestrator.tick()
   #expect(result.reconciled == 1)
@@ -815,9 +853,9 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   let closed = try makeIssue(id: "c1", number: 2, state: "In Progress", issueState: "OPEN")
   orchestrator.markRunning(issue: active)
   orchestrator.markRunning(issue: closed)
-  tracker.setStatesByIDs([
-    IssueID("a1"): "OPEN",
-    IssueID("c1"): "CLOSED",
+  tracker.setAllIssues([
+    active,
+    try makeIssue(id: "c1", number: 2, state: "In Progress", issueState: "CLOSED"),
   ])
 
   let result = try await orchestrator.tick()
@@ -862,10 +900,21 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
 @Test func stubTrackerSetAndFetch() async throws {
   let tracker = StubTracker()
   let issue = try makeIssue()
-  tracker.setCandidates([issue])
+  tracker.setAllIssues([issue])
 
   let candidates = try await tracker.fetchCandidateIssues()
   #expect(candidates.count == 1)
+}
+
+@Test func stubTrackerSetCandidatesOverridesFetchedCandidateList() async throws {
+  let tracker = StubTracker()
+  let allIssue = try makeIssue(id: "all-1", number: 1, state: "In Progress")
+  let candidate = try makeIssue(id: "candidate-1", number: 2, state: "Todo")
+  tracker.setAllIssues([allIssue])
+  tracker.setCandidates([candidate])
+
+  let candidates = try await tracker.fetchCandidateIssues()
+  #expect(candidates == [candidate])
 }
 
 @Test func stubTrackerFetchByStates() async throws {
@@ -874,11 +923,23 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
     try makeIssue(id: "1", number: 1, state: "Active"),
     try makeIssue(id: "2", number: 2, state: "Done"),
   ]
-  tracker.setIssuesByStates(issues)
+  tracker.setAllIssues(issues)
 
   let result = try await tracker.fetchIssuesByStates(["Active"])
   #expect(result.count == 1)
   #expect(result[0].state == "Active")
+}
+
+@Test func stubTrackerFetchAllIssues() async throws {
+  let tracker = StubTracker()
+  let issues = [
+    try makeIssue(id: "1", number: 1, state: "Active"),
+    try makeIssue(id: "2", number: 2, state: "Backlog"),
+  ]
+  tracker.setAllIssues(issues)
+
+  let result = try await tracker.fetchAllIssues()
+  #expect(result == issues)
 }
 
 @Test func stubTrackerFetchStatesByIDs() async throws {
@@ -931,6 +992,9 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   let issue = try makeIssue()
   await delegate.orchestratorDidRefreshSnapshot(issue: issue)
   #expect(delegate.refreshed.count == 1)
+
+  await delegate.orchestratorDidSyncIssues([issue])
+  #expect(delegate.synced.count == 1)
 
   let record = RetryRecord(
     issueID: IssueID("3"),

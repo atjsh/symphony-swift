@@ -105,6 +105,66 @@ struct OrchestratorEngineTests {
     #expect(!observer.tickResults.isEmpty)
   }
 
+  @Test func engineRequestRefreshRunsAnImmediateTick() async throws {
+    let observer = CollectingEngineObserver()
+    let tracker = StubTracker()
+    let engine = OrchestratorEngine(
+      config: makeConfig(pollingIntervalMS: 1_000),
+      trackerFactory: { _ in tracker },
+      observer: observer
+    )
+
+    try engine.start()
+    defer { engine.stop() }
+
+    let didStart = try await waitUntil {
+      engine.state == .running
+    }
+    #expect(didStart)
+
+    let baselineTickCount = observer.tickResults.count
+    engine.requestRefresh()
+
+    let didRefresh = try await waitUntil {
+      observer.tickResults.count > baselineTickCount
+    }
+    #expect(didRefresh)
+  }
+
+  @Test func engineRequestRefreshWithoutActiveOrchestratorReturnsWithoutObserverSignals()
+    async throws
+  {
+    let observer = CollectingEngineObserver()
+    let engine = OrchestratorEngine(
+      config: makeConfig(),
+      trackerFactory: { _ in StubTracker() },
+      observer: observer
+    )
+
+    engine.requestRefresh()
+    try await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(observer.tickResults.isEmpty)
+    #expect(observer.errors.isEmpty)
+  }
+
+  @Test func enginePerformRefreshReportsErrors() async {
+    struct RefreshFailure: Error {}
+
+    let observer = CollectingEngineObserver()
+    let engine = OrchestratorEngine(
+      config: makeConfig(),
+      trackerFactory: { _ in StubTracker() },
+      observer: observer
+    )
+
+    await engine.performRefresh(observer: observer) {
+      throw RefreshFailure()
+    }
+
+    #expect(observer.errors.contains { $0.context == "refresh" })
+  }
+
   @Test func engineReloadConfig() {
     let config = makeConfig(pollingIntervalMS: 100)
     let engine = OrchestratorEngine(
@@ -148,7 +208,7 @@ struct OrchestratorEngineTests {
       createdAt: nil,
       updatedAt: nil
     )
-    tracker.setCandidates([issue])
+    tracker.setAllIssues([issue])
 
     let stubRunner = StubAgentRunner()
     let engine = OrchestratorEngine(
@@ -276,7 +336,7 @@ struct OrchestratorEngineTests {
 
     let reloadLog = try #require(
       logs.first { $0.json["event"] as? String == "workflow_reload_failed" })
-    #expect((reloadLog.json["error"] as? String)?.contains("[REDACTED]") == true)
+    #expect((reloadLog.json["error"] as? String)?.contains("ghp_reload_secret") == false)
     #expect(!reloadLog.line.contains("ghp_reload_secret"))
   }
 
@@ -414,7 +474,7 @@ struct OrchestratorEngineTests {
       createdAt: nil,
       updatedAt: nil
     )
-    tracker.setCandidates([issue])
+    tracker.setAllIssues([issue])
 
     let stubRunner = StubAgentRunner()
     let engine = OrchestratorEngine(
@@ -689,7 +749,7 @@ struct EngineOrchestratorDelegateTests {
     #expect(observer.completions.count == 1)
   }
 
-  @Test func delegateRefreshSnapshotNotifiesObserver() async throws {
+  @Test func delegateRefreshSnapshotDoesNotEmitFakeDispatch() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_refresh_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
@@ -715,7 +775,76 @@ struct EngineOrchestratorDelegateTests {
     )
 
     await delegate.orchestratorDidRefreshSnapshot(issue: issue)
-    #expect(observer.dispatches.count == 1)
+    #expect(observer.dispatches.isEmpty)
+  }
+
+  @Test func delegateSyncIssuesPersistsSnapshotsToStore() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_sync_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+    let databaseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+      .appendingPathComponent("delegate_sync_\(UUID().uuidString).sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager,
+      observer: observer,
+      stateStore: store
+    )
+
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r",
+      number: 1,
+      title: "Test",
+      description: nil,
+      priority: nil,
+      state: "Backlog",
+      issueState: "OPEN",
+      projectItemID: nil,
+      url: nil,
+      labels: [],
+      blockedBy: [],
+      createdAt: nil,
+      updatedAt: "2026-03-27T00:00:00Z"
+    )
+
+    await delegate.orchestratorDidSyncIssues([issue])
+    let issues = try store.issues()
+    #expect(issues.count == 1)
+    #expect(issues[0].state == "Backlog")
+  }
+
+  @Test func delegateSyncIssuesWithoutStateStoreReturnsEarly() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_sync_no_store_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager,
+      observer: observer
+    )
+
+    let issue = Issue(
+      id: IssueID("I_NO_STORE"),
+      identifier: try IssueIdentifier(validating: "o/r#2"),
+      repository: "o/r",
+      number: 2,
+      title: "No store",
+      description: nil,
+      priority: nil,
+      state: "Backlog",
+      issueState: "OPEN",
+      projectItemID: nil,
+      url: nil,
+      labels: [],
+      blockedBy: [],
+      createdAt: nil,
+      updatedAt: nil
+    )
+
+    await delegate.orchestratorDidSyncIssues([issue])
+    #expect(observer.dispatches.isEmpty)
+    #expect(observer.completions.isEmpty)
   }
 
   @Test func delegateRetryWithAgentRunnerExecutesRecordedAttempt() async throws {

@@ -303,7 +303,7 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     let stallTimeoutMS = config.providers.stallTimeoutMS(for: config.agent.defaultProvider)
     let stallDetector = StallDetector(stallTimeoutMS: stallTimeoutMS)
     let stallState = StallWatchState(lastEventAt: Date())
-    let stallWatchdog: Task<Void, Never>?
+    var stallWatchdog: Task<Void, Never>?
     if stallDetector.isEnabled {
       stallWatchdog = Task {
         while !Task.isCancelled {
@@ -320,8 +320,6 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
           }
         }
       }
-    } else {
-      stallWatchdog = nil
     }
 
     do {

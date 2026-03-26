@@ -58,6 +58,10 @@ public struct NoOpEngineEventObserver: EngineEventObserving, Sendable {
   public func engineError(_ error: Error, context: String) async {}
 }
 
+public protocol OrchestratorEngineRefreshing: Sendable {
+  func requestRefresh()
+}
+
 // MARK: - Orchestrator Engine
 
 public final class OrchestratorEngine: @unchecked Sendable {
@@ -70,6 +74,7 @@ public final class OrchestratorEngine: @unchecked Sendable {
   private let workspaceManagerFactory: @Sendable (WorkspaceConfig) -> any WorkspaceManaging
   private let agentRunnerFactory: (@Sendable (any WorkspaceManaging) -> any AgentRunning)?
   private let observer: any EngineEventObserving
+  private let stateStore: SQLiteServerStateStore?
 
   public var state: OrchestratorEngineState {
     lock.withLock { _state }
@@ -87,13 +92,15 @@ public final class OrchestratorEngine: @unchecked Sendable {
     },
     agentRunnerFactory: (@Sendable (any WorkspaceManaging) -> any AgentRunning)? = nil,
     promptTemplate: String = "",
-    observer: any EngineEventObserving = NoOpEngineEventObserver()
+    observer: any EngineEventObserving = NoOpEngineEventObserver(),
+    stateStore: SQLiteServerStateStore? = nil
   ) {
     self._workflow = WorkflowDefinition(config: config, promptTemplate: promptTemplate)
     self.trackerFactory = trackerFactory
     self.workspaceManagerFactory = workspaceManagerFactory
     self.agentRunnerFactory = agentRunnerFactory
     self.observer = observer
+    self.stateStore = stateStore
   }
 
   // MARK: - Lifecycle
@@ -167,6 +174,28 @@ public final class OrchestratorEngine: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func requestRefresh() {
+    let observer = self.observer
+    Task { [weak self] in
+      guard let self, let orchestrator = self.activeOrchestrator else { return }
+      await self.performRefresh(observer: observer) {
+        try await orchestrator.tick()
+      }
+    }
+  }
+
+  func performRefresh(
+    observer: any EngineEventObserving,
+    operation: @escaping @Sendable () async throws -> TickResult
+  ) async {
+    do {
+      let result = try await operation()
+      await observer.engineTickCompleted(result)
+    } catch {
+      await observer.engineError(error, context: "refresh")
+    }
+  }
+
   // MARK: - Config Reload (Section 6.6)
 
   public func reloadConfig(_ newConfig: WorkflowConfig) {
@@ -237,7 +266,8 @@ public final class OrchestratorEngine: @unchecked Sendable {
       observer: observer,
       agentRunner: agentRunner,
       config: workflow.config,
-      promptTemplate: workflow.promptTemplate
+      promptTemplate: workflow.promptTemplate,
+      stateStore: stateStore
     )
     let orchestrator = Orchestrator(
       tracker: tracker,
@@ -304,6 +334,7 @@ private struct EngineRuntime {
 final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
   private let lock = NSLock()
   private let observer: any EngineEventObserving
+  private let stateStore: SQLiteServerStateStore?
   private var _workspaceManager: any WorkspaceManaging
   private var _agentRunner: (any AgentRunning)?
   private var _config: WorkflowConfig
@@ -315,13 +346,22 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     observer: any EngineEventObserving,
     agentRunner: (any AgentRunning)? = nil,
     config: WorkflowConfig = .defaults,
-    promptTemplate: String = ""
+    promptTemplate: String = "",
+    stateStore: SQLiteServerStateStore? = nil
   ) {
     self._workspaceManager = workspaceManager
     self.observer = observer
+    self.stateStore = stateStore
     self._agentRunner = agentRunner
     self._config = config
     self._promptTemplate = promptTemplate
+  }
+
+  func orchestratorDidSyncIssues(_ issues: [Issue]) async {
+    guard let stateStore else { return }
+    for issue in issues {
+      try? stateStore.upsertIssue(issue)
+    }
   }
 
   func orchestratorDidDispatch(issue: Issue) async {
@@ -343,10 +383,7 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
   }
 
   func orchestratorDidRefreshSnapshot(issue: Issue) async {
-    let runID = RunID(UUID().uuidString)
-    let context = RunContext(
-      issueID: issue.id, issueIdentifier: issue.identifier, runID: runID, attempt: 1)
-    await observer.engineDispatchStarted(context)
+    try? stateStore?.upsertIssue(issue)
   }
 
   func orchestratorDidRetry(issue: Issue, record: RetryRecord) async {
@@ -429,6 +466,8 @@ private struct DependencySnapshot {
   let promptTemplate: String
   let orchestrator: Orchestrator?
 }
+
+extension OrchestratorEngine: OrchestratorEngineRefreshing {}
 
 // MARK: - Workflow Reloader (Section 6.6)
 

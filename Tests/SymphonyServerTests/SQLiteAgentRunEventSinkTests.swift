@@ -218,6 +218,75 @@ struct SQLiteAgentRunEventSinkTests {
     #expect(preservedSnapshot.latestSequence == EventSequence(9))
   }
 
+  @Test func providerSnapshotHelpersCaptureCurrentCodexNestedIdentifiers() throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-provider-current-codex.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+    let runID = RunID("R_current_codex")
+
+    let threadResponseEvent = AgentRawEvent(
+      sessionID: SessionID("session-current-codex"),
+      provider: ProviderName.codex.rawValue,
+      sequence: EventSequence(0),
+      timestamp: "2026-03-26T01:34:10Z",
+      rawJSON: #"{"id":2,"result":{"thread":{"id":"thread-current"}}}"#,
+      providerEventType: "response",
+      normalizedEventKind: "status"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID, event: threadResponseEvent, storedSequence: EventSequence(10))
+
+    let turnStartedEvent = AgentRawEvent(
+      sessionID: SessionID("session-current-codex"),
+      provider: ProviderName.codex.rawValue,
+      sequence: EventSequence(1),
+      timestamp: "2026-03-26T01:34:11Z",
+      rawJSON:
+        #"{"method":"turn/started","params":{"threadId":"thread-current","turn":{"id":"turn-current"}}}"#,
+      providerEventType: "turn/started",
+      normalizedEventKind: "status"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID, event: turnStartedEvent, storedSequence: EventSequence(11))
+
+    let snapshot = sink.testingProviderSnapshot(for: runID)
+    #expect(snapshot.providerThreadID == "thread-current")
+    #expect(snapshot.providerTurnID == "turn-current")
+    #expect(snapshot.latestSequence == EventSequence(11))
+  }
+
+  @Test func providerSnapshotHelpersCaptureNestedIdentifiersInsideArrays() throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-provider-array-codex.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+    let runID = RunID("R_array_codex")
+
+    let arrayEvent = AgentRawEvent(
+      sessionID: SessionID("session-array-codex"),
+      provider: ProviderName.codex.rawValue,
+      sequence: EventSequence(0),
+      timestamp: "2026-03-26T01:34:12Z",
+      rawJSON:
+        #"[{"payload":{"items":[{"thread":{"id":"thread-array"}},{"turn":{"id":"turn-array"}}]}}]"#,
+      providerEventType: "response",
+      normalizedEventKind: "status"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID,
+      event: arrayEvent,
+      storedSequence: EventSequence(12)
+    )
+
+    let snapshot = sink.testingProviderSnapshot(for: runID)
+    #expect(snapshot.providerThreadID == "thread-array")
+    #expect(snapshot.providerTurnID == "turn-array")
+  }
+
   @Test func providerSnapshotHelpersCoverArrayMessageAndNilFallbackPaths() throws {
     let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
       "agent-run-sink-provider-message.sqlite3")

@@ -117,6 +117,84 @@ struct SymphonyOperatorModelTests {
     XCTAssertEqual(model.logEvents.last?.normalizedKind, .toolCall)
   }
 
+  @Test func VisibleLogEventsHideNoiseAndKeepRelevantEvents() {
+    let model = SymphonyOperatorModel(client: MockSymphonyAPIClient())
+
+    model.testingMergeLogEvents([
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(1),
+        timestamp: "2026-03-24T03:00:01Z",
+        rawJSON: #"{"method":"item/agentMessage/delta","params":{"delta":"partial"}}"#,
+        providerEventType: "item/agentMessage/delta",
+        normalizedEventKind: "message"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(2),
+        timestamp: "2026-03-24T03:00:02Z",
+        rawJSON:
+          #"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"total":{"totalTokens":42}}}}"#,
+        providerEventType: "thread/tokenUsage/updated",
+        normalizedEventKind: "usage"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(3),
+        timestamp: "2026-03-24T03:00:03Z",
+        rawJSON: #"{"method":"skills/changed","params":{}}"#,
+        providerEventType: "skills/changed",
+        normalizedEventKind: "status"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(4),
+        timestamp: "2026-03-24T03:00:04Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"item":{"type":"commandExecution","command":"git status --short"}}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "tool_call"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(5),
+        timestamp: "2026-03-24T03:00:05Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"done"}}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "message"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(6),
+        timestamp: "2026-03-24T03:00:05Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"msg_42","text":"","phase":"commentary","memoryCitation":null},"threadId":"thread-42","turnId":"turn-42"}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "message"
+      ),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(7),
+        timestamp: "2026-03-24T03:00:06Z",
+        rawJSON:
+          #"{"method":"item/commandExecution/requestApproval","params":{"reason":"allow git rev-parse"}}"#,
+        providerEventType: "item/commandExecution/requestApproval",
+        normalizedEventKind: "approval_request"
+      ),
+    ])
+
+    XCTAssertEqual(model.logEvents.map(\.sequence.rawValue), [1, 2, 3, 4, 5, 6, 7])
+    XCTAssertEqual(model.visibleLogEvents.map(\.sequence.rawValue), [4, 5, 7])
+  }
+
   @Test func RefreshReloadsIssuesAndRetainsSelection() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
@@ -621,6 +699,7 @@ struct SymphonyOperatorModelTests {
   @Test func EventPresentationCoversKnownKindsAndUnknownFallback() {
     let message = SymphonyEventPresentation(event: makeEvent(sequence: 1, kind: "message"))
     XCTAssertEqual(message.title, "Message")
+    XCTAssertEqual(message.rowStyle, .message)
     XCTAssertFalse(message.showsRawJSON)
 
     let messageFallback = SymphonyEventPresentation(
@@ -635,8 +714,37 @@ struct SymphonyOperatorModelTests {
       ))
     XCTAssertEqual(messageFallback.detail, "message_fallback")
 
+    let codexCompletedMessage = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(21),
+        timestamp: "2026-03-24T03:00:21Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg_1","text":"Hello from Codex","phase":"commentary","memoryCitation":null},"threadId":"thread-1","turnId":"turn-1"}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(codexCompletedMessage.detail, "Hello from Codex")
+    XCTAssertEqual(codexCompletedMessage.rowStyle, .message)
+
     let toolCall = SymphonyEventPresentation(event: makeEvent(sequence: 2, kind: "tool_call"))
     XCTAssertEqual(toolCall.title, "Tool Call")
+    XCTAssertEqual(toolCall.rowStyle, .tool)
+
+    let codexToolCall = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(22),
+        timestamp: "2026-03-24T03:00:22Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call_1","command":"/bin/zsh -lc pwd","cwd":"/tmp","processId":"1","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"threadId":"thread-1","turnId":"turn-1"}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "tool_call"
+      ))
+    XCTAssertEqual(codexToolCall.detail, "/bin/zsh -lc pwd")
+    XCTAssertEqual(codexToolCall.rowStyle, .tool)
 
     let toolCallFallback = SymphonyEventPresentation(
       event: AgentRawEvent(
@@ -652,6 +760,7 @@ struct SymphonyOperatorModelTests {
 
     let toolResult = SymphonyEventPresentation(event: makeEvent(sequence: 3, kind: "tool_result"))
     XCTAssertEqual(toolResult.title, "Tool Result")
+    XCTAssertEqual(toolResult.rowStyle, .tool)
 
     let toolResultFallback = SymphonyEventPresentation(
       event: AgentRawEvent(
@@ -667,13 +776,30 @@ struct SymphonyOperatorModelTests {
 
     let status = SymphonyEventPresentation(event: makeEvent(sequence: 4, kind: "status"))
     XCTAssertEqual(status.title, "Status")
+    XCTAssertEqual(status.rowStyle, .compact)
+
+    let codexStatus = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(23),
+        timestamp: "2026-03-24T03:00:23Z",
+        rawJSON:
+          #"{"method":"thread/status/changed","params":{"status":{"type":"active"},"threadId":"thread-1","turnId":"turn-1"}}"#,
+        providerEventType: "thread/status/changed",
+        normalizedEventKind: "status"
+      ))
+    XCTAssertEqual(codexStatus.detail, "active")
+    XCTAssertEqual(codexStatus.rowStyle, .compact)
 
     let usage = SymphonyEventPresentation(event: makeEvent(sequence: 5, kind: "usage"))
     XCTAssertEqual(usage.title, "Usage")
+    XCTAssertEqual(usage.rowStyle, .compact)
 
     let approval = SymphonyEventPresentation(
       event: makeEvent(sequence: 6, kind: "approval_request"))
     XCTAssertEqual(approval.title, "Approval Request")
+    XCTAssertEqual(approval.rowStyle, .callout)
 
     let approvalFallback = SymphonyEventPresentation(
       event: AgentRawEvent(
@@ -689,6 +815,7 @@ struct SymphonyOperatorModelTests {
 
     let error = SymphonyEventPresentation(event: makeEvent(sequence: 7, kind: "error"))
     XCTAssertEqual(error.title, "Error")
+    XCTAssertEqual(error.rowStyle, .callout)
 
     let errorFallback = SymphonyEventPresentation(
       event: AgentRawEvent(
@@ -702,8 +829,19 @@ struct SymphonyOperatorModelTests {
       ))
     XCTAssertEqual(errorFallback.detail, #"{"payload":{}}"#)
 
-    let unknown = SymphonyEventPresentation(event: makeEvent(sequence: 8, kind: "unexpected_kind"))
+    let unknown = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "claude_code",
+        sequence: EventSequence(8),
+        timestamp: "2026-03-24T03:00:08Z",
+        rawJSON: #"{"payload":{"notes":"inspect raw payload"}}"#,
+        providerEventType: "provider_custom",
+        normalizedEventKind: "unexpected_kind"
+      ))
     XCTAssertEqual(unknown.title, "Unknown Event")
+    XCTAssertEqual(unknown.rowStyle, .supplemental)
+    XCTAssertEqual(unknown.detail, "inspect raw payload")
     XCTAssertTrue(unknown.showsRawJSON)
 
     let rawString = SymphonyEventPresentation(
@@ -766,6 +904,268 @@ struct SymphonyOperatorModelTests {
       ))
     XCTAssertEqual(invalidJSON.detail, "provider_status")
     XCTAssertTrue(invalidJSON.metadata.contains("claude_code"))
+  }
+
+  @Test func EventPresentationCoversAdditionalCodexExtractionBranches() {
+    XCTAssertTrue(
+      SymphonyEventPresentation.isEmptyAgentMessageShell(
+        event: AgentRawEvent(
+          sessionID: SessionID("session-42"),
+          provider: "codex",
+          sequence: EventSequence(24),
+          timestamp: "2026-03-24T03:00:24Z",
+          rawJSON:
+            #"{"params":{"item":{"type":"agentMessage","text":"   "}}}"#,
+          providerEventType: "item/started",
+          normalizedEventKind: "message"
+        )))
+
+    XCTAssertFalse(
+      SymphonyEventPresentation.isEmptyAgentMessageShell(
+        event: AgentRawEvent(
+          sessionID: SessionID("session-42"),
+          provider: "codex",
+          sequence: EventSequence(25),
+          timestamp: "2026-03-24T03:00:25Z",
+          rawJSON:
+            #"{"params":{"item":{"type":"agentMessage","text":"visible"}}}"#,
+          providerEventType: "item/started",
+          normalizedEventKind: "message"
+        )))
+
+    let delta = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(26),
+        timestamp: "2026-03-24T03:00:26Z",
+        rawJSON:
+          #"{"method":"item/agentMessage/delta","params":{"delta":{"text":"delta text"}}}"#,
+        providerEventType: "item/agentMessage/delta",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(delta.detail, "delta text")
+
+    let approval = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(27),
+        timestamp: "2026-03-24T03:00:27Z",
+        rawJSON:
+          #"{"method":"item/commandExecution/requestApproval","params":{"reason":"Need approval"}}"#,
+        providerEventType: "item/commandExecution/requestApproval",
+        normalizedEventKind: "approval_request"
+      ))
+    XCTAssertEqual(approval.detail, "Need approval")
+
+    let threadStarted = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(28),
+        timestamp: "2026-03-24T03:00:28Z",
+        rawJSON:
+          #"{"method":"thread/started","params":{"thread":{"status":"queued"}}}"#,
+        providerEventType: "thread/started",
+        normalizedEventKind: "status"
+      ))
+    XCTAssertEqual(threadStarted.detail, "queued")
+
+    let turnStarted = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(29),
+        timestamp: "2026-03-24T03:00:29Z",
+        rawJSON:
+          #"{"method":"turn/started","params":{"status":"running"}}"#,
+        providerEventType: "turn/started",
+        normalizedEventKind: "status"
+      ))
+    XCTAssertEqual(turnStarted.detail, "running")
+
+    let summarizedMessage = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(30),
+        timestamp: "2026-03-24T03:00:30Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"item":{"type":"agentMessage","summary":"Summary only"}}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(summarizedMessage.detail, "Summary only")
+
+    let aggregatedCommand = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(31),
+        timestamp: "2026-03-24T03:00:31Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"commandExecution","aggregatedOutput":"short output"}}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "tool_result"
+      ))
+    XCTAssertEqual(aggregatedCommand.detail, "short output")
+
+    let commandResult = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(32),
+        timestamp: "2026-03-24T03:00:32Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"commandExecution","aggregatedOutput":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz","result":{"output":"command result"}}}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "tool_result"
+      ))
+    XCTAssertEqual(commandResult.detail, "command result")
+
+    let reasoningSummary = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(33),
+        timestamp: "2026-03-24T03:00:33Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"reasoning","summary":"Reasoned summary"}}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(reasoningSummary.detail, "Reasoned summary")
+
+    let reasoningFallback = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(34),
+        timestamp: "2026-03-24T03:00:34Z",
+        rawJSON:
+          #"{"method":"item/completed","params":{"item":{"type":"reasoning"}}}"#,
+        providerEventType: "item/completed",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(reasoningFallback.detail, "Reasoning")
+
+    let defaultItemType = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(35),
+        timestamp: "2026-03-24T03:00:35Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"item":{"type":"customType"}}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(defaultItemType.detail, "customType")
+
+    let itemMessageFallback = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(36),
+        timestamp: "2026-03-24T03:00:36Z",
+        rawJSON:
+          #"{"method":"item/started","params":{"message":"fallback message"}}"#,
+        providerEventType: "item/started",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(itemMessageFallback.detail, "fallback message")
+
+    let defaultParamsFallback = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "codex",
+        sequence: EventSequence(37),
+        timestamp: "2026-03-24T03:00:37Z",
+        rawJSON:
+          #"{"method":"custom/method","params":{"content":[{"text":"fallback content"}]}}"#,
+        providerEventType: "custom/method",
+        normalizedEventKind: "message"
+      ))
+    XCTAssertEqual(defaultParamsFallback.detail, "fallback content")
+  }
+
+  @Test func EventPresentationHelperMethodsCoverDirectFallbackBranches() {
+    XCTAssertEqual(SymphonyEventPresentation.humanizedItemType("agentMessage"), "Message")
+    XCTAssertEqual(
+      SymphonyEventPresentation.humanizedItemType("commandExecution"), "Command execution")
+    XCTAssertEqual(SymphonyEventPresentation.humanizedItemType("customType"), "customType")
+    XCTAssertNil(SymphonyEventPresentation.humanizedItemType(""))
+    XCTAssertNil(SymphonyEventPresentation.humanizedItemType(nil))
+
+    XCTAssertNil(SymphonyEventPresentation.extractText(from: nil as Any?))
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(fromItem: ["type": "customType"]),
+      "customType"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(method: "custom/method", params: ["result": "direct"]),
+      "direct"
+    )
+
+    let unknownFallback = SymphonyEventPresentation(
+      event: AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "claude_code",
+        sequence: EventSequence(38),
+        timestamp: "2026-03-24T03:00:38Z",
+        rawJSON: #"{}"#,
+        providerEventType: "provider_unknown",
+        normalizedEventKind: "unexpected_kind"
+      ))
+    XCTAssertEqual(unknownFallback.detail, #"{}"#)
+    XCTAssertEqual(SymphonyEventPresentation.extractText(from: "wrapped" as Any?), "wrapped")
+    XCTAssertNil(SymphonyEventPresentation.extractText(fromItem: [:]))
+
+    XCTAssertNil(
+      SymphonyEventPresentation.extractText(
+        method: "item/started",
+        params: [:]
+      )
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        fromItem: ["type": "agentMessage", "content": "content body"]
+      ),
+      "content body"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        fromItem: ["type": "commandExecution", "arguments": ["--flag"]]
+      ),
+      "--flag"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        fromItem: ["type": "commandExecution", "status": "completed"]
+      ),
+      "completed"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        fromItem: ["type": "reasoning", "content": "reasoning body"]
+      ),
+      "reasoning body"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        method: "thread/started",
+        params: ["status": "queued"]
+      ),
+      "queued"
+    )
+    XCTAssertEqual(
+      SymphonyEventPresentation.extractText(
+        method: "turn/started",
+        params: ["turn": ["status": "running"]]
+      ),
+      "running"
+    )
   }
 
   private func makeIssueSummary() -> IssueSummary {

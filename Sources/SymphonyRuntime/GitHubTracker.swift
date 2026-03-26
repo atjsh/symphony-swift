@@ -229,37 +229,21 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
 
   // MARK: - TrackerAdapting
 
+  public func fetchAllIssues() async throws -> [Issue] {
+    try await normalizeProjectItems(allowedStates: nil)
+  }
+
   public func fetchCandidateIssues() async throws -> [Issue] {
-    let projectID = try await resolveProjectID()
-    var allItems: [GitHubGraphQL.ProjectItem] = []
-    var cursor: String?
-
-    repeat {
-      let (query, variables) = GitHubGraphQL.projectItemsQuery(
-        projectID: projectID,
-        statusFieldName: config.statusFieldName,
-        cursor: cursor
-      )
-      let data = try await transport.execute(query: query, variables: variables)
-      let response = try decodeResponse(data)
-
-      guard let project = response.data?.node else {
-        throw GitHubTrackerError.unexpectedResponseStructure("Missing project node")
-      }
-
-      allItems.append(contentsOf: project.items.nodes)
-
-      if project.items.pageInfo.hasNextPage {
-        cursor = project.items.pageInfo.endCursor
-      } else {
-        cursor = nil
-      }
-    } while cursor != nil
-
-    return normalizeItems(allItems, allowedStates: Set(config.activeStates))
+    try await normalizeProjectItems(allowedStates: Set(config.activeStates))
   }
 
   public func fetchIssuesByStates(_ stateNames: [String]) async throws -> [Issue] {
+    try await normalizeProjectItems(allowedStates: Set(stateNames))
+  }
+
+  private func normalizeProjectItems(
+    allowedStates: Set<String>?
+  ) async throws -> [Issue] {
     let projectID = try await resolveProjectID()
     var allItems: [GitHubGraphQL.ProjectItem] = []
     var cursor: String?
@@ -286,8 +270,7 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
       }
     } while cursor != nil
 
-    let stateSet = Set(stateNames)
-    return normalizeItems(allItems, allowedStates: stateSet)
+    return normalizeItems(allItems, allowedStates: allowedStates)
   }
 
   public func fetchIssueStatesByIDs(_ issueIDs: [IssueID]) async throws -> [IssueID: String] {
@@ -390,7 +373,7 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
 
   private func normalizeItems(
     _ items: [GitHubGraphQL.ProjectItem],
-    allowedStates: Set<String>
+    allowedStates: Set<String>?
   ) -> [Issue] {
     return items.compactMap { item -> Issue? in
       guard let content = item.content else { return nil }
@@ -413,7 +396,9 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
       let projectStatus = item.fieldValueByName?.name ?? ""
 
       // Filter by allowed states
-      guard allowedStates.contains(projectStatus) else { return nil }
+      if let allowedStates, !allowedStates.contains(projectStatus) {
+        return nil
+      }
 
       let identifier: IssueIdentifier
       do {

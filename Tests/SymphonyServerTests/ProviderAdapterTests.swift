@@ -75,6 +75,21 @@ import Testing
   #expect(!adapter.capabilities.supportsRateLimits)
 }
 
+@Test func codexEventInferenceAndInspectionCoverUnknownItemAndErrorBranches() {
+  #expect(
+    EventKindInference.inferCodex(
+      method: "item/started",
+      json: ["params": ["item": ["type": "reasoning"]]]
+    ) == nil
+  )
+  #expect(
+    ProviderEventInspection.eventType(
+      from: ["error": ["message": "boom"]],
+      provider: .codex
+    ) == "error"
+  )
+}
+
 @Test func codexAdapterStartSession() async throws {
   let stubLauncher = StubProcessLauncher()
   let stubProcess = StubLaunchedProcess()
@@ -93,18 +108,27 @@ import Testing
   #expect(stubLauncher.invocations[0].workspacePath == "/tmp/workspace")
 
   let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
-  #expect(recordedMessages.count == 4)
+  #expect(recordedMessages.count == 3)
   #expect(
     recordedMessages.map { $0["method"] as? String } == [
       "initialize",
       "initialized",
       "thread/start",
-      "turn/start",
     ])
 
-  let turnStart = try #require(recordedMessages.last)
-  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
-  #expect(turnStartParams["prompt"] as? String == "Fix the bug")
+  let initialize = try #require(recordedMessages.first)
+  let initializeParams = try #require(initialize["params"] as? [String: Any])
+  let clientInfo = try #require(initializeParams["clientInfo"] as? [String: Any])
+  #expect(clientInfo["name"] as? String == "symphony")
+  #expect(clientInfo["version"] as? String == "0.0.1")
+
+  let initialized = try #require(recordedMessages.dropFirst().first)
+  #expect(initialized["params"] == nil)
+
+  let threadStart = try #require(recordedMessages.last)
+  let threadStartParams = try #require(threadStart["params"] as? [String: Any])
+  #expect(threadStartParams["cwd"] as? String == "/tmp/workspace")
+  #expect(threadStartParams["ephemeral"] as? Bool == true)
   _ = stream
 }
 
@@ -121,11 +145,17 @@ import Testing
     environment: [:]
   )
 
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-empty"}}}"# + "\n")
+
   let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
   #expect(recordedMessages.count == 4)
   let turnStart = try #require(recordedMessages.last)
   let turnStartParams = try #require(turnStart["params"] as? [String: Any])
-  #expect(turnStartParams["prompt"] as? String == "")
+  #expect(turnStartParams["threadId"] as? String == "thread-empty")
+  let textInput = try firstInputObject(from: turnStartParams)
+  #expect(textInput["type"] as? String == "text")
+  #expect(textInput["text"] as? String == "")
 }
 
 @Test func codexAdapterStartSessionFailsWhenPromptSubmissionFails() async {
@@ -166,6 +196,116 @@ import Testing
   }
 }
 
+@Test func codexAdapterStartsTurnAfterThreadStartResponse() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-response"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"thread":{"id":"thread-response"}}}"# + "\n")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 4)
+  let turnStart = try #require(recordedMessages.last)
+  #expect(turnStart["method"] as? String == "turn/start")
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["threadId"] as? String == "thread-response")
+  #expect(turnStartParams["cwd"] as? String == "/tmp/workspace")
+  let textInput = try firstInputObject(from: turnStartParams)
+  #expect(textInput["type"] as? String == "text")
+  #expect(textInput["text"] as? String == "Fix the bug")
+}
+
+@Test func codexAdapterStartsTurnAfterThreadStartedNotification() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-notification"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-notification"}}}"# + "\n")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 4)
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["threadId"] as? String == "thread-notification")
+}
+
+@Test func codexAdapterThreadStartSubmissionFailureFinishesStreamWithError() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-submit-failure"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("turn start failed"))
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-submit-failure"}}}"# + "\n")
+
+  do {
+    for try await _ in stream {}
+    #expect(Bool(false), "Expected the stream to fail when turn/start submission fails")
+  } catch {
+    guard case .processLaunchFailed = error as? ProviderAdapterError else {
+      #expect(Bool(false), "Expected a processLaunchFailed error")
+      return
+    }
+  }
+}
+
+@Test func codexAdapterMapsApprovalAndSandboxPoliciesIntoCurrentProtocol() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let config = CodexProviderConfig(
+    approvalPolicy: "never",
+    threadSandbox: "workspace-write",
+    turnSandboxPolicy: "danger-full-access"
+  )
+  let adapter = CodexAdapter(config: config, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-config"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"thread":{"id":"thread-config"}}}"# + "\n")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  let threadStart = try #require(recordedMessages.dropFirst(2).first)
+  let threadStartParams = try #require(threadStart["params"] as? [String: Any])
+  #expect(threadStartParams["approvalPolicy"] as? String == "never")
+  #expect(threadStartParams["sandbox"] as? String == "workspace-write")
+
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["approvalPolicy"] as? String == "never")
+  #expect(turnStartParams["sandboxPolicy"] as? String == "danger-full-access")
+}
+
 @Test func codexAdapterMakeEventStream() async throws {
   let stubProcess = StubLaunchedProcess()
   let adapter = CodexAdapter(config: .defaults)
@@ -185,6 +325,32 @@ import Testing
   #expect(events[0].providerEventType == "message")
   #expect(events[0].normalizedKind == .message)
   #expect(events[0].sequence == EventSequence(0))
+}
+
+@Test func codexAdapterMakeEventStreamSuppressesSuccessfulJSONRPCResponses() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CodexAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-suppress"))
+
+  stubProcess.simulateOutput(
+    #"{"id":1,"result":{"userAgent":"ua","platformFamily":"unix","platformOs":"macos"}}"# + "\n")
+  stubProcess.simulateOutput(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-1"}}}"# + "\n")
+  stubProcess.simulateOutput(#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}"#
+      + "\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.map(\.providerEventType) == ["thread/started", "turn/started"])
+  #expect(events.allSatisfy { $0.normalizedKind == .status })
 }
 
 @Test func codexAdapterTurnCompletedStopsStreamingFurtherEvents() async throws {
@@ -800,6 +966,70 @@ import Testing
   #expect(kind == .status)
 }
 
+@Test func eventKindInferenceCodexThreadStartedStatus() {
+  let kind = EventKindInference.infer(from: "{\"method\": \"thread/started\"}", provider: .codex)
+  #expect(kind == .status)
+}
+
+@Test func eventKindInferenceCodexTurnStartedStatus() {
+  let kind = EventKindInference.infer(from: "{\"method\": \"turn/started\"}", provider: .codex)
+  #expect(kind == .status)
+}
+
+@Test func eventKindInferenceCodexCommandExecutionStartedMapsToolCall() {
+  let kind = EventKindInference.infer(
+    from:
+      #"{"method":"item/started","params":{"item":{"type":"commandExecution","command":"git status --short"}}}"#,
+    provider: .codex
+  )
+  #expect(kind == .toolCall)
+}
+
+@Test func eventKindInferenceCodexCommandExecutionCompletedMapsToolResult() {
+  let kind = EventKindInference.infer(
+    from:
+      #"{"method":"item/completed","params":{"item":{"type":"commandExecution","command":"git status --short","status":"completed"}}}"#,
+    provider: .codex
+  )
+  #expect(kind == .toolResult)
+}
+
+@Test func eventKindInferenceCodexAgentMessageAndApprovalMethods() {
+  let completedMessage = EventKindInference.infer(
+    from: #"{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"done"}}}"#,
+    provider: .codex
+  )
+  #expect(completedMessage == .message)
+
+  let deltaMessage = EventKindInference.infer(
+    from: #"{"method":"item/agentMessage/delta","params":{"delta":"working"}}"#,
+    provider: .codex
+  )
+  #expect(deltaMessage == .message)
+
+  let approval = EventKindInference.infer(
+    from:
+      #"{"method":"item/commandExecution/requestApproval","params":{"reason":"allow git rev-parse"}}"#,
+    provider: .codex
+  )
+  #expect(approval == .approvalRequest)
+}
+
+@Test func eventKindInferenceCodexThreadStatusAndUsageMethods() {
+  let status = EventKindInference.infer(
+    from: #"{"method":"thread/status/changed","params":{"status":{"type":"active"}}}"#,
+    provider: .codex
+  )
+  #expect(status == .status)
+
+  let usage = EventKindInference.infer(
+    from:
+      #"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"total":{"totalTokens":42}}}}"#,
+    provider: .codex
+  )
+  #expect(usage == .usage)
+}
+
 @Test func eventKindInferenceCodexUnknownMethodFallsBackToType() {
   let kind = EventKindInference.infer(
     from: "{\"method\": \"custom/notification\", \"type\": \"message\"}",
@@ -820,6 +1050,14 @@ import Testing
 
 @Test func eventKindInferenceCodexError() {
   let kind = EventKindInference.infer(from: "{\"type\": \"error\"}", provider: .codex)
+  #expect(kind == .error)
+}
+
+@Test func eventKindInferenceCodexJSONRPCErrorResponse() {
+  let kind = EventKindInference.infer(
+    from: #"{"error":{"code":-32600,"message":"bad request"},"id":1}"#,
+    provider: .codex
+  )
   #expect(kind == .error)
 }
 
@@ -1121,4 +1359,9 @@ private func parseJSONObject(_ rawJSON: String) throws -> [String: Any] {
   let data = try #require(rawJSON.data(using: .utf8))
   let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
   return object
+}
+
+private func firstInputObject(from params: [String: Any]) throws -> [String: Any] {
+  let input = try #require(params["input"] as? [Any])
+  return try #require(input.first as? [String: Any])
 }

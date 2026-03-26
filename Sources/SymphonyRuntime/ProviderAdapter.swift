@@ -95,13 +95,13 @@ enum EventKindInference {
   }
 
   private static func inferCodex(_ json: [String: Any]) -> NormalizedEventKind {
+    if json["error"] != nil {
+      return .error
+    }
+
     if let method = json["method"] as? String {
-      switch method {
-      case "turn/completed", "turn/failed", "turn/cancelled", "initialized", "thread/start",
-        "turn/start":
-        return .status
-      default:
-        break
+      if let kind = inferCodex(method: method, json: json) {
+        return kind
       }
     }
 
@@ -116,6 +116,37 @@ enum EventKindInference {
     case "error": return .error
     default: return .unknown
     }
+  }
+
+  static func inferCodex(method: String, json: [String: Any]) -> NormalizedEventKind? {
+    switch method {
+    case "turn/completed", "turn/failed", "turn/cancelled", "initialized", "thread/start",
+      "turn/start", "thread/started", "turn/started", "thread/status/changed":
+      return .status
+    case "thread/tokenUsage/updated":
+      return .usage
+    case "item/commandExecution/requestApproval":
+      return .approvalRequest
+    case "item/agentMessage/delta":
+      return .message
+    case "item/started", "item/completed":
+      switch codexItemType(in: json) {
+      case "agentMessage":
+        return .message
+      case "commandExecution":
+        return method == "item/started" ? .toolCall : .toolResult
+      default:
+        return nil
+      }
+    default:
+      return nil
+    }
+  }
+
+  private static func codexItemType(in json: [String: Any]) -> String? {
+    let params = json["params"] as? [String: Any]
+    let item = params?["item"] as? [String: Any]
+    return item?["type"] as? String
   }
 
   private static func inferClaudeCode(_ json: [String: Any]) -> NormalizedEventKind {
@@ -149,13 +180,13 @@ enum EventKindInference {
   }
 }
 
-private struct ProviderEventDescriptor {
+struct ProviderEventDescriptor {
   let eventType: String
   let normalizedKind: NormalizedEventKind
   let isTerminal: Bool
 }
 
-private enum ProviderEventInspection {
+enum ProviderEventInspection {
   static func describe(from rawJSON: String, provider: ProviderName) -> ProviderEventDescriptor {
     guard let data = rawJSON.data(using: .utf8),
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -177,9 +208,12 @@ private enum ProviderEventInspection {
     )
   }
 
-  private static func eventType(from json: [String: Any], provider: ProviderName) -> String {
+  static func eventType(from json: [String: Any], provider: ProviderName) -> String {
     switch provider {
     case .codex:
+      if json["error"] != nil {
+        return "error"
+      }
       return json["method"] as? String ?? json["type"] as? String ?? "unknown"
     case .claudeCode:
       return json["type"] as? String ?? "unknown"
@@ -288,6 +322,45 @@ public final class SessionStore: @unchecked Sendable {
 
 // MARK: - Codex Adapter (Section 10.7)
 
+private final class CodexStartupState: @unchecked Sendable {
+  private let lock = NSLock()
+  private let workspacePath: String
+  private let prompt: String
+  private let config: CodexProviderConfig
+  private var didSendTurnStart = false
+
+  init(workspacePath: String, prompt: String, config: CodexProviderConfig) {
+    self.workspacePath = workspacePath
+    self.prompt = prompt
+    self.config = config
+  }
+
+  func turnStartMessageIfNeeded(threadID: String) -> [String: Any]? {
+    lock.withLock {
+      guard !didSendTurnStart else { return nil }
+      didSendTurnStart = true
+
+      var params: [String: Any] = [
+        "threadId": threadID,
+        "cwd": workspacePath,
+        "input": [["type": "text", "text": prompt]],
+      ]
+      if let approvalPolicy = config.approvalPolicy {
+        params["approvalPolicy"] = approvalPolicy
+      }
+      if let sandboxPolicy = config.turnSandboxPolicy {
+        params["sandboxPolicy"] = sandboxPolicy
+      }
+
+      return [
+        "id": 3,
+        "method": "turn/start",
+        "params": params,
+      ]
+    }
+  }
+}
+
 public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
   public let providerName: ProviderName = .codex
   public let capabilities = ProviderCapabilities(
@@ -320,37 +393,10 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    try submitJSONMessages(
-      [
-        [
-          "id": 1,
-          "method": "initialize",
-          "params": [
-            "client": "symphony",
-            "session_id": sessionID.rawValue,
-          ],
-        ],
-        [
-          "method": "initialized",
-          "params": [:],
-        ],
-        [
-          "id": 2,
-          "method": "thread/start",
-          "params": [
-            "session_id": sessionID.rawValue
-          ],
-        ],
-        [
-          "id": 3,
-          "method": "turn/start",
-          "params": [
-            "session_id": sessionID.rawValue,
-            "prompt": prompt,
-          ],
-        ],
-      ],
-      to: process
+    let startupState = CodexStartupState(
+      workspacePath: workspacePath,
+      prompt: prompt,
+      config: config
     )
     activeSessions.store(
       sessionID: sessionID,
@@ -358,7 +404,21 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    return makeEventStream(from: process, sessionID: sessionID)
+    let stream = makeEventStream(
+      from: process,
+      sessionID: sessionID,
+      startupState: startupState
+    )
+
+    do {
+      try submitJSONMessages(startupMessages(workspacePath: workspacePath), to: process)
+    } catch {
+      activeSessions.remove(sessionID: sessionID)
+      process.terminate()
+      throw error
+    }
+
+    return stream
   }
 
   public func continueSession(
@@ -379,6 +439,14 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
     from process: LaunchedProcess,
     sessionID: SessionID
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
+    makeEventStream(from: process, sessionID: sessionID, startupState: nil)
+  }
+
+  private func makeEventStream(
+    from process: LaunchedProcess,
+    sessionID: SessionID,
+    startupState: CodexStartupState?
+  ) -> AsyncThrowingStream<AgentRawEvent, Error> {
     let counter = SessionSequenceCounter()
     let activeSessions = self.activeSessions
     let finishState = StreamFinishState()
@@ -388,6 +456,26 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
 
         for line in protocolLines(from: output) {
           guard !finishState.isFinished else { return }
+
+          let jsonObject = protocolJSONObject(from: line)
+          if let startupState,
+            let threadID = codexStartupThreadID(from: jsonObject),
+            let turnStartMessage = startupState.turnStartMessageIfNeeded(threadID: threadID)
+          {
+            do {
+              try submitJSONMessages([turnStartMessage], to: process)
+            } catch {
+              activeSessions.remove(sessionID: sessionID)
+              finishState.finishIfNeeded {
+                continuation.finish(throwing: error)
+              }
+              return
+            }
+          }
+
+          if shouldSuppressSuccessfulCodexResponse(jsonObject) {
+            continue
+          }
 
           let descriptor = ProviderEventInspection.describe(from: line, provider: .codex)
           let event = AgentRawEvent(
@@ -422,6 +510,40 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
         }
       }
     }
+  }
+
+  private func startupMessages(workspacePath: String) -> [[String: Any]] {
+    var threadStartParams: [String: Any] = [
+      "cwd": workspacePath,
+      "ephemeral": true,
+    ]
+    if let approvalPolicy = config.approvalPolicy {
+      threadStartParams["approvalPolicy"] = approvalPolicy
+    }
+    if let sandbox = config.threadSandbox {
+      threadStartParams["sandbox"] = sandbox
+    }
+
+    return [
+      [
+        "id": 1,
+        "method": "initialize",
+        "params": [
+          "clientInfo": [
+            "name": "symphony",
+            "version": "0.0.1",
+          ]
+        ],
+      ],
+      [
+        "method": "initialized"
+      ],
+      [
+        "id": 2,
+        "method": "thread/start",
+        "params": threadStartParams,
+      ],
+    ]
   }
 }
 
@@ -955,6 +1077,42 @@ private func protocolLines(from output: String) -> [String] {
     .split(whereSeparator: \.isNewline)
     .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
     .filter { !$0.isEmpty }
+}
+
+private func protocolJSONObject(from line: String) -> [String: Any]? {
+  guard let data = line.data(using: .utf8) else { return nil }
+  return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+}
+
+private func codexStartupThreadID(from jsonObject: [String: Any]?) -> String? {
+  guard let jsonObject else { return nil }
+
+  if let method = jsonObject["method"] as? String,
+    method == "thread/started",
+    let params = jsonObject["params"] as? [String: Any],
+    let thread = params["thread"] as? [String: Any],
+    let threadID = thread["id"] as? String,
+    !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  {
+    return threadID
+  }
+
+  if let result = jsonObject["result"] as? [String: Any],
+    let thread = result["thread"] as? [String: Any],
+    let threadID = thread["id"] as? String,
+    !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  {
+    return threadID
+  }
+
+  return nil
+}
+
+private func shouldSuppressSuccessfulCodexResponse(_ jsonObject: [String: Any]?) -> Bool {
+  guard let jsonObject else { return false }
+  guard jsonObject["error"] == nil else { return false }
+  guard jsonObject["id"] != nil, jsonObject["result"] != nil else { return false }
+  return jsonObject["method"] == nil && jsonObject["type"] == nil
 }
 
 // MARK: - Provider Adapter Factory

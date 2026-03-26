@@ -11,6 +11,29 @@ import Testing
 @MainActor
 @Suite("SymphonyOperatorRootView")
 struct SymphonyOperatorRootViewTests {
+  @Test func MarkdownRendererUsesNativeAttributedTextAndFallsBackToPlainText() throws {
+    let rendered = OperatorMarkdownRenderer.makeContent(
+      from: "Before **bold** [docs](https://example.com) `code`"
+    )
+
+    XCTAssertTrue(rendered.renderedWithMarkdown)
+    XCTAssertEqual(String(rendered.attributedText.characters), "Before bold docs code")
+    XCTAssertTrue(rendered.attributedText.runs.contains { $0.link != nil })
+    XCTAssertTrue(rendered.attributedText.runs.contains { $0.inlinePresentationIntent != nil })
+
+    enum StubFailure: Error {
+      case parsingFailed
+    }
+
+    let fallback = OperatorMarkdownRenderer.makeContent(from: "**broken**") { _ in
+      throw StubFailure.parsingFailed
+    }
+
+    XCTAssertFalse(fallback.renderedWithMarkdown)
+    XCTAssertEqual(String(fallback.attributedText.characters), "**broken**")
+    XCTAssertFalse(fallback.attributedText.runs.contains { $0.link != nil })
+  }
+
   @Test func BodyEvaluatesWithEmptyOperatorState() {
     let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
     let view = SymphonyOperatorRootView(model: model)
@@ -46,6 +69,56 @@ struct SymphonyOperatorRootViewTests {
 
     let view = SymphonyOperatorRootView(model: model)
     _ = view.body
+  }
+
+  @Test func BodyEvaluatesWithMarkdownMessageContentInRunAndLogs() throws {
+    let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+    model.selectedIssueID = IssueID("issue-42")
+    model.issueDetail = makeIssueDetail()
+    model.selectedRunID = RunID("run-42")
+
+    let markdown = """
+      Summary with **bold** and [`code`](https://example.com).
+
+      Follow-up paragraph.
+      """
+    model.runDetail = RunDetail(
+      runID: RunID("run-42"),
+      issueID: IssueID("issue-42"),
+      issueIdentifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+      attempt: 1,
+      status: "running",
+      provider: "claude_code",
+      providerSessionID: "provider-session-42",
+      providerRunID: "provider-run-42",
+      startedAt: "2026-03-24T00:00:00Z",
+      endedAt: nil,
+      workspacePath: "/tmp/example",
+      sessionID: SessionID("session-42"),
+      lastError: nil,
+      issue: makeIssueDetail().issue,
+      turnCount: 2,
+      lastAgentEventType: "message",
+      lastAgentMessage: markdown,
+      tokens: try! TokenUsage(inputTokens: 7, outputTokens: 5),
+      logs: RunLogStats(eventCount: 2, latestSequence: EventSequence(2))
+    )
+    model.logEvents = [
+      makeEvent(
+        sequence: 1,
+        kind: "message",
+        rawJSON:
+          #"{"message":"Summary with **bold** and [`code`](https://example.com).\n\nFollow-up paragraph."}"#
+      )
+    ]
+
+    let view = SymphonyOperatorRootView(model: model)
+    _ = view.body
+
+    #if canImport(AppKit)
+      let hostingView = host(view)
+      render(hostingView)
+    #endif
   }
 
   @Test func BodyEvaluatesWithTokensErrorBlockersLabelsAndAllEventKinds() throws {
@@ -178,9 +251,22 @@ struct SymphonyOperatorRootViewTests {
       logs: RunLogStats(eventCount: 10, latestSequence: EventSequence(10))
     )
     model.logEvents = [
-      makeEvent(sequence: 1, kind: "error", rawJSON: #"{"message":"fail"}"#),
-      makeEvent(sequence: 2, kind: "approval_request", rawJSON: #"{"message":"approve?"}"#),
-      makeEvent(sequence: 3, kind: "status", rawJSON: #"{"status":"done"}"#),
+      makeEvent(sequence: 1, kind: "message", rawJSON: #"{"message":"hello"}"#),
+      makeEvent(sequence: 2, kind: "tool_call", rawJSON: #"{"arguments":"/bin/zsh -lc pwd"}"#),
+      makeEvent(sequence: 3, kind: "tool_result", rawJSON: #"{"result":"/tmp/example"}"#),
+      makeEvent(sequence: 4, kind: "status", rawJSON: #"{"status":"done"}"#),
+      makeEvent(sequence: 5, kind: "usage", rawJSON: #"{"total_tokens":42}"#),
+      makeEvent(sequence: 6, kind: "approval_request", rawJSON: #"{"message":"approve?"}"#),
+      makeEvent(sequence: 7, kind: "error", rawJSON: #"{"message":"fail"}"#),
+      AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "claude_code",
+        sequence: EventSequence(8),
+        timestamp: "2026-03-24T00:00:08Z",
+        rawJSON: #"{"payload":{"notes":"inspect raw payload"}}"#,
+        providerEventType: "provider_custom",
+        normalizedEventKind: "unexpected_kind"
+      ),
     ]
 
     let view = SymphonyOperatorRootView(model: model)
@@ -325,15 +411,67 @@ struct SymphonyOperatorRootViewTests {
         && model.liveStatus == "Ended"
     }
 
+    let runDetailRequestCount = client.runDetailRequests.count
+    let logRequestCount = client.logRequests.count
     view.triggerRunSelection(RunID("run-42"))
-    try await waitUntil { client.runDetailRequests.count >= 2 && model.logEvents.count == 2 }
+    try await Task.sleep(for: .milliseconds(50))
 
     XCTAssertEqual(client.healthCount, 1)
     XCTAssertEqual(client.issuesCount, 2)
     XCTAssertEqual(client.refreshCount, 1)
     XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
+    XCTAssertEqual(client.runDetailRequests.count, runDetailRequestCount)
     XCTAssertEqual(client.runDetailRequests.last, RunID("run-42"))
+    XCTAssertEqual(client.logRequests.count, logRequestCount)
     XCTAssertEqual(client.logRequests.last?.sessionID, SessionID("session-42"))
+  }
+
+  @Test func TriggerRunSelectionDoesNotReloadAlreadySelectedRun() async throws {
+    let client = ActionDrivenSymphonyAPIClient()
+    let model = SymphonyOperatorModel(
+      client: client,
+      initialEndpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443)
+    )
+    let view = SymphonyOperatorRootView(model: model)
+
+    view.triggerIssueSelection(makeIssueSummary())
+    try await waitUntil {
+      model.runDetail?.runID == RunID("run-42")
+        && model.logEvents.count == 2
+        && model.liveStatus == "Ended"
+    }
+
+    let initialRunDetailRequests = client.runDetailRequests.count
+    let initialLogRequests = client.logRequests.count
+    let initialLiveStatus = model.liveStatus
+
+    view.triggerRunSelection(RunID("run-42"))
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(client.runDetailRequests.count == initialRunDetailRequests)
+    #expect(client.logRequests.count == initialLogRequests)
+    #expect(model.liveStatus == initialLiveStatus)
+  }
+
+  @Test func TriggerRunSelectionLoadsNewRunWhenSelectionChanges() async throws {
+    let client = ActionDrivenSymphonyAPIClient()
+    let model = SymphonyOperatorModel(
+      client: client,
+      initialEndpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443)
+    )
+    let view = SymphonyOperatorRootView(model: model)
+
+    view.triggerIssueSelection(makeIssueSummary())
+    try await waitUntil {
+      model.runDetail?.runID == RunID("run-42")
+        && model.logEvents.count == 2
+        && model.liveStatus == "Ended"
+    }
+
+    view.triggerRunSelection(RunID("run-43"))
+    try await waitUntil { client.runDetailRequests.contains(RunID("run-43")) }
+
+    #expect(client.runDetailRequests.last == RunID("run-43"))
   }
 
   @Test func SelectionActionFactoriesDispatchIssueAndRunSelections() async throws {
@@ -360,14 +498,51 @@ struct SymphonyOperatorRootViewTests {
         && model.logEvents.count == 2
     }
 
+    let runDetailRequestCount = client.runDetailRequests.count
     let runAction = view.makeRunSelectionAction(for: RunID("run-42"))
     runAction()
-    try await waitUntil { client.runDetailRequests.count >= 2 }
+    try await Task.sleep(for: .milliseconds(50))
 
     XCTAssertEqual(client.healthCount, 1)
     XCTAssertEqual(client.refreshCount, 1)
     XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
+    XCTAssertEqual(client.runDetailRequests.count, runDetailRequestCount)
     XCTAssertEqual(client.runDetailRequests.last, RunID("run-42"))
+  }
+
+  @Test func HelperViewsCoverCompactHeaderSupplementalRowsAndStatusTints() throws {
+    _ = OperatorTheme(compact: true).successTint
+    _ = statusTint("failed")
+    _ = statusTint("queued")
+    _ = statusTint("done")
+
+    #if canImport(AppKit)
+      let compactPanel = IssueOverviewPanel(
+        theme: OperatorTheme(compact: true),
+        detail: makeIssueDetail(),
+        latestRunSelected: false,
+        runSelectionAction: {},
+        compact: true
+      )
+      render(host(AnyView(compactPanel), width: 320, height: 640))
+
+      let supplementalEvent = AgentRawEvent(
+        sessionID: SessionID("session-42"),
+        provider: "claude_code",
+        sequence: EventSequence(99),
+        timestamp: "2026-03-24T03:00:99Z",
+        rawJSON: #"{"payload":{"notes":"raw payload"}}"#,
+        providerEventType: "provider_custom",
+        normalizedEventKind: "unexpected_kind"
+      )
+      let supplementalRow = LogEventRow(
+        theme: OperatorTheme(compact: false),
+        event: supplementalEvent,
+        presentation: SymphonyEventPresentation(event: supplementalEvent),
+        isLast: true
+      )
+      render(host(AnyView(supplementalRow), width: 480, height: 240))
+    #endif
   }
 }
 
@@ -598,7 +773,24 @@ private func waitUntil(
   }
 
   @MainActor
+  private func host(
+    _ view: AnyView,
+    width: CGFloat = 1280,
+    height: CGFloat = 900
+  ) -> NSHostingView<AnyView> {
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    return hostingView
+  }
+
+  @MainActor
   private func render(_ hostingView: NSHostingView<SymphonyOperatorRootView>) {
+    hostingView.layoutSubtreeIfNeeded()
+    hostingView.displayIfNeeded()
+  }
+
+  @MainActor
+  private func render(_ hostingView: NSHostingView<AnyView>) {
     hostingView.layoutSubtreeIfNeeded()
     hostingView.displayIfNeeded()
   }

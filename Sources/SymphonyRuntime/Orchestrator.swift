@@ -4,6 +4,7 @@ import SymphonyShared
 // MARK: - Tracker Adapter Protocol (Section 7.1)
 
 public protocol TrackerAdapting: Sendable {
+  func fetchAllIssues() async throws -> [Issue]
   func fetchCandidateIssues() async throws -> [Issue]
   func fetchIssuesByStates(_ stateNames: [String]) async throws -> [Issue]
   func fetchIssueStatesByIDs(_ issueIDs: [IssueID]) async throws -> [IssueID: String]
@@ -271,6 +272,7 @@ public struct TickResult: Equatable, Sendable {
 // MARK: - Orchestrator Delegate
 
 public protocol OrchestratorDelegate: Sendable {
+  func orchestratorDidSyncIssues(_ issues: [Issue]) async
   func orchestratorDidDispatch(issue: Issue) async
   func orchestratorDidCancel(
     issueID: IssueID, issueIdentifier: IssueIdentifier, reason: String, cleanup: Bool
@@ -407,24 +409,27 @@ public final class Orchestrator: @unchecked Sendable {
     // Step 1: Process due retries
     let retriesProcessed = await processRetries()
 
-    // Step 2: Reconcile running issues
-    let reconciled = await reconcile()
-
-    // Step 3: Fetch candidates
-    let candidates: [Issue]
+    // Step 2: Fetch the full project snapshot once, then reuse it for synchronization,
+    // reconciliation, and candidate filtering.
+    let allIssues: [Issue]
     do {
-      candidates = try await current.tracker.fetchCandidateIssues()
+      allIssues = try await current.tracker.fetchAllIssues()
     } catch {
       return TickResult(
-        reconciled: reconciled, candidatesFetched: 0, dispatched: 0,
+        reconciled: 0, candidatesFetched: 0, dispatched: 0,
         retriesProcessed: retriesProcessed)
     }
+
+    await delegate.orchestratorDidSyncIssues(allIssues)
+
+    // Step 3: Reconcile running issues against the latest snapshot.
+    let reconciled = await reconcile(latestIssues: allIssues, config: current.config)
 
     // Step 4: Filter eligible and sort
     let running = runningIssueIDs
     let claimed = claimedIssueIDs
     let eligible = CandidateEligibility.filterEligible(
-      candidates: candidates,
+      candidates: allIssues,
       config: current.config.tracker,
       runningIssueIDs: running,
       claimedIssueIDs: claimed
@@ -452,7 +457,7 @@ public final class Orchestrator: @unchecked Sendable {
 
     return TickResult(
       reconciled: reconciled,
-      candidatesFetched: candidates.count,
+      candidatesFetched: allIssues.count,
       dispatched: dispatched,
       retriesProcessed: retriesProcessed
     )
@@ -476,65 +481,84 @@ public final class Orchestrator: @unchecked Sendable {
     lock.withLock { (_tracker, _config, _slotManager) }
   }
 
+  private nonisolated func cachedRunningIssue(for issueID: IssueID) -> Issue? {
+    lock.withLock { _runningIssues[issueID] }
+  }
+
+  private nonisolated func cacheRunningIssue(_ issue: Issue, for issueID: IssueID) {
+    lock.withLock { _runningIssues[issueID] = issue }
+  }
+
   // MARK: - Reconciliation (Section 7.4)
 
-  private func reconcile() async -> Int {
-    let current = currentExecutionInputs()
+  private func reconcile(
+    latestIssues: [Issue],
+    config: WorkflowConfig
+  ) async -> Int {
     let running = runningIssueIDs
     guard !running.isEmpty else { return 0 }
 
-    do {
-      let nativeStates = try await current.tracker.fetchIssueStatesByIDs(Array(running))
-      return await evaluateReconciliation(
-        running: running,
-        nativeStates: nativeStates,
-        config: current.config
-      )
-    } catch {
-      return 0
-    }
+    let latestIssuesByID = Dictionary(uniqueKeysWithValues: latestIssues.map { ($0.id, $0) })
+    return await evaluateReconciliation(
+      running: running,
+      latestIssuesByID: latestIssuesByID,
+      config: config
+    )
   }
 
   private func evaluateReconciliation(
     running: Set<IssueID>,
-    nativeStates: [IssueID: String],
+    latestIssuesByID: [IssueID: Issue],
     config: WorkflowConfig
   ) async -> Int {
     var reconciled = 0
     for issueID in running {
-      guard let nativeState = nativeStates[issueID] else { continue }
       reconciled += 1
 
-      guard let cachedIssue = lock.withLock({ _runningIssues[issueID] }) else { continue }
+      let cachedIssue = cachedRunningIssue(for: issueID)
+      guard let latestIssue = latestIssuesByID[issueID] else {
+        guard let cachedIssue else { continue }
+        markCompleted(
+          issueID: issueID,
+          state: cachedIssue.state
+        )
+        await delegate.orchestratorDidCancel(
+          issueID: issueID,
+          issueIdentifier: cachedIssue.identifier,
+          reason: "Issue no longer present in project snapshot",
+          cleanup: false
+        )
+        continue
+      }
 
       let action = Reconciler.evaluate(
-        issueState: nativeState,
-        projectState: cachedIssue.state,
+        issueState: latestIssue.issueState,
+        projectState: latestIssue.state,
         config: config.tracker
       )
 
       if case .cancelAndCleanup(let reason) = action {
-        markCompleted(issueID: issueID, state: cachedIssue.state)
+        guard let cachedIssue else { continue }
+        markCompleted(
+          issueID: issueID,
+          state: cachedIssue.state
+        )
         await delegate.orchestratorDidCancel(
           issueID: issueID, issueIdentifier: cachedIssue.identifier,
           reason: reason, cleanup: true)
       } else if case .cancelWithoutCleanup(let reason) = action {
-        markCompleted(issueID: issueID, state: cachedIssue.state)
+        guard let cachedIssue else { continue }
+        markCompleted(
+          issueID: issueID,
+          state: cachedIssue.state
+        )
         await delegate.orchestratorDidCancel(
           issueID: issueID, issueIdentifier: cachedIssue.identifier,
           reason: reason, cleanup: false)
       } else if case .refreshSnapshot = action {
-        let refreshed = Issue(
-          id: cachedIssue.id, identifier: cachedIssue.identifier,
-          repository: cachedIssue.repository, number: cachedIssue.number,
-          title: cachedIssue.title, description: cachedIssue.description,
-          priority: cachedIssue.priority, state: cachedIssue.state,
-          issueState: nativeState, projectItemID: cachedIssue.projectItemID,
-          url: cachedIssue.url, labels: cachedIssue.labels,
-          blockedBy: cachedIssue.blockedBy, createdAt: cachedIssue.createdAt,
-          updatedAt: cachedIssue.updatedAt)
-        lock.withLock { _runningIssues[issueID] = refreshed }
-        await delegate.orchestratorDidRefreshSnapshot(issue: refreshed)
+        guard cachedIssue != nil else { continue }
+        cacheRunningIssue(latestIssue, for: issueID)
+        await delegate.orchestratorDidRefreshSnapshot(issue: latestIssue)
       }
     }
     return reconciled
@@ -558,12 +582,19 @@ public final class Orchestrator: @unchecked Sendable {
 
 public final class StubTracker: TrackerAdapting, @unchecked Sendable {
   private let lock = NSLock()
+  private var _allIssues: [Issue] = []
   private var _candidates: [Issue] = []
   private var _issuesByStates: [Issue] = []
   private var _statesByIDs: [IssueID: String] = [:]
   private var _fetchError: Error?
 
   public init() {}
+
+  public func setAllIssues(_ issues: [Issue]) {
+    lock.lock()
+    _allIssues = issues
+    lock.unlock()
+  }
 
   public func setCandidates(_ issues: [Issue]) {
     lock.lock()
@@ -589,16 +620,25 @@ public final class StubTracker: TrackerAdapting, @unchecked Sendable {
     lock.unlock()
   }
 
-  public nonisolated func fetchCandidateIssues() async throws -> [Issue] {
-    let (error, candidates) = lock.withLock { (_fetchError, _candidates) }
+  public nonisolated func fetchAllIssues() async throws -> [Issue] {
+    let (error, issues) = lock.withLock { (_fetchError, _allIssues) }
     if let error { throw error }
-    return candidates
+    return issues
+  }
+
+  public nonisolated func fetchCandidateIssues() async throws -> [Issue] {
+    let (error, issues, candidates) = lock.withLock { (_fetchError, _allIssues, _candidates) }
+    if let error { throw error }
+    return candidates.isEmpty ? issues : candidates
   }
 
   public nonisolated func fetchIssuesByStates(_ stateNames: [String]) async throws -> [Issue] {
-    let (error, issues) = lock.withLock { (_fetchError, _issuesByStates) }
+    let (error, issues, issuesByStates) = lock.withLock {
+      (_fetchError, _allIssues, _issuesByStates)
+    }
     if let error { throw error }
-    return issues.filter { stateNames.contains($0.state) }
+    let source = issuesByStates.isEmpty ? issues : issuesByStates
+    return source.filter { stateNames.contains($0.state) }
   }
 
   public nonisolated func fetchIssueStatesByIDs(_ issueIDs: [IssueID]) async throws -> [IssueID:
@@ -614,12 +654,19 @@ public final class StubTracker: TrackerAdapting, @unchecked Sendable {
 
 public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
   private let lock = NSLock()
+  private var _synced: [Issue] = []
   private var _dispatched: [Issue] = []
   private var _canceled: [(IssueID, IssueIdentifier, String, Bool)] = []
   private var _refreshed: [Issue] = []
   private var _retried: [(Issue, RetryRecord)] = []
 
   public init() {}
+
+  public var synced: [Issue] {
+    lock.lock()
+    defer { lock.unlock() }
+    return _synced
+  }
 
   public var dispatched: [Issue] {
     lock.lock()
@@ -643,6 +690,10 @@ public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Se
     lock.lock()
     defer { lock.unlock() }
     return _retried
+  }
+
+  public nonisolated func orchestratorDidSyncIssues(_ issues: [Issue]) async {
+    lock.withLock { _synced = issues }
   }
 
   public nonisolated func orchestratorDidDispatch(issue: Issue) async {

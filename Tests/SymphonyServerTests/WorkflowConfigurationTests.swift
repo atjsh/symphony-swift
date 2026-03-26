@@ -638,6 +638,18 @@ import Testing
   #expect(definition.config.agent.defaultProvider == .codex)
 }
 
+@Test func workflowParserPartialWorkspaceConfig() throws {
+  let content = """
+    ---
+    workspace:
+      root: /tmp/custom-workspaces
+    ---
+    Prompt
+    """
+  let definition = try WorkflowParser.parse(content: content)
+  #expect(definition.config.workspace.root == "/tmp/custom-workspaces")
+}
+
 @Test func workflowParserEmptyContent() throws {
   let definition = try WorkflowParser.parse(content: "")
   #expect(definition.config == .defaults)

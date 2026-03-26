@@ -142,6 +142,102 @@ import Testing
   #expect(defaultHealth.statusCode == 200)
 }
 
+@Test func sqliteStoreOmitsCurrentRunFieldsForTerminalLatestRun() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("terminal-run.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let stalledRun = RunDetail(
+    runID: fixture.runDetail.runID,
+    issueID: fixture.runDetail.issueID,
+    issueIdentifier: fixture.runDetail.issueIdentifier,
+    attempt: fixture.runDetail.attempt,
+    status: "Stalled",
+    provider: fixture.runDetail.provider,
+    providerSessionID: fixture.runDetail.providerSessionID,
+    providerRunID: fixture.runDetail.providerRunID,
+    startedAt: fixture.runDetail.startedAt,
+    endedAt: "2026-03-24T03:10:00Z",
+    workspacePath: fixture.runDetail.workspacePath,
+    sessionID: fixture.runDetail.sessionID,
+    lastError: "approval stalled",
+    issue: fixture.issue,
+    turnCount: fixture.runDetail.turnCount,
+    lastAgentEventType: fixture.runDetail.lastAgentEventType,
+    lastAgentMessage: fixture.runDetail.lastAgentMessage,
+    tokens: fixture.runDetail.tokens,
+    logs: fixture.runDetail.logs
+  )
+
+  try store.upsertIssue(fixture.issue)
+  try store.upsertRun(stalledRun)
+
+  let issues = try store.issues()
+  #expect(issues.count == 1)
+  #expect(issues[0].currentProvider == nil)
+  #expect(issues[0].currentRunID == nil)
+  #expect(issues[0].currentSessionID == nil)
+}
+
+@Test func sqliteStoreTreatsCompletedStatusesAsHistoricalAndUnknownStatusesAsCurrent() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("status-current.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertIssue(fixture.issue)
+
+  let completedRun = RunDetail(
+    runID: RunID("run-completed"),
+    issueID: fixture.issue.id,
+    issueIdentifier: fixture.issue.identifier,
+    attempt: 2,
+    status: "completed",
+    provider: fixture.runDetail.provider,
+    providerSessionID: fixture.runDetail.providerSessionID,
+    providerRunID: fixture.runDetail.providerRunID,
+    startedAt: fixture.runDetail.startedAt,
+    endedAt: "2026-03-24T03:10:00Z",
+    workspacePath: fixture.runDetail.workspacePath,
+    sessionID: fixture.runDetail.sessionID,
+    lastError: nil,
+    issue: fixture.issue,
+    turnCount: fixture.runDetail.turnCount,
+    lastAgentEventType: fixture.runDetail.lastAgentEventType,
+    lastAgentMessage: fixture.runDetail.lastAgentMessage,
+    tokens: fixture.runDetail.tokens,
+    logs: fixture.runDetail.logs
+  )
+  try store.upsertRun(completedRun)
+
+  var issues = try store.issues()
+  #expect(issues.count == 1)
+  #expect(issues[0].currentRunID == nil)
+
+  let unknownRun = RunDetail(
+    runID: RunID("run-unknown"),
+    issueID: fixture.issue.id,
+    issueIdentifier: fixture.issue.identifier,
+    attempt: 3,
+    status: "mystery-status",
+    provider: fixture.runDetail.provider,
+    providerSessionID: fixture.runDetail.providerSessionID,
+    providerRunID: fixture.runDetail.providerRunID,
+    startedAt: fixture.runDetail.startedAt,
+    endedAt: nil,
+    workspacePath: fixture.runDetail.workspacePath,
+    sessionID: fixture.runDetail.sessionID,
+    lastError: nil,
+    issue: fixture.issue,
+    turnCount: fixture.runDetail.turnCount,
+    lastAgentEventType: fixture.runDetail.lastAgentEventType,
+    lastAgentMessage: fixture.runDetail.lastAgentMessage,
+    tokens: fixture.runDetail.tokens,
+    logs: fixture.runDetail.logs
+  )
+  try store.upsertRun(unknownRun)
+
+  issues = try store.issues()
+  #expect(issues[0].currentRunID == unknownRun.runID)
+}
+
 @Test func apiRouterServesSpecEndpointsAndUsesErrorEnvelope() throws {
   let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api.sqlite3")
   let fixture = try makeFixtureRecords()
@@ -293,6 +389,11 @@ import Testing
   #expect(reservedPrefix.statusCode == 405)
   #expect(
     try decodeBody(ErrorEnvelope.self, from: reservedPrefix).error.code == "method_not_allowed")
+
+  let defaultRefresh = try api.respond(
+    to: SymphonyAPIRequest(method: "POST", path: "/api/v1/refresh"))
+  #expect(defaultRefresh.statusCode == 202)
+  #expect(try decodeBody(RefreshResponse.self, from: defaultRefresh).queued)
 }
 
 @Test func apiRouterReturnsMethodNotAllowedForExactEndpointVerbMismatches() throws {

@@ -344,6 +344,23 @@ struct GitHubTrackerAdapterTests {
     #expect(issues[0].title == "Done")
   }
 
+  @Test func fetchAllIssuesIncludesNonActiveStates() async throws {
+    let transport = StubGraphQLTransport()
+    let config = makeConfig(activeStates: ["In Progress"])
+    let adapter = GitHubTrackerAdapter(transport: transport, config: config)
+
+    transport.enqueueResponse(projectIDResponse())
+    transport.enqueueResponse(
+      candidateItemsResponse(items: [
+        (id: "I_1", number: 1, title: "Backlog", repo: "test-owner/repo", status: "Backlog"),
+        (id: "I_2", number: 2, title: "Done", repo: "test-owner/repo", status: "Done"),
+      ]))
+
+    let issues = try await adapter.fetchAllIssues()
+    #expect(issues.count == 2)
+    #expect(issues.map { $0.state } == ["Backlog", "Done"])
+  }
+
   @Test func fetchIssueStatesByIDsReturnsStates() async throws {
     let transport = StubGraphQLTransport()
     let config = makeConfig()

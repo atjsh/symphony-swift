@@ -66,10 +66,12 @@ private enum ProviderSessionSnapshotExtractor {
         firstString(for: ["provider_session_id", "session_id", "sessionId"], in: $0)
       },
       providerThreadID: rawJSONObject.flatMap {
-        firstString(for: ["provider_thread_id", "thread_id", "threadId"], in: $0)
+        nestedObjectID(for: "thread", in: $0)
+          ?? firstString(for: ["provider_thread_id", "thread_id", "threadId"], in: $0)
       },
       providerTurnID: rawJSONObject.flatMap {
-        firstString(for: ["provider_turn_id", "turn_id", "turnId"], in: $0)
+        nestedObjectID(for: "turn", in: $0)
+          ?? firstString(for: ["provider_turn_id", "turn_id", "turnId"], in: $0)
       },
       providerRunID: rawJSONObject.flatMap {
         firstString(for: ["provider_run_id", "run_id", "runId"], in: $0)
@@ -211,6 +213,33 @@ private enum ProviderSessionSnapshotExtractor {
     for value in json.values {
       if let nestedValue = firstValue(for: keys, in: value) {
         return nestedValue
+      }
+    }
+
+    return nil
+  }
+
+  private static func nestedObjectID(for objectKey: String, in rawJSONObject: Any) -> String? {
+    if let array = rawJSONObject as? [Any] {
+      for item in array {
+        if let identifier = nestedObjectID(for: objectKey, in: item) {
+          return identifier
+        }
+      }
+      return nil
+    }
+
+    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    if let nested = json[objectKey] as? [String: Any],
+      let idValue = nested["id"],
+      let identifier = stringValue(from: idValue)
+    {
+      return identifier
+    }
+
+    for value in json.values {
+      if let identifier = nestedObjectID(for: objectKey, in: value) {
+        return identifier
       }
     }
 

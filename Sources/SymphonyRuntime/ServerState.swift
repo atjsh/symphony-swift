@@ -242,7 +242,7 @@ public final class SQLiteServerStateStore: @unchecked Sendable {
     }
 
     return try loadedIssues.map { issue in
-      let latestRun = try latestRun(for: issue.id)
+      let latestRun = try currentRun(for: issue.id)
       return IssueSummary(
         issueID: issue.id,
         identifier: issue.identifier,
@@ -255,6 +255,12 @@ public final class SQLiteServerStateStore: @unchecked Sendable {
         currentSessionID: latestRun?.sessionID
       )
     }
+  }
+
+  private func currentRun(for issueID: IssueID) throws -> RunSummary? {
+    guard let latestRun = try latestRun(for: issueID) else { return nil }
+    guard Self.isCurrentRunStatus(latestRun.status) else { return nil }
+    return latestRun
   }
 
   public func issueDetail(id: IssueID) throws -> IssueDetail? {
@@ -427,6 +433,25 @@ public final class SQLiteServerStateStore: @unchecked Sendable {
         )
       }
     )
+  }
+
+  private static func isCurrentRunStatus(_ status: String) -> Bool {
+    if let lifecycleState = RunLifecycleState(rawValue: status) {
+      return lifecycleState.isActive
+    }
+
+    switch status.lowercased() {
+    case "running", "queued", "active",
+      "preparingworkspace", "buildingprompt", "launchingagentprocess",
+      "initializingsession", "streamingturn", "finishing":
+      return true
+    case "succeeded", "failed", "timedout", "stalled",
+      "canceledbyreconciliation", "cancelled", "canceled",
+      "done", "complete", "completed":
+      return false
+    default:
+      return true
+    }
   }
 
   private func logStats(sessionID: SessionID) throws -> RunLogStats {

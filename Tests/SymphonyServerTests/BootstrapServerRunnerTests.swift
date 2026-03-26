@@ -234,6 +234,69 @@ import Testing
   #expect(resolved == explicitWorkflow)
 }
 
+@Test func bootstrapEnvironmentRequiredWorkflowURLUsesExplicitEnvironmentPath() throws {
+  let explicitWorkflow = try makeTemporaryDirectory().appendingPathComponent("required-workflow.md")
+  try "---\nagent:\n  default_provider: codex\n---\nResolve it".write(
+    to: explicitWorkflow,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let resolved = try BootstrapEnvironment.requiredWorkflowURL(
+    environment: [BootstrapEnvironment.workflowPathKey: explicitWorkflow.path],
+    workingDirectory: "/tmp/does-not-matter"
+  )
+
+  #expect(resolved == explicitWorkflow)
+}
+
+@Test func bootstrapRuntimeHooksAndEnvironmentHelpersSupportDirectAccess() throws {
+  withBootstrapRuntimeHooksLock {
+    let previousOutput = BootstrapRuntimeHooks.outputOverride
+    let previousKeepAlive = BootstrapRuntimeHooks.keepAliveOverride
+    let previousRunLoop = BootstrapRuntimeHooks.runLoopRunnerOverride
+    defer {
+      BootstrapRuntimeHooks.outputOverride = previousOutput
+      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAlive
+      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoop
+      BootstrapRuntimeHooks.resetDefaultRunLoopAction()
+    }
+
+    var outputLines = [String]()
+    var didKeepAlive = false
+    var didRunLoop = false
+    var didDefaultRunLoop = false
+
+    BootstrapRuntimeHooks.outputOverride = { outputLines.append($0) }
+    BootstrapRuntimeHooks.keepAliveOverride = nil
+    BootstrapRuntimeHooks.runLoopRunnerOverride = { didRunLoop = true }
+    BootstrapRuntimeHooks.withDefaultRunLoopAction { didDefaultRunLoop = true }
+
+    #expect(BootstrapRuntimeHooks.outputOverride != nil)
+    #expect(BootstrapRuntimeHooks.keepAliveOverride == nil)
+    #expect(BootstrapRuntimeHooks.runLoopRunnerOverride != nil)
+
+    BootstrapRuntimeHooks.defaultOutput("direct-output")
+    BootstrapRuntimeHooks.keepAlive()
+    #expect(outputLines == ["direct-output"])
+    #expect(didRunLoop)
+
+    BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
+    BootstrapRuntimeHooks.keepAlive()
+    #expect(didKeepAlive)
+    #expect(!didDefaultRunLoop)
+
+    let endpoint = BootstrapEnvironment.effectiveServerEndpoint(
+      environment: [
+        BootstrapEnvironment.serverSchemeKey: "https",
+        BootstrapEnvironment.serverHostKey: "example.com",
+        BootstrapEnvironment.serverPortKey: "9443",
+      ]
+    )
+    #expect(endpoint.description == "https://example.com:9443")
+  }
+}
+
 @Test func bootstrapServerRunnerStartsInjectedOrchestratorWhenWorkflowPresent() throws {
   let root = try makeTemporaryDirectory()
   let databaseURL = root.appendingPathComponent("bootstrap-orchestrator.sqlite3")
@@ -354,6 +417,71 @@ import Testing
   #expect(engine.reloadedWorkflows.count == 1)
   #expect(engine.reloadedWorkflows[0].config.polling.intervalMS == 75)
   #expect(engine.reloadedWorkflows[0].promptTemplate == "Updated prompt")
+  #expect(engine.stopped)
+}
+
+@Test func bootstrapServerRunnerWiresRefreshEndpointForRefreshableInjectedOrchestrator()
+  async throws
+{
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-refreshable.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try "---\npolling:\n  interval_ms: 50\n---\nResolve {{issue.title}}".write(
+    to: workflowURL,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let engine = RefreshableRecordingBootstrapEngine()
+  let port = try availableLoopbackPort()
+  let keepAliveEntered = LockedFlag()
+  let allowReturn = DispatchSemaphore(value: 0)
+
+  let runTask = Task {
+    try await BootstrapServerRunner.runAsync(
+      componentName: "BootstrapRefreshableOrchestrator",
+      environment: [
+        BootstrapEnvironment.serverHostKey: "127.0.0.1",
+        BootstrapEnvironment.serverPortKey: String(port),
+        BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+        BootstrapEnvironment.workflowPathKey: workflowURL.path,
+      ],
+      output: { _ in },
+      keepAlive: {
+        keepAliveEntered.setTrue()
+        allowReturn.wait()
+      },
+      startServer: true,
+      startOrchestrator: true,
+      workflowLoader: { url in
+        try WorkflowParser.parse(contentsOf: url)
+      },
+      engineFactory: { _, _, _ in
+        engine
+      }
+    )
+  }
+  defer { allowReturn.signal() }
+
+  try await waitUntil("bootstrap refreshable server enters keepAlive", timeout: .seconds(5)) {
+    keepAliveEntered.value
+  }
+
+  let refreshURL = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/refresh"))
+  var request = URLRequest(url: refreshURL)
+  request.httpMethod = "POST"
+  let (_, response) = try await URLSession(configuration: .ephemeral).data(for: request)
+  let httpResponse = try #require(response as? HTTPURLResponse)
+  #expect(httpResponse.statusCode == 202)
+
+  try await waitUntil("bootstrap refresh callback invoked") {
+    engine.refreshRequests == 1
+  }
+
+  allowReturn.signal()
+  try await runTask.value
+
+  #expect(engine.started)
   #expect(engine.stopped)
 }
 
@@ -712,6 +840,15 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
     sqlitePath.path == "/tmp/bootstrap-home/Library/Application Support/symphony/symphony.sqlite3")
 }
 
+@Test func bootstrapEnvironmentSQLitePathPrefersExplicitEnvironmentPath() {
+  let sqlitePath = BootstrapEnvironment.effectiveSQLitePath(
+    environment: [BootstrapEnvironment.serverSQLitePathKey: "~/custom.sqlite3"],
+    fileManager: .default
+  )
+
+  #expect(sqlitePath.path.hasSuffix("/custom.sqlite3"))
+}
+
 @Test func builtServerExecutableStartsAndExitsWhenRequested() throws {
   let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
@@ -882,6 +1019,48 @@ private final class RecordingBootstrapEngine: BootstrapEngineRunning, BootstrapW
 
   func reloadWorkflow(_ workflow: WorkflowDefinition) {
     lock.withLock { _reloadedWorkflows.append(workflow) }
+  }
+}
+
+private final class RefreshableRecordingBootstrapEngine: BootstrapEngineRunning,
+  BootstrapWorkflowReloading, OrchestratorEngineRefreshing, @unchecked Sendable
+{
+  private let lock = NSLock()
+  private var _started = false
+  private var _stopped = false
+  private var _reloadedWorkflows: [WorkflowDefinition] = []
+  private var _refreshRequests = 0
+
+  var started: Bool {
+    lock.withLock { _started }
+  }
+
+  var stopped: Bool {
+    lock.withLock { _stopped }
+  }
+
+  var reloadedWorkflows: [WorkflowDefinition] {
+    lock.withLock { _reloadedWorkflows }
+  }
+
+  var refreshRequests: Int {
+    lock.withLock { _refreshRequests }
+  }
+
+  func start() throws {
+    lock.withLock { _started = true }
+  }
+
+  func stop() {
+    lock.withLock { _stopped = true }
+  }
+
+  func reloadWorkflow(_ workflow: WorkflowDefinition) {
+    lock.withLock { _reloadedWorkflows.append(workflow) }
+  }
+
+  func requestRefresh() {
+    lock.withLock { _refreshRequests += 1 }
   }
 }
 

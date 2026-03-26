@@ -542,7 +542,13 @@ public enum BootstrapServerRunner {
       }
 
       if startServer {
-        let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+        let refresh = (orchestratorEngine as? any OrchestratorEngineRefreshing)?.requestRefresh
+        let api = SymphonyHTTPAPI(
+          store: store,
+          version: "1.0.0",
+          trackerKind: "github",
+          refresh: refresh
+        )
         let server = SymphonyHTTPServer(
           endpoint: state.endpoint,
           store: store,
@@ -629,7 +635,8 @@ public enum BootstrapServerRunner {
       trackerFactory: trackerFactory.make,
       agentRunnerFactory: agentRunnerFactory.make,
       promptTemplate: workflow.promptTemplate,
-      observer: observer
+      observer: observer,
+      stateStore: store
     )
   }
 }
