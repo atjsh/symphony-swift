@@ -276,23 +276,24 @@ public protocol OrchestratorDelegate: Sendable {
     issueID: IssueID, issueIdentifier: IssueIdentifier, reason: String, cleanup: Bool
   ) async
   func orchestratorDidRefreshSnapshot(issue: Issue) async
-  func orchestratorDidRetry(record: RetryRecord) async
+  func orchestratorDidRetry(issue: Issue, record: RetryRecord) async
 }
 
 // MARK: - Orchestrator (Section 8)
 
 public final class Orchestrator: @unchecked Sendable {
   private let lock = NSLock()
-  private let tracker: any TrackerAdapting
-  private let config: WorkflowConfig
+  private var _tracker: any TrackerAdapting
+  private var _config: WorkflowConfig
   private let retryQueue: RetryQueue
   private let delegate: any OrchestratorDelegate
-  private let slotManager: ConcurrencySlotManager
+  private var _slotManager: ConcurrencySlotManager
 
   private var _runningIssueIDs: Set<IssueID> = []
   private var _claimedIssueIDs: Set<IssueID> = []
   private var _runningStateCount: [String: Int] = [:]
   private var _runningIssues: [IssueID: Issue] = [:]
+  private var _retryIssues: [IssueID: Issue] = [:]
 
   public init(
     tracker: any TrackerAdapting,
@@ -300,11 +301,11 @@ public final class Orchestrator: @unchecked Sendable {
     retryQueue: RetryQueue = RetryQueue(),
     delegate: any OrchestratorDelegate
   ) {
-    self.tracker = tracker
-    self.config = config
+    self._tracker = tracker
+    self._config = config
     self.retryQueue = retryQueue
     self.delegate = delegate
-    self.slotManager = ConcurrencySlotManager(config: config.agent)
+    self._slotManager = ConcurrencySlotManager(config: config.agent)
   }
 
   // MARK: - State Management
@@ -319,6 +320,18 @@ public final class Orchestrator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return _claimedIssueIDs
+  }
+
+  public var config: WorkflowConfig {
+    lock.withLock { _config }
+  }
+
+  public func reload(tracker: any TrackerAdapting, config: WorkflowConfig) {
+    lock.withLock {
+      _tracker = tracker
+      _config = config
+      _slotManager = ConcurrencySlotManager(config: config.agent)
+    }
   }
 
   public func markRunning(issueID: IssueID, state: String) {
@@ -343,6 +356,7 @@ public final class Orchestrator: @unchecked Sendable {
     _runningIssueIDs.remove(issueID)
     _claimedIssueIDs.remove(issueID)
     _runningIssues.removeValue(forKey: issueID)
+    _retryIssues.removeValue(forKey: issueID)
     if let count = _runningStateCount[state], count > 1 {
       _runningStateCount[state] = count - 1
     } else {
@@ -357,9 +371,39 @@ public final class Orchestrator: @unchecked Sendable {
     lock.unlock()
   }
 
+  @discardableResult
+  public func enqueueRetry(
+    issue: Issue,
+    attempt: Int,
+    delayMS: Int,
+    error: String?,
+    now: Date = Date()
+  ) -> RetryRecord {
+    let record = RetryRecord(
+      issueID: issue.id,
+      issueIdentifier: issue.identifier,
+      attempt: attempt,
+      dueAt: now.addingTimeInterval(Double(delayMS) / 1000),
+      error: error
+    )
+
+    lock.withLock {
+      _retryIssues[issue.id] = issue
+      _claimedIssueIDs.insert(issue.id)
+    }
+    retryQueue.enqueue(record)
+    return record
+  }
+
+  public func queuedRetryRecord(issueID: IssueID) -> RetryRecord? {
+    retryQueue.entries[issueID]
+  }
+
   // MARK: - Tick Execution (Section 8.4)
 
   public func tick() async throws -> TickResult {
+    let current = currentExecutionInputs()
+
     // Step 1: Process due retries
     let retriesProcessed = await processRetries()
 
@@ -369,7 +413,7 @@ public final class Orchestrator: @unchecked Sendable {
     // Step 3: Fetch candidates
     let candidates: [Issue]
     do {
-      candidates = try await tracker.fetchCandidateIssues()
+      candidates = try await current.tracker.fetchCandidateIssues()
     } catch {
       return TickResult(
         reconciled: reconciled, candidatesFetched: 0, dispatched: 0,
@@ -381,7 +425,7 @@ public final class Orchestrator: @unchecked Sendable {
     let claimed = claimedIssueIDs
     let eligible = CandidateEligibility.filterEligible(
       candidates: candidates,
-      config: config.tracker,
+      config: current.config.tracker,
       runningIssueIDs: running,
       claimedIssueIDs: claimed
     )
@@ -394,7 +438,7 @@ public final class Orchestrator: @unchecked Sendable {
       let (stateCount, totalRunning) = readDispatchState(forState: issue.state)
 
       guard
-        slotManager.canDispatch(
+        current.slotManager.canDispatch(
           currentRunning: totalRunning,
           state: issue.state,
           currentInState: stateCount
@@ -424,22 +468,37 @@ public final class Orchestrator: @unchecked Sendable {
     }
   }
 
+  private func currentExecutionInputs() -> (
+    tracker: any TrackerAdapting,
+    config: WorkflowConfig,
+    slotManager: ConcurrencySlotManager
+  ) {
+    lock.withLock { (_tracker, _config, _slotManager) }
+  }
+
   // MARK: - Reconciliation (Section 7.4)
 
   private func reconcile() async -> Int {
+    let current = currentExecutionInputs()
     let running = runningIssueIDs
     guard !running.isEmpty else { return 0 }
 
     do {
-      let nativeStates = try await tracker.fetchIssueStatesByIDs(Array(running))
-      return await evaluateReconciliation(running: running, nativeStates: nativeStates)
+      let nativeStates = try await current.tracker.fetchIssueStatesByIDs(Array(running))
+      return await evaluateReconciliation(
+        running: running,
+        nativeStates: nativeStates,
+        config: current.config
+      )
     } catch {
       return 0
     }
   }
 
   private func evaluateReconciliation(
-    running: Set<IssueID>, nativeStates: [IssueID: String]
+    running: Set<IssueID>,
+    nativeStates: [IssueID: String],
+    config: WorkflowConfig
   ) async -> Int {
     var reconciled = 0
     for issueID in running {
@@ -487,7 +546,9 @@ public final class Orchestrator: @unchecked Sendable {
     let dueEntries = retryQueue.dueEntries()
     for entry in dueEntries {
       _ = retryQueue.dequeue(issueID: entry.issueID)
-      await delegate.orchestratorDidRetry(record: entry)
+      let issue = lock.withLock { _retryIssues.removeValue(forKey: entry.issueID) }
+      guard let issue else { continue }
+      await delegate.orchestratorDidRetry(issue: issue, record: entry)
     }
     return dueEntries.count
   }
@@ -556,7 +617,7 @@ public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Se
   private var _dispatched: [Issue] = []
   private var _canceled: [(IssueID, IssueIdentifier, String, Bool)] = []
   private var _refreshed: [Issue] = []
-  private var _retried: [RetryRecord] = []
+  private var _retried: [(Issue, RetryRecord)] = []
 
   public init() {}
 
@@ -578,7 +639,7 @@ public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Se
     return _refreshed
   }
 
-  public var retried: [RetryRecord] {
+  public var retried: [(Issue, RetryRecord)] {
     lock.lock()
     defer { lock.unlock() }
     return _retried
@@ -598,7 +659,7 @@ public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Se
     lock.withLock { _refreshed.append(issue) }
   }
 
-  public nonisolated func orchestratorDidRetry(record: RetryRecord) async {
-    lock.withLock { _retried.append(record) }
+  public nonisolated func orchestratorDidRetry(issue: Issue, record: RetryRecord) async {
+    lock.withLock { _retried.append((issue, record)) }
   }
 }

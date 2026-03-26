@@ -273,6 +273,66 @@ import Testing
   #expect(loadedWorkflow?.config.polling.intervalMS == 50)
 }
 
+@Test func bootstrapServerRunnerReloadsInjectedOrchestratorWhenWorkflowChanges() async throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-orchestrator-reload.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try "---\npolling:\n  interval_ms: 50\n---\nResolve {{issue.title}}".write(
+    to: workflowURL,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let engine = RecordingBootstrapEngine()
+  let allowExit = LockedFlag()
+
+  let runTask = Task {
+    try await BootstrapServerRunner.runAsync(
+      componentName: "BootstrapReloadingOrchestrator",
+      environment: [
+        BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+        BootstrapEnvironment.workflowPathKey: workflowURL.path,
+      ],
+      output: { _ in },
+      keepAlive: {
+        while !allowExit.value {
+          Thread.sleep(forTimeInterval: 0.02)
+        }
+      },
+      startServer: false,
+      startOrchestrator: true,
+      workflowLoader: { url in
+        try WorkflowParser.parse(contentsOf: url)
+      },
+      engineFactory: { _, _, _ in
+        engine
+      }
+    )
+  }
+
+  try await waitUntil("bootstrap engine starts") {
+    engine.started
+  }
+
+  try "---\npolling:\n  interval_ms: 75\n---\nUpdated prompt".write(
+    to: workflowURL,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  try await waitUntil("bootstrap workflow reload") {
+    !engine.reloadedWorkflows.isEmpty
+  }
+
+  allowExit.setTrue()
+  try await runTask.value
+
+  #expect(engine.reloadedWorkflows.count == 1)
+  #expect(engine.reloadedWorkflows[0].config.polling.intervalMS == 75)
+  #expect(engine.reloadedWorkflows[0].promptTemplate == "Updated prompt")
+  #expect(engine.stopped)
+}
+
 @Test func bootstrapServerRunnerCanStartOrchestratorUsingDefaultFactories() throws {
   let root = try makeTemporaryDirectory()
   let databaseURL = root.appendingPathComponent("bootstrap-default-orchestrator.sqlite3")
@@ -787,10 +847,13 @@ private final class LockedErrorBox: @unchecked Sendable {
   }
 }
 
-private final class RecordingBootstrapEngine: BootstrapEngineRunning, @unchecked Sendable {
+private final class RecordingBootstrapEngine: BootstrapEngineRunning, BootstrapWorkflowReloading,
+  @unchecked Sendable
+{
   private let lock = NSLock()
   private var _started = false
   private var _stopped = false
+  private var _reloadedWorkflows: [WorkflowDefinition] = []
 
   var started: Bool {
     lock.withLock { _started }
@@ -800,12 +863,20 @@ private final class RecordingBootstrapEngine: BootstrapEngineRunning, @unchecked
     lock.withLock { _stopped }
   }
 
+  var reloadedWorkflows: [WorkflowDefinition] {
+    lock.withLock { _reloadedWorkflows }
+  }
+
   func start() throws {
     lock.withLock { _started = true }
   }
 
   func stop() {
     lock.withLock { _stopped = true }
+  }
+
+  func reloadWorkflow(_ workflow: WorkflowDefinition) {
+    lock.withLock { _reloadedWorkflows.append(workflow) }
   }
 }
 

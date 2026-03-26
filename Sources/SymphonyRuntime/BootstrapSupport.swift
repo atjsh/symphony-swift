@@ -191,6 +191,12 @@ public protocol BootstrapEngineRunning: Sendable {
 
 extension OrchestratorEngine: BootstrapEngineRunning {}
 
+public protocol BootstrapWorkflowReloading: Sendable {
+  func reloadWorkflow(_ workflow: WorkflowDefinition)
+}
+
+extension OrchestratorEngine: BootstrapWorkflowReloading {}
+
 public struct BootstrapTrackerFactory: Sendable {
   public let environment: [String: String]
 
@@ -486,6 +492,7 @@ public enum BootstrapServerRunner {
 
     var serverTask: Task<Void, Error>?
     var orchestratorEngine: (any BootstrapEngineRunning)?
+    var workflowReloader: WorkflowReloader?
     var startupSignal: ServerStartupSignal?
     if startServer || shouldStartOrchestrator {
       let databaseURL = BootstrapEnvironment.effectiveSQLitePath(environment: environment)
@@ -514,6 +521,14 @@ public enum BootstrapServerRunner {
           let engine = try engineFactory(workflow, environment, store)
           try engine.start()
           orchestratorEngine = engine
+
+          if let reloadingEngine = engine as? any BootstrapWorkflowReloading {
+            let reloader = WorkflowReloader(workflowPath: workflowURL.path) { workflow in
+              reloadingEngine.reloadWorkflow(workflow)
+            }
+            try reloader.startWatching()
+            workflowReloader = reloader
+          }
         }
       }
 
@@ -543,12 +558,14 @@ public enum BootstrapServerRunner {
     return PreparedBootstrapRuntime(
       keepAlive: keepAlive,
       orchestratorEngine: orchestratorEngine,
+      workflowReloader: workflowReloader,
       serverTask: serverTask,
       startupSignal: startupSignal
     )
   }
 
   private static func cleanupRuntime(_ runtime: PreparedBootstrapRuntime) {
+    runtime.workflowReloader?.stopWatching()
     runtime.orchestratorEngine?.stop()
     runtime.serverTask?.cancel()
   }
@@ -599,6 +616,7 @@ public enum BootstrapServerRunner {
 private struct PreparedBootstrapRuntime {
   let keepAlive: () -> Void
   let orchestratorEngine: (any BootstrapEngineRunning)?
+  let workflowReloader: WorkflowReloader?
   let serverTask: Task<Void, Error>?
   let startupSignal: ServerStartupSignal?
 }

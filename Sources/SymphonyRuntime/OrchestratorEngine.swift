@@ -63,12 +63,12 @@ public struct NoOpEngineEventObserver: EngineEventObserving, Sendable {
 public final class OrchestratorEngine: @unchecked Sendable {
   private let lock = NSLock()
   private var _state: OrchestratorEngineState = .idle
-  private var _config: WorkflowConfig
+  private var _workflow: WorkflowDefinition
   private var _loopTask: Task<Void, Never>?
+  private var _runtime: EngineRuntime?
   private let trackerFactory: @Sendable (TrackerConfig) throws -> any TrackerAdapting
   private let workspaceManagerFactory: @Sendable (WorkspaceConfig) -> any WorkspaceManaging
   private let agentRunnerFactory: (@Sendable (any WorkspaceManaging) -> any AgentRunning)?
-  private let promptTemplate: String
   private let observer: any EngineEventObserving
 
   public var state: OrchestratorEngineState {
@@ -76,7 +76,7 @@ public final class OrchestratorEngine: @unchecked Sendable {
   }
 
   public var config: WorkflowConfig {
-    lock.withLock { _config }
+    lock.withLock { _workflow.config }
   }
 
   public init(
@@ -89,11 +89,10 @@ public final class OrchestratorEngine: @unchecked Sendable {
     promptTemplate: String = "",
     observer: any EngineEventObserving = NoOpEngineEventObserver()
   ) {
-    self._config = config
+    self._workflow = WorkflowDefinition(config: config, promptTemplate: promptTemplate)
     self.trackerFactory = trackerFactory
     self.workspaceManagerFactory = workspaceManagerFactory
     self.agentRunnerFactory = agentRunnerFactory
-    self.promptTemplate = promptTemplate
     self.observer = observer
   }
 
@@ -110,46 +109,36 @@ public final class OrchestratorEngine: @unchecked Sendable {
       throw OrchestratorEngineError.alreadyRunning
     }
 
-    let currentConfig = config
-    let observer = self.observer
-    let trackerFactory = self.trackerFactory
-    let workspaceManagerFactory = self.workspaceManagerFactory
-    let agentRunnerFactory = self.agentRunnerFactory
-    let promptTemplate = self.promptTemplate
-
     let task = Task { [weak self] in
+      guard let self else { return }
+
+      let observer = self.observer
       await observer.engineStateChanged(.starting)
 
       do {
-        let tracker = try trackerFactory(currentConfig.tracker)
-        let workspaceManager = workspaceManagerFactory(currentConfig.workspace)
-        let agentRunner = agentRunnerFactory?(workspaceManager)
-        let delegate = EngineOrchestratorDelegate(
-          workspaceManager: workspaceManager,
-          observer: observer,
-          agentRunner: agentRunner,
-          config: currentConfig,
-          promptTemplate: promptTemplate)
-        let orchestrator = Orchestrator(
-          tracker: tracker, config: currentConfig, delegate: delegate)
+        let runtime = try self.makeRuntime(for: self.workflowDefinition)
+        self.storeRuntime(runtime)
 
         // Startup cleanup (Section 7.5)
-        await self?.performStartupCleanup(
-          tracker: tracker, config: currentConfig,
-          workspaceManager: workspaceManager)
+        await self.performStartupCleanup(
+          tracker: runtime.tracker,
+          config: runtime.workflow.config,
+          workspaceManager: runtime.workspaceManager
+        )
 
-        self?.transitionTo(.running)
+        self.transitionTo(.running)
         await observer.engineStateChanged(.running)
 
         // Poll loop
-        let intervalNS = UInt64(currentConfig.polling.intervalMS) * 1_000_000
         while !Task.isCancelled {
-          if let result = try? await orchestrator.tick() {
+          if let orchestrator = self.activeOrchestrator,
+            let result = try? await orchestrator.tick()
+          {
             await observer.engineTickCompleted(result)
           }
 
           do {
-            try await Task.sleep(nanoseconds: intervalNS)
+            try await Task.sleep(nanoseconds: self.pollingIntervalNanoseconds())
           } catch {
             break
           }
@@ -158,7 +147,8 @@ public final class OrchestratorEngine: @unchecked Sendable {
         await observer.engineError(error, context: "startup")
       }
 
-      self?.transitionTo(.stopped)
+      self.clearRuntime()
+      self.transitionTo(.stopped)
       await observer.engineStateChanged(.stopped)
     }
 
@@ -180,13 +170,95 @@ public final class OrchestratorEngine: @unchecked Sendable {
   // MARK: - Config Reload (Section 6.6)
 
   public func reloadConfig(_ newConfig: WorkflowConfig) {
-    lock.withLock { _config = newConfig }
+    let promptTemplate = lock.withLock { _workflow.promptTemplate }
+    reloadWorkflow(WorkflowDefinition(config: newConfig, promptTemplate: promptTemplate))
+  }
+
+  public func reloadWorkflow(_ workflow: WorkflowDefinition) {
+    let previousWorkflow = lock.withLock {
+      let previous = _workflow
+      _workflow = workflow
+      return previous
+    }
+
+    do {
+      try reconfigureRuntime(for: workflow)
+    } catch {
+      lock.withLock { _workflow = previousWorkflow }
+      let observer = self.observer
+      Task {
+        await observer.engineError(error, context: "reload")
+      }
+    }
   }
 
   // MARK: - State Transitions
 
   private func transitionTo(_ newState: OrchestratorEngineState) {
     lock.withLock { _state = newState }
+  }
+
+  private var workflowDefinition: WorkflowDefinition {
+    lock.withLock { _workflow }
+  }
+
+  private var activeOrchestrator: Orchestrator? {
+    lock.withLock { _runtime?.orchestrator }
+  }
+
+  private func storeRuntime(_ runtime: EngineRuntime) {
+    lock.withLock { _runtime = runtime }
+  }
+
+  private func clearRuntime() {
+    lock.withLock { _runtime = nil }
+  }
+
+  private func pollingIntervalNanoseconds() -> UInt64 {
+    UInt64(max(0, config.polling.intervalMS)) * 1_000_000
+  }
+
+  private func makeRuntime(for workflow: WorkflowDefinition) throws -> EngineRuntime {
+    let tracker = try trackerFactory(workflow.config.tracker)
+    let workspaceManager = workspaceManagerFactory(workflow.config.workspace)
+    let agentRunner = agentRunnerFactory?(workspaceManager)
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: workspaceManager,
+      observer: observer,
+      agentRunner: agentRunner,
+      config: workflow.config,
+      promptTemplate: workflow.promptTemplate
+    )
+    let orchestrator = Orchestrator(
+      tracker: tracker,
+      config: workflow.config,
+      delegate: delegate
+    )
+    delegate.attach(orchestrator: orchestrator)
+    return EngineRuntime(
+      workflow: workflow,
+      tracker: tracker,
+      workspaceManager: workspaceManager,
+      agentRunner: agentRunner,
+      delegate: delegate,
+      orchestrator: orchestrator
+    )
+  }
+
+  private func reconfigureRuntime(for workflow: WorkflowDefinition) throws {
+    guard let runtime = lock.withLock({ _runtime }) else { return }
+
+    let tracker = try trackerFactory(workflow.config.tracker)
+    let workspaceManager = workspaceManagerFactory(workflow.config.workspace)
+    let agentRunner = agentRunnerFactory?(workspaceManager)
+
+    runtime.delegate.updateDependencies(
+      workspaceManager: workspaceManager,
+      agentRunner: agentRunner,
+      config: workflow.config,
+      promptTemplate: workflow.promptTemplate
+    )
+    runtime.orchestrator.reload(tracker: tracker, config: workflow.config)
   }
 
   // MARK: - Startup Cleanup (Section 7.5)
@@ -208,14 +280,25 @@ public final class OrchestratorEngine: @unchecked Sendable {
   }
 }
 
+private struct EngineRuntime {
+  let workflow: WorkflowDefinition
+  let tracker: any TrackerAdapting
+  let workspaceManager: any WorkspaceManaging
+  let agentRunner: (any AgentRunning)?
+  let delegate: EngineOrchestratorDelegate
+  let orchestrator: Orchestrator
+}
+
 // MARK: - Engine Orchestrator Delegate
 
 final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
-  private let workspaceManager: any WorkspaceManaging
+  private let lock = NSLock()
   private let observer: any EngineEventObserving
-  private let agentRunner: (any AgentRunning)?
-  private let config: WorkflowConfig
-  private let promptTemplate: String
+  private var _workspaceManager: any WorkspaceManaging
+  private var _agentRunner: (any AgentRunning)?
+  private var _config: WorkflowConfig
+  private var _promptTemplate: String
+  private weak var _orchestrator: Orchestrator?
 
   init(
     workspaceManager: any WorkspaceManaging,
@@ -224,33 +307,24 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     config: WorkflowConfig = .defaults,
     promptTemplate: String = ""
   ) {
-    self.workspaceManager = workspaceManager
+    self._workspaceManager = workspaceManager
     self.observer = observer
-    self.agentRunner = agentRunner
-    self.config = config
-    self.promptTemplate = promptTemplate
+    self._agentRunner = agentRunner
+    self._config = config
+    self._promptTemplate = promptTemplate
   }
 
   func orchestratorDidDispatch(issue: Issue) async {
-    let runID = RunID(UUID().uuidString)
-    let context = RunContext(
-      issueID: issue.id, issueIdentifier: issue.identifier, runID: runID, attempt: 1)
-    await observer.engineDispatchStarted(context)
-
-    if let agentRunner {
-      let result = await agentRunner.executeRun(
-        context: context, issue: issue, config: config, promptTemplate: promptTemplate)
-      let success = result.finalState == .succeeded
-      await observer.engineRunCompleted(context, success: success)
-    }
+    await executeRun(issue: issue, attempt: 1)
   }
 
   func orchestratorDidCancel(
     issueID: IssueID, issueIdentifier: IssueIdentifier, reason: String, cleanup: Bool
   ) async {
+    let snapshot = dependencySnapshot()
     if cleanup {
       let key = WorkspaceKey(issueIdentifier.rawValue)
-      try? workspaceManager.removeWorkspace(for: key, hooks: HooksConfig.defaults)
+      try? snapshot.workspaceManager.removeWorkspace(for: key, hooks: snapshot.config.hooks)
     }
     let runID = RunID(UUID().uuidString)
     let context = RunContext(
@@ -265,13 +339,85 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     await observer.engineDispatchStarted(context)
   }
 
-  func orchestratorDidRetry(record: RetryRecord) async {
+  func orchestratorDidRetry(issue: Issue, record: RetryRecord) async {
+    await executeRun(issue: issue, attempt: record.attempt)
+  }
+
+  func attach(orchestrator: Orchestrator) {
+    lock.withLock { _orchestrator = orchestrator }
+  }
+
+  func updateDependencies(
+    workspaceManager: any WorkspaceManaging,
+    agentRunner: (any AgentRunning)?,
+    config: WorkflowConfig,
+    promptTemplate: String
+  ) {
+    lock.withLock {
+      _workspaceManager = workspaceManager
+      _agentRunner = agentRunner
+      _config = config
+      _promptTemplate = promptTemplate
+    }
+  }
+
+  private func executeRun(issue: Issue, attempt: Int) async {
+    let snapshot = dependencySnapshot()
     let runID = RunID(UUID().uuidString)
     let context = RunContext(
-      issueID: record.issueID, issueIdentifier: record.issueIdentifier,
-      runID: runID, attempt: record.attempt)
+      issueID: issue.id,
+      issueIdentifier: issue.identifier,
+      runID: runID,
+      attempt: attempt
+    )
     await observer.engineDispatchStarted(context)
+
+    guard let agentRunner = snapshot.agentRunner else { return }
+
+    snapshot.orchestrator?.markRunning(issue: issue)
+    let result = await agentRunner.executeRun(
+      context: context,
+      issue: issue,
+      config: snapshot.config,
+      promptTemplate: snapshot.promptTemplate
+    )
+    snapshot.orchestrator?.markCompleted(issueID: issue.id, state: issue.state)
+
+    if result.finalState != .succeeded {
+      let delayMS = RetryQueue.backoffDelay(
+        attempt: context.attempt,
+        maxRetryBackoffMS: snapshot.config.agent.maxRetryBackoffMS
+      )
+      snapshot.orchestrator?.enqueueRetry(
+        issue: issue,
+        attempt: context.attempt + 1,
+        delayMS: delayMS,
+        error: result.error
+      )
+    }
+
+    await observer.engineRunCompleted(context, success: result.finalState == .succeeded)
   }
+
+  private func dependencySnapshot() -> DependencySnapshot {
+    lock.withLock {
+      DependencySnapshot(
+        workspaceManager: _workspaceManager,
+        agentRunner: _agentRunner,
+        config: _config,
+        promptTemplate: _promptTemplate,
+        orchestrator: _orchestrator
+      )
+    }
+  }
+}
+
+private struct DependencySnapshot {
+  let workspaceManager: any WorkspaceManaging
+  let agentRunner: (any AgentRunning)?
+  let config: WorkflowConfig
+  let promptTemplate: String
+  let orchestrator: Orchestrator?
 }
 
 // MARK: - Workflow Reloader (Section 6.6)
@@ -279,14 +425,14 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
 public final class WorkflowReloader: @unchecked Sendable {
   private let lock = NSLock()
   private let workflowPath: String
-  private var _lastConfig: WorkflowConfig?
+  private var _lastDefinition: WorkflowDefinition?
   private var _dispatchSource: DispatchSourceFileSystemObject?
   private var _fileDescriptor: Int32 = -1
-  private let onChange: @Sendable (WorkflowConfig) -> Void
+  private let onChange: @Sendable (WorkflowDefinition) -> Void
 
   public init(
     workflowPath: String,
-    onChange: @escaping @Sendable (WorkflowConfig) -> Void
+    onChange: @escaping @Sendable (WorkflowDefinition) -> Void
   ) {
     self.workflowPath = workflowPath
     self.onChange = onChange
@@ -340,10 +486,10 @@ public final class WorkflowReloader: @unchecked Sendable {
     do {
       let content = try String(contentsOfFile: workflowPath, encoding: .utf8)
       let definition = try WorkflowParser.parse(content: content)
-      let previousConfig = lock.withLock { _lastConfig }
-      if previousConfig != definition.config {
-        lock.withLock { _lastConfig = definition.config }
-        onChange(definition.config)
+      let previousDefinition = lock.withLock { _lastDefinition }
+      if previousDefinition != definition {
+        lock.withLock { _lastDefinition = definition }
+        onChange(definition)
       }
     } catch {
       // Invalid reloads must not crash; keep last known good config

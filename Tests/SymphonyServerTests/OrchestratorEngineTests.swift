@@ -23,6 +23,22 @@ struct OrchestratorEngineTests {
     )
   }
 
+  private func makeWorkflow(
+    pollingIntervalMS: Int = 100,
+    activeStates: [String] = ["Todo", "In Progress"],
+    terminalStates: [String] = ["Done"],
+    promptTemplate: String = "Resolve {{issue.title}}"
+  ) -> WorkflowDefinition {
+    WorkflowDefinition(
+      config: makeConfig(
+        pollingIntervalMS: pollingIntervalMS,
+        activeStates: activeStates,
+        terminalStates: terminalStates
+      ),
+      promptTemplate: promptTemplate
+    )
+  }
+
   @Test func engineStartsInIdleState() {
     let config = makeConfig()
     let engine = OrchestratorEngine(
@@ -100,6 +116,115 @@ struct OrchestratorEngineTests {
     engine.reloadConfig(newConfig)
 
     #expect(engine.config.polling.intervalMS == 200)
+  }
+
+  @Test func engineReloadWorkflowAppliesFutureConfigAndPromptTemplate() async throws {
+    let workflow = makeWorkflow(
+      pollingIntervalMS: 50,
+      activeStates: ["In Progress"],
+      promptTemplate: "Initial {{issue.title}}"
+    )
+    let updatedWorkflow = makeWorkflow(
+      pollingIntervalMS: 50,
+      activeStates: ["Queued"],
+      promptTemplate: "Updated {{issue.title}}"
+    )
+
+    let tracker = StubTracker()
+    let issue = Issue(
+      id: IssueID("I_RELOAD"),
+      identifier: try IssueIdentifier(validating: "owner/repo#77"),
+      repository: "owner/repo",
+      number: 77,
+      title: "Reload me",
+      description: nil,
+      priority: nil,
+      state: "Queued",
+      issueState: "OPEN",
+      projectItemID: nil,
+      url: nil,
+      labels: [],
+      blockedBy: [],
+      createdAt: nil,
+      updatedAt: nil
+    )
+    tracker.setCandidates([issue])
+
+    let stubRunner = StubAgentRunner()
+    let engine = OrchestratorEngine(
+      config: workflow.config,
+      trackerFactory: { _ in tracker },
+      agentRunnerFactory: { _ in stubRunner },
+      promptTemplate: workflow.promptTemplate
+    )
+
+    try engine.start()
+    defer { engine.stop() }
+
+    let didStart = try await waitUntil {
+      engine.state == .running
+    }
+
+    #expect(didStart)
+    #expect(stubRunner.executeRunCount == 0)
+
+    engine.reloadWorkflow(updatedWorkflow)
+
+    let didDispatch = try await waitUntil {
+      stubRunner.executeRunCount == 1
+    }
+
+    #expect(didDispatch)
+    #expect(stubRunner.lastConfig?.tracker.activeStates == ["Queued"])
+    #expect(stubRunner.lastPromptTemplate == "Updated {{issue.title}}")
+  }
+
+  @Test func engineReloadWorkflowFailureKeepsLastGoodDefinitionAndReportsError() async throws {
+    let observer = CollectingEngineObserver()
+    let trackerFactoryCallCount = Mutex(0)
+    let initialWorkflow = makeWorkflow(
+      pollingIntervalMS: 50,
+      activeStates: ["In Progress"],
+      promptTemplate: "Initial prompt"
+    )
+    let engine = OrchestratorEngine(
+      config: initialWorkflow.config,
+      trackerFactory: { _ in
+        let callCount = trackerFactoryCallCount.withLock {
+          $0 += 1
+          return $0
+        }
+        if callCount == 1 {
+          return StubTracker()
+        }
+        throw OrchestratorEngineError.trackerCreationFailed("reload failure")
+      },
+      promptTemplate: initialWorkflow.promptTemplate,
+      observer: observer
+    )
+
+    try engine.start()
+    defer { engine.stop() }
+
+    let didStart = try await waitUntil {
+      engine.state == .running
+    }
+    #expect(didStart)
+
+    engine.reloadWorkflow(
+      makeWorkflow(
+        pollingIntervalMS: 75,
+        activeStates: ["Queued"],
+        promptTemplate: "Broken prompt"
+      ))
+
+    let didReportReloadError = try await waitUntil {
+      observer.errors.contains { $0.context == "reload" }
+    }
+
+    #expect(didReportReloadError)
+    #expect(engine.config.polling.intervalMS == initialWorkflow.config.polling.intervalMS)
+    #expect(engine.config.tracker.activeStates == initialWorkflow.config.tracker.activeStates)
   }
 
   @Test func engineStartupCleanupRemovesTerminalWorkspaces() async throws {
@@ -401,23 +526,22 @@ struct WorkflowReloaderTests {
       atPath: tmpFile, contents: Data("---\npolling:\n  interval_ms: 1000\n---\nPrompt".utf8))
     defer { try? FileManager.default.removeItem(atPath: tmpFile) }
 
-    let didReload = Mutex(false)
+    let reloadedDefinition = Mutex<WorkflowDefinition?>(nil)
 
-    let reloader = WorkflowReloader(workflowPath: tmpFile) { config in
-      didReload.withLock { $0 = true }
+    let reloader = WorkflowReloader(workflowPath: tmpFile) { definition in
+      reloadedDefinition.withLock { $0 = definition }
     }
     try reloader.startWatching()
 
-    // Write changed content
     try "---\npolling:\n  interval_ms: 2000\n---\nUpdated prompt".write(
       toFile: tmpFile, atomically: true, encoding: .utf8)
-
-    // Wait for DispatchSource to fire
-    try await Task.sleep(nanoseconds: 500_000_000)
+    reloader.processFileChange()
 
     reloader.stopWatching()
 
-    // DispatchSource may or may not fire depending on timing; we verify no crash
+    let definition = try #require(reloadedDefinition.withLock { $0 })
+    #expect(definition.config.polling.intervalMS == 2000)
+    #expect(definition.promptTemplate == "Updated prompt")
   }
 
   @Test func invalidFileChangeKeepsLastGoodConfig() async throws {
@@ -541,12 +665,42 @@ struct EngineOrchestratorDelegateTests {
     #expect(observer.dispatches.count == 1)
   }
 
-  @Test func delegateRetryNotifiesObserver() async throws {
+  @Test func delegateRetryWithAgentRunnerExecutesRecordedAttempt() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_retry_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
+    let stubRunner = StubAgentRunner()
     let delegate = EngineOrchestratorDelegate(
-      workspaceManager: wsManager, observer: observer)
+      workspaceManager: wsManager,
+      observer: observer,
+      agentRunner: stubRunner,
+      config: .defaults,
+      promptTemplate: "Retry prompt"
+    )
+    let orchestrator = Orchestrator(
+      tracker: StubTracker(),
+      config: .defaults,
+      delegate: delegate
+    )
+    delegate.attach(orchestrator: orchestrator)
+
+    let issue = Issue(
+      id: IssueID("I_1"),
+      identifier: try IssueIdentifier(validating: "o/r#1"),
+      repository: "o/r",
+      number: 1,
+      title: "Retry me",
+      description: nil,
+      priority: nil,
+      state: "In Progress",
+      issueState: "OPEN",
+      projectItemID: nil,
+      url: nil,
+      labels: [],
+      blockedBy: [],
+      createdAt: nil,
+      updatedAt: nil
+    )
 
     let record = RetryRecord(
       issueID: IssueID("I_1"),
@@ -556,8 +710,12 @@ struct EngineOrchestratorDelegateTests {
       error: "timeout"
     )
 
-    await delegate.orchestratorDidRetry(record: record)
+    await delegate.orchestratorDidRetry(issue: issue, record: record)
     #expect(observer.dispatches.count == 1)
+    #expect(observer.dispatches[0].attempt == 2)
+    #expect(observer.completions.count == 1)
+    #expect(stubRunner.executeRunCount == 1)
+    #expect(stubRunner.lastContext?.attempt == 2)
   }
 
   @Test func delegateDispatchWithAgentRunnerExecutesRun() async throws {
@@ -569,6 +727,12 @@ struct EngineOrchestratorDelegateTests {
     let delegate = EngineOrchestratorDelegate(
       workspaceManager: wsManager, observer: observer,
       agentRunner: stubRunner, config: .defaults, promptTemplate: "Test prompt")
+    let orchestrator = Orchestrator(
+      tracker: StubTracker(),
+      config: .defaults,
+      delegate: delegate
+    )
+    delegate.attach(orchestrator: orchestrator)
 
     let issue = Issue(
       id: IssueID("I_1"),
@@ -588,17 +752,27 @@ struct EngineOrchestratorDelegateTests {
 
     // AgentRunner should have been called
     #expect(stubRunner.executeRunCount == 1)
+    #expect(stubRunner.lastPromptTemplate == "Test prompt")
+    #expect(orchestrator.runningIssueIDs.isEmpty)
+    #expect(orchestrator.queuedRetryRecord(issueID: issue.id) == nil)
   }
 
-  @Test func delegateDispatchWithFailingRunnerReportsFailure() async throws {
+  @Test func delegateDispatchFailureSchedulesRetryOnAttachedOrchestrator() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_fail_\(UUID().uuidString)"
     let wsManager = WorkspaceManager(root: wsRoot)
 
     let stubRunner = StubAgentRunner(finalState: .failed)
+    let config = WorkflowConfig(agent: AgentConfig(maxRetryBackoffMS: 60_000))
     let delegate = EngineOrchestratorDelegate(
       workspaceManager: wsManager, observer: observer,
-      agentRunner: stubRunner, config: .defaults, promptTemplate: "")
+      agentRunner: stubRunner, config: config, promptTemplate: "")
+    let orchestrator = Orchestrator(
+      tracker: StubTracker(),
+      config: config,
+      delegate: delegate
+    )
+    delegate.attach(orchestrator: orchestrator)
 
     let issue = Issue(
       id: IssueID("I_1"),
@@ -613,6 +787,12 @@ struct EngineOrchestratorDelegateTests {
 
     #expect(observer.completions.count == 1)
     #expect(observer.completions[0].1 == false)
+    #expect(orchestrator.runningIssueIDs.isEmpty)
+    #expect(orchestrator.claimedIssueIDs.contains(issue.id))
+
+    let retryRecord = try #require(orchestrator.queuedRetryRecord(issueID: issue.id))
+    #expect(retryRecord.attempt == 2)
+    #expect(retryRecord.error == "stub error")
   }
 
   @Test func delegateDispatchWithoutAgentRunnerDoesNotComplete() async throws {
@@ -646,6 +826,9 @@ struct EngineOrchestratorDelegateTests {
 private final class StubAgentRunner: AgentRunning, @unchecked Sendable {
   private let lock = NSLock()
   private var _executeRunCount = 0
+  private var _lastContext: RunContext?
+  private var _lastConfig: WorkflowConfig?
+  private var _lastPromptTemplate: String?
   private let finalState: RunLifecycleState
 
   init(finalState: RunLifecycleState = .succeeded) {
@@ -656,15 +839,47 @@ private final class StubAgentRunner: AgentRunning, @unchecked Sendable {
     lock.withLock { _executeRunCount }
   }
 
+  var lastContext: RunContext? {
+    lock.withLock { _lastContext }
+  }
+
+  var lastConfig: WorkflowConfig? {
+    lock.withLock { _lastConfig }
+  }
+
+  var lastPromptTemplate: String? {
+    lock.withLock { _lastPromptTemplate }
+  }
+
   func executeRun(
     context: RunContext, issue: SymphonyShared.Issue, config: WorkflowConfig,
     promptTemplate: String
   ) async -> AgentRunResult {
-    lock.withLock { _executeRunCount += 1 }
+    lock.withLock {
+      _executeRunCount += 1
+      _lastContext = context
+      _lastConfig = config
+      _lastPromptTemplate = promptTemplate
+    }
     return AgentRunResult(
       context: context, sessionID: SessionID("stub_session"),
       finalState: finalState, eventCount: 0, error: finalState == .failed ? "stub error" : nil)
   }
 
   func cancelRun(runID: RunID) async throws {}
+}
+
+private func waitUntil(
+  timeoutMS: Int = 1_000,
+  pollIntervalMS: Int = 25,
+  condition: @escaping @Sendable () -> Bool
+) async throws -> Bool {
+  let deadline = Date().addingTimeInterval(Double(timeoutMS) / 1000)
+  while Date() <= deadline {
+    if condition() {
+      return true
+    }
+    try await Task.sleep(nanoseconds: UInt64(pollIntervalMS) * 1_000_000)
+  }
+  return condition()
 }

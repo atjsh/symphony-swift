@@ -533,6 +533,31 @@ private func makeIssue(
   #expect(orchestrator.runningIssueIDs.contains(IssueID("2")))
 }
 
+@Test func orchestratorReloadAppliesUpdatedConfigOnFutureTicks() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let initialConfig = WorkflowConfig(
+    tracker: TrackerConfig(activeStates: ["In Progress"], terminalStates: ["Done"])
+  )
+  let updatedConfig = WorkflowConfig(
+    tracker: TrackerConfig(activeStates: ["Queued"], terminalStates: ["Done"])
+  )
+  let orchestrator = Orchestrator(tracker: tracker, config: initialConfig, delegate: delegate)
+
+  let issue = try makeIssue(id: "reload-1", number: 1, state: "Queued")
+  tracker.setCandidates([issue])
+
+  let initialResult = try await orchestrator.tick()
+  #expect(initialResult.dispatched == 0)
+
+  orchestrator.reload(tracker: tracker, config: updatedConfig)
+
+  let updatedResult = try await orchestrator.tick()
+  #expect(updatedResult.dispatched == 1)
+  #expect(delegate.dispatched.count == 1)
+  #expect(orchestrator.config.tracker.activeStates == ["Queued"])
+}
+
 // MARK: - Orchestrator Tick Tests
 
 @Test func orchestratorTickDispatchesCandidates() async throws {
@@ -585,18 +610,37 @@ private func makeIssue(
   let orchestrator = Orchestrator(
     tracker: tracker, config: .defaults, retryQueue: retryQueue, delegate: delegate)
 
-  let record = RetryRecord(
-    issueID: IssueID("retry-1"),
-    issueIdentifier: try IssueIdentifier(validating: "org/repo#1"),
-    attempt: 1,
-    dueAt: Date(timeIntervalSinceNow: -10),
-    error: nil
-  )
-  retryQueue.enqueue(record)
+  let issue = try makeIssue(id: "retry-1", number: 1, state: "In Progress")
+  let record = orchestrator.enqueueRetry(issue: issue, attempt: 2, delayMS: 0, error: "timeout")
 
   let result = try await orchestrator.tick()
   #expect(result.retriesProcessed == 1)
   #expect(delegate.retried.count == 1)
+  #expect(delegate.retried[0].0.id == issue.id)
+  #expect(delegate.retried[0].1 == record)
+  #expect(orchestrator.queuedRetryRecord(issueID: issue.id) == nil)
+}
+
+@Test func orchestratorTickSkipsRetryWithoutIssueSnapshot() async throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let retryQueue = RetryQueue()
+  let orchestrator = Orchestrator(
+    tracker: tracker, config: .defaults, retryQueue: retryQueue, delegate: delegate)
+
+  retryQueue.enqueue(
+    RetryRecord(
+      issueID: IssueID("retry-missing"),
+      issueIdentifier: try IssueIdentifier(validating: "org/repo#3"),
+      attempt: 2,
+      dueAt: Date(timeIntervalSinceNow: -10),
+      error: "timeout"
+    )
+  )
+
+  let result = try await orchestrator.tick()
+  #expect(result.retriesProcessed == 1)
+  #expect(delegate.retried.isEmpty)
   #expect(retryQueue.count == 0)
 }
 
@@ -895,7 +939,7 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
     dueAt: Date(),
     error: nil
   )
-  await delegate.orchestratorDidRetry(record: record)
+  await delegate.orchestratorDidRetry(issue: issue, record: record)
   #expect(delegate.retried.count == 1)
 }
 
