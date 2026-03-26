@@ -339,45 +339,6 @@ public struct CommitHarness {
     return arguments
   }
 
-  static func enrichViolationsWithFunctions(
-    violations: [HarnessCoverageViolation],
-    coverageJSONPath: URL,
-    projectRoot: URL,
-    processRunner: ProcessRunning,
-    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
-  ) throws -> [HarnessCoverageViolation] {
-    let capabilities = try toolchainCapabilitiesResolver.resolve()
-    let llvmCovCommand = capabilities.llvmCovCommand
-    let inspector = SwiftPMCoverageInspector(
-      processRunner: processRunner,
-      llvmCovCommand: llvmCovCommand
-    )
-    let candidates = violations.map { violation in
-      let components = violation.name.split(separator: "/")
-      let targetName = components.count > 2 ? String(components[1]) : "Sources"
-      return CoverageInspectionFileCandidate(
-        targetName: targetName,
-        path: violation.name,
-        coveredLines: violation.coveredLines,
-        executableLines: violation.executableLines,
-        lineCoverage: violation.lineCoverage
-      )
-    }
-    let result = try inspector.inspect(
-      coverageJSONPath: coverageJSONPath,
-      projectRoot: projectRoot,
-      candidates: candidates,
-      includeFunctions: true,
-      includeMissingLines: true
-    )
-    return applyInspectionFiles(
-      result.files,
-      to: violations,
-      processRunner: processRunner,
-      xcrunAvailable: capabilities.xcrunAvailable
-    )
-  }
-
   private static func inspectPackageCoverageFiles(
     report: PackageCoverageReport,
     projectRoot: URL,
@@ -418,7 +379,7 @@ public struct CommitHarness {
     return inspection.files
   }
 
-  private static func applyInspectionFiles(
+  static func applyInspectionFiles(
     _ inspectionFiles: [CoverageInspectionFileReport],
     to violations: [HarnessCoverageViolation],
     processRunner: ProcessRunning,
