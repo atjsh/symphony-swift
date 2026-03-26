@@ -1433,7 +1433,8 @@ import Testing
         HarnessCoverageViolation(
           suite: "package", kind: "file", name: "Sources/Foo.swift",
           coveredLines: 9, executableLines: 10, lineCoverage: 0.9,
-          uncoveredFunctions: ["reconcile()", "tick()"])
+          uncoveredFunctions: ["reconcile()", "tick()"],
+          missingLineRanges: [CoverageLineRange(startLine: 12, endLine: 14)])
       ],
       clientTargetViolations: [],
       clientFileViolations: [],
@@ -1442,6 +1443,7 @@ import Testing
     )
   )
   #expect(human.contains("package file Sources/Foo.swift 90.00% (9/10)"))
+  #expect(human.contains("  missing_lines 12-14"))
   #expect(human.contains("  function reconcile()"))
   #expect(human.contains("  function tick()"))
 }
@@ -1478,6 +1480,95 @@ import Testing
   #expect(!humanNil.contains("function"))
 }
 
+@Test
+func commitHarnessExecuteInspectsPackageViolationsBeforeCoverageLoadersRewriteSwiftPMArtifacts()
+  throws
+{
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    let codecovRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov", isDirectory: true)
+    let testBundleRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/symphony-swiftPackageTests.xctest/Contents/MacOS",
+      isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: codecovRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: testBundleRoot, withIntermediateDirectories: true)
+
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let coveragePath = codecovRoot.appendingPathComponent("symphony-swift.json")
+    let packageCoverageJSON = #"""
+      {
+        "data": [
+          {
+            "files": [
+              {
+                "filename": "__REPO__/Sources/Foo/Bar.swift",
+                "summary": { "lines": { "count": 4, "covered": 2 } }
+              }
+            ]
+          }
+        ]
+      }
+      """#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    try packageCoverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let profdataPath = codecovRoot.appendingPathComponent("default.profdata")
+    let testBinaryPath = testBundleRoot.appendingPathComponent("symphony-swiftPackageTests")
+    try Data().write(to: profdataPath)
+    try Data().write(to: testBinaryPath)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+    let runner = PackageInspectionOverwriteProcessRunner(
+      packageCoveragePath: coveragePath.path,
+      sourceFilePath: sourceFile.path,
+      profdataPath: profdataPath.path,
+      testBinaryPath: testBinaryPath.path
+    )
+    let suiteCoverage = CoverageReport(
+      coveredLines: 1,
+      executableLines: 1,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+
+    let execution = try CommitHarness(
+      processRunner: runner,
+      statusSink: { _ in },
+      clientCoverageLoader: { _ in suiteCoverage },
+      serverCoverageLoader: { _ in
+        runner.markArtifactsRewritten()
+        return suiteCoverage
+      },
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests)
+    ).execute(
+      workspace: workspace,
+      request: HarnessCommandRequest(
+        minimumCoveragePercent: 100, json: false, currentDirectory: repoRoot)
+    )
+
+    let violation = try #require(execution.report.packageFileViolations.first)
+    #expect(violation.name == "Sources/Foo/Bar.swift")
+    #expect(violation.missingLineRanges == [CoverageLineRange(startLine: 2, endLine: 3)])
+    #expect(violation.uncoveredFunctions == ["initial()"])
+  }
+}
+
 @Test func harnessCoverageViolationDecodesWithoutUncoveredFunctions() throws {
   let json =
     #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9}"#
@@ -1485,14 +1576,16 @@ import Testing
   let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
   #expect(violation.suite == "package")
   #expect(violation.uncoveredFunctions == nil)
+  #expect(violation.missingLineRanges == nil)
 }
 
 @Test func harnessCoverageViolationDecodesWithUncoveredFunctions() throws {
   let json =
-    #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9,"uncoveredFunctions":["bar()"]}"#
+    #"{"suite":"package","kind":"file","name":"Foo.swift","coveredLines":9,"executableLines":10,"lineCoverage":0.9,"uncoveredFunctions":["bar()"],"missingLineRanges":[{"startLine":3,"endLine":4}]}"#
   let data = Data(json.utf8)
   let violation = try JSONDecoder().decode(HarnessCoverageViolation.self, from: data)
   #expect(violation.uncoveredFunctions == ["bar()"])
+  #expect(violation.missingLineRanges == [CoverageLineRange(startLine: 3, endLine: 4)])
 }
 
 @Test func enrichViolationsWithFunctionsReturnsEnrichedViolations() throws {
@@ -1533,6 +1626,237 @@ import Testing
   }
 }
 
+@Test func enrichViolationsWithFunctionsDemanglesNamesAndCapturesMissingLines() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    let codecovRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov", isDirectory: true)
+    let testBundleRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/symphony-swiftPackageTests.xctest/Contents/MacOS",
+      isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: codecovRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: testBundleRoot, withIntermediateDirectories: true)
+
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let coveragePath = codecovRoot.appendingPathComponent("symphony-swift.json")
+    let profdataPath = codecovRoot.appendingPathComponent("default.profdata")
+    let testBinaryPath = testBundleRoot.appendingPathComponent("symphony-swiftPackageTests")
+    try "{}".write(to: coveragePath, atomically: true, encoding: .utf8)
+    try Data().write(to: profdataPath)
+    try Data().write(to: testBinaryPath)
+
+    let showCommand =
+      "xcrun llvm-cov show -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let functionsCommand =
+      "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let demangleCommand = "xcrun swift-demangle $s4Main3baryyF"
+
+    let enriched = try CommitHarness.enrichViolationsWithFunctions(
+      violations: [
+        HarnessCoverageViolation(
+          suite: "package",
+          kind: "file",
+          name: "Sources/Foo/Bar.swift",
+          coveredLines: 2,
+          executableLines: 4,
+          lineCoverage: 0.5
+        )
+      ],
+      coverageJSONPath: coveragePath,
+      projectRoot: repoRoot,
+      processRunner: StubProcessRunner(results: [
+        showCommand: StubProcessRunner.success(
+          """
+              1|      1|func bar() {
+              2|      0|    uncovered()
+              3|      0|    uncoveredAgain()
+              4|      1|}
+          """
+        ),
+        functionsCommand: StubProcessRunner.success(
+          """
+          File '\(sourceFile.path)':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          $s4Main3baryyF                               2       1  50.00%         4       2  50.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       1  50.00%         4       2  50.00%         0       0   0.00%
+          """
+        ),
+        demangleCommand: StubProcessRunner.success(
+          """
+          $s4Main3baryyF ---> Main.bar() -> ()
+          ignored trailing line
+          """
+        ),
+      ]),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests)
+    )
+
+    #expect(enriched.count == 1)
+    #expect(enriched[0].uncoveredFunctions == ["Main.bar() -> ()"])
+    #expect(enriched[0].missingLineRanges == [CoverageLineRange(startLine: 2, endLine: 3)])
+  }
+}
+
+@Test func enrichViolationsWithFunctionsFallsBackWhenDemanglingIsUnavailableOrUnnecessary() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    let codecovRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov", isDirectory: true)
+    let testBundleRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/symphony-swiftPackageTests.xctest/Contents/MacOS",
+      isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: codecovRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: testBundleRoot, withIntermediateDirectories: true)
+
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let coveragePath = codecovRoot.appendingPathComponent("symphony-swift.json")
+    let profdataPath = codecovRoot.appendingPathComponent("default.profdata")
+    let testBinaryPath = testBundleRoot.appendingPathComponent("symphony-swiftPackageTests")
+    try "{}".write(to: coveragePath, atomically: true, encoding: .utf8)
+    try Data().write(to: profdataPath)
+    try Data().write(to: testBinaryPath)
+
+    let showCommand =
+      "xcrun llvm-cov show -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let functionsCommand =
+      "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let fallbackDemangleCommand = "xcrun swift-demangle $s4Main3baryyF"
+
+    let enriched = try CommitHarness.enrichViolationsWithFunctions(
+      violations: [
+        HarnessCoverageViolation(
+          suite: "package",
+          kind: "file",
+          name: "Sources/Foo/Bar.swift",
+          coveredLines: 1,
+          executableLines: 4,
+          lineCoverage: 0.25
+        )
+      ],
+      coverageJSONPath: coveragePath,
+      projectRoot: repoRoot,
+      processRunner: StubProcessRunner(results: [
+        showCommand: StubProcessRunner.success(
+          """
+              1|      1|func bar() {
+              2|      0|    uncovered()
+              3|      0|    uncoveredAgain()
+              4|      1|}
+          """
+        ),
+        functionsCommand: StubProcessRunner.success(
+          """
+          File '\(sourceFile.path)':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          helper()                                     1       1   0.00%         2       2   0.00%         0       0   0.00%
+          $s4Main3baryyF                               2       1  50.00%         4       2  50.00%         0       0   0.00%
+          $s4Main3baryyF                               2       1  50.00%         4       2  50.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        5       3  40.00%        10       6  40.00%         0       0   0.00%
+          """
+        ),
+        fallbackDemangleCommand: StubProcessRunner.success("Main.bar() -> ()\n"),
+      ]),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests)
+    )
+
+    #expect(enriched[0].uncoveredFunctions == ["helper()", "Main.bar() -> ()", "Main.bar() -> ()"])
+    #expect(enriched[0].missingLineRanges == [CoverageLineRange(startLine: 2, endLine: 3)])
+  }
+}
+
+@Test func enrichViolationsWithFunctionsFallsBackToRawMangledNameWhenDemangleOutputIsUnusable()
+  throws
+{
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    let codecovRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov", isDirectory: true)
+    let testBundleRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/symphony-swiftPackageTests.xctest/Contents/MacOS",
+      isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: codecovRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: testBundleRoot, withIntermediateDirectories: true)
+
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let coveragePath = codecovRoot.appendingPathComponent("symphony-swift.json")
+    let profdataPath = codecovRoot.appendingPathComponent("default.profdata")
+    let testBinaryPath = testBundleRoot.appendingPathComponent("symphony-swiftPackageTests")
+    try "{}".write(to: coveragePath, atomically: true, encoding: .utf8)
+    try Data().write(to: profdataPath)
+    try Data().write(to: testBinaryPath)
+
+    let showCommand =
+      "xcrun llvm-cov show -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let functionsCommand =
+      "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourceFile.path)"
+    let failureDemangleCommand = "xcrun swift-demangle $s4Main4failyyF"
+    let emptyDemangleCommand = "xcrun swift-demangle $s4Main5emptyyyF"
+
+    let enriched = try CommitHarness.enrichViolationsWithFunctions(
+      violations: [
+        HarnessCoverageViolation(
+          suite: "package",
+          kind: "file",
+          name: "Sources/Foo/Bar.swift",
+          coveredLines: 1,
+          executableLines: 4,
+          lineCoverage: 0.25
+        )
+      ],
+      coverageJSONPath: coveragePath,
+      projectRoot: repoRoot,
+      processRunner: StubProcessRunner(results: [
+        showCommand: StubProcessRunner.success(
+          """
+              1|      1|func bar() {
+              2|      0|    uncovered()
+              3|      1|}
+          """
+        ),
+        functionsCommand: StubProcessRunner.success(
+          """
+          File '\(sourceFile.path)':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          $s4Main4failyyF                              1       1   0.00%         2       2   0.00%         0       0   0.00%
+          $s4Main5emptyyyF                             1       1   0.00%         2       2   0.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       2   0.00%         4       4   0.00%         0       0   0.00%
+          """
+        ),
+        failureDemangleCommand: StubProcessRunner.failure("demangle failed"),
+        emptyDemangleCommand: StubProcessRunner.success(""),
+      ]),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests)
+    )
+
+    #expect(enriched[0].uncoveredFunctions == ["$s4Main4failyyF", "$s4Main5emptyyyF"])
+    #expect(enriched[0].missingLineRanges == [CoverageLineRange(startLine: 2, endLine: 2)])
+  }
+}
+
 private struct CoverageCommandProcessRunner: ProcessRunning {
   let packageCoveragePath: String
   let coverageResult: CommandResult
@@ -1554,6 +1878,100 @@ private struct CoverageCommandProcessRunner: ProcessRunning {
     {
       observation?.onLine?(.stderr, "coverage stderr")
       return coverageResult
+    }
+    return StubProcessRunner.success()
+  }
+
+  func startDetached(
+    executablePath: String, arguments: [String], environment: [String: String],
+    currentDirectory: URL?, output: URL
+  ) throws -> Int32 {
+    0
+  }
+}
+
+private final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @unchecked Sendable {
+  private let packageCoveragePath: String
+  private let showArguments: [String]
+  private let reportArguments: [String]
+  private let lock = NSLock()
+  private var artifactsWereRewritten = false
+
+  init(
+    packageCoveragePath: String,
+    sourceFilePath: String,
+    profdataPath: String,
+    testBinaryPath: String
+  ) {
+    self.packageCoveragePath = packageCoveragePath
+    self.showArguments = [
+      "llvm-cov", "show",
+      "-instr-profile", profdataPath,
+      testBinaryPath,
+      sourceFilePath,
+    ]
+    self.reportArguments = [
+      "llvm-cov", "report",
+      "--show-functions",
+      "-instr-profile", profdataPath,
+      testBinaryPath,
+      sourceFilePath,
+    ]
+  }
+
+  func markArtifactsRewritten() {
+    lock.lock()
+    artifactsWereRewritten = true
+    lock.unlock()
+  }
+
+  func run(
+    command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
+    observation: ProcessObservation?
+  ) throws -> CommandResult {
+    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      return StubProcessRunner.success()
+    }
+    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      return StubProcessRunner.success(packageCoveragePath + "\n")
+    }
+    if command == "xcrun", arguments == showArguments {
+      return StubProcessRunner.success(
+        artifactsWereRewritten
+          ? """
+            1|      0|func bar() {
+            2|      0|    overwritten()
+            3|      0|    overwrittenAgain()
+            4|      0|}
+          """
+          : """
+            1|      1|func bar() {
+            2|      0|    initial()
+            3|      0|    initialAgain()
+            4|      1|}
+          """
+      )
+    }
+    if command == "xcrun", arguments == reportArguments {
+      return StubProcessRunner.success(
+        artifactsWereRewritten
+          ? """
+          File '':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          overwritten()                               2       2   0.00%         4       4   0.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       2   0.00%         4       4   0.00%         0       0   0.00%
+          """
+          : """
+          File '':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          initial()                                   2       1  50.00%         4       2  50.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       1  50.00%         4       2  50.00%         0       0   0.00%
+          """
+      )
     }
     return StubProcessRunner.success()
   }

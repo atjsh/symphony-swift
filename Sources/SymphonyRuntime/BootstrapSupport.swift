@@ -397,6 +397,80 @@ public enum BootstrapServerRunner {
         try makeOrchestratorEngine(workflow: $0, environment: $1, store: $2)
       }
   ) throws {
+    let runtime = try prepareRuntime(
+      componentName: componentName,
+      environment: environment,
+      workingDirectory: workingDirectory,
+      processIdentifier: processIdentifier,
+      launchArguments: launchArguments,
+      startedAt: startedAt,
+      output: output,
+      keepAlive: keepAlive,
+      startServer: startServer,
+      startOrchestrator: startOrchestrator,
+      workflowLoader: workflowLoader,
+      engineFactory: engineFactory
+    )
+    defer { cleanupRuntime(runtime) }
+
+    try runtime.startupSignal?.wait()
+    runtime.keepAlive()
+  }
+
+  public static func runAsync(
+    componentName: String = "SymphonyServer",
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    workingDirectory: String = FileManager.default.currentDirectoryPath,
+    processIdentifier: Int32 = getpid(),
+    launchArguments: [String] = ProcessInfo.processInfo.arguments,
+    startedAt: Date = Date(),
+    output: ((String) -> Void)? = nil,
+    keepAlive: (() -> Void)? = nil,
+    startServer: Bool = true,
+    startOrchestrator: Bool? = nil,
+    workflowLoader: (URL) throws -> WorkflowDefinition = {
+      try WorkflowParser.parse(contentsOf: $0)
+    },
+    engineFactory: (WorkflowDefinition, [String: String], SQLiteServerStateStore) throws ->
+      any BootstrapEngineRunning = {
+        try makeOrchestratorEngine(workflow: $0, environment: $1, store: $2)
+      }
+  ) async throws {
+    let runtime = try prepareRuntime(
+      componentName: componentName,
+      environment: environment,
+      workingDirectory: workingDirectory,
+      processIdentifier: processIdentifier,
+      launchArguments: launchArguments,
+      startedAt: startedAt,
+      output: output,
+      keepAlive: keepAlive,
+      startServer: startServer,
+      startOrchestrator: startOrchestrator,
+      workflowLoader: workflowLoader,
+      engineFactory: engineFactory
+    )
+    defer { cleanupRuntime(runtime) }
+
+    try await runtime.startupSignal?.waitUntilReady()
+    runtime.keepAlive()
+  }
+
+  private static func prepareRuntime(
+    componentName: String,
+    environment: [String: String],
+    workingDirectory: String,
+    processIdentifier: Int32,
+    launchArguments: [String],
+    startedAt: Date,
+    output: ((String) -> Void)?,
+    keepAlive: (() -> Void)?,
+    startServer: Bool,
+    startOrchestrator: Bool?,
+    workflowLoader: (URL) throws -> WorkflowDefinition,
+    engineFactory: (WorkflowDefinition, [String: String], SQLiteServerStateStore) throws ->
+      any BootstrapEngineRunning
+  ) throws -> PreparedBootstrapRuntime {
     let output = output ?? BootstrapRuntimeHooks.defaultOutput
     let keepAlive = keepAlive ?? BootstrapRuntimeHooks.keepAlive
     let shouldStartOrchestrator = startOrchestrator ?? startServer
@@ -412,6 +486,7 @@ public enum BootstrapServerRunner {
 
     var serverTask: Task<Void, Error>?
     var orchestratorEngine: (any BootstrapEngineRunning)?
+    var startupSignal: ServerStartupSignal?
     if startServer || shouldStartOrchestrator {
       let databaseURL = BootstrapEnvironment.effectiveSQLitePath(environment: environment)
       let liveLogHub = LiveLogHub()
@@ -451,7 +526,7 @@ public enum BootstrapServerRunner {
           liveLogHub: liveLogHub
         )
         let startup = ServerStartupSignal()
-        serverTask = Task {
+        serverTask = Task.detached {
           do {
             try await server.run {
               startup.ready()
@@ -461,13 +536,21 @@ public enum BootstrapServerRunner {
             throw error
           }
         }
-        try startup.wait()
+        startupSignal = startup
       }
     }
 
-    keepAlive()
-    orchestratorEngine?.stop()
-    serverTask?.cancel()
+    return PreparedBootstrapRuntime(
+      keepAlive: keepAlive,
+      orchestratorEngine: orchestratorEngine,
+      serverTask: serverTask,
+      startupSignal: startupSignal
+    )
+  }
+
+  private static func cleanupRuntime(_ runtime: PreparedBootstrapRuntime) {
+    runtime.orchestratorEngine?.stop()
+    runtime.serverTask?.cancel()
   }
 
   public static func startupState(
@@ -513,38 +596,75 @@ public enum BootstrapServerRunner {
   }
 }
 
+private struct PreparedBootstrapRuntime {
+  let keepAlive: () -> Void
+  let orchestratorEngine: (any BootstrapEngineRunning)?
+  let serverTask: Task<Void, Error>?
+  let startupSignal: ServerStartupSignal?
+}
+
 final class ServerStartupSignal: @unchecked Sendable {
-  private let semaphore = DispatchSemaphore(value: 0)
   private let lock = NSLock()
-  private var startupError: Error?
-  private var didSignal = false
+  private var result: Result<Void, any Error>?
+  private var syncWaiters = [DispatchSemaphore]()
+  private var asyncWaiters = [CheckedContinuation<Void, any Error>]()
 
   func ready() {
-    signal(error: nil)
+    signal(.success(()))
   }
 
   func fail(_ error: Error) {
-    signal(error: error)
+    signal(.failure(error))
   }
 
   func wait() throws {
+    let semaphore: DispatchSemaphore
+    lock.lock()
+    if let result {
+      lock.unlock()
+      return try result.get()
+    }
+    semaphore = DispatchSemaphore(value: 0)
+    syncWaiters.append(semaphore)
+    lock.unlock()
+
     semaphore.wait()
-    if let startupError {
-      throw startupError
+
+    lock.lock()
+    let result = self.result
+    lock.unlock()
+    try result?.get()
+  }
+
+  func waitUntilReady() async throws {
+    try await withCheckedThrowingContinuation {
+      (continuation: CheckedContinuation<Void, any Error>) in
+      lock.lock()
+      if let currentResult = result {
+        lock.unlock()
+        continuation.resume(with: currentResult)
+      } else {
+        asyncWaiters.append(continuation)
+        lock.unlock()
+      }
     }
   }
 
-  private func signal(error: Error?) {
+  private func signal(_ result: Result<Void, any Error>) {
     lock.lock()
-    defer { lock.unlock() }
-
-    guard !didSignal else {
+    guard self.result == nil else {
+      lock.unlock()
       return
     }
+    self.result = result
+    let syncWaiters = self.syncWaiters
+    self.syncWaiters.removeAll(keepingCapacity: false)
+    let asyncWaiters = self.asyncWaiters
+    self.asyncWaiters.removeAll(keepingCapacity: false)
+    lock.unlock()
 
-    startupError = error
-    didSignal = true
-    semaphore.signal()
+    syncWaiters.forEach { $0.signal() }
+    asyncWaiters.forEach { $0.resume(with: result) }
   }
 }
 

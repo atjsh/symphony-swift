@@ -38,7 +38,7 @@ import Testing
   let allowReturn = DispatchSemaphore(value: 0)
 
   let runTask = Task {
-    try BootstrapServerRunner.run(
+    try await BootstrapServerRunner.runAsync(
       componentName: "InProcessServer",
       environment: [
         BootstrapEnvironment.serverHostKey: "127.0.0.1",
@@ -75,7 +75,7 @@ import Testing
     firstSignal.ready()
     firstSignal.fail(POSIXError(.EIO))
   }
-  try firstSignal.wait()
+  try await firstSignal.waitUntilReady()
 
   let secondSignal = ServerStartupSignal()
   let expectedError = POSIXError(.EADDRINUSE)
@@ -85,7 +85,7 @@ import Testing
   }
 
   do {
-    try secondSignal.wait()
+    try await secondSignal.waitUntilReady()
     Issue.record("Expected startup failure to be reported.")
   } catch let error as POSIXError {
     #expect(error.code == expectedError.code)
@@ -98,7 +98,7 @@ import Testing
   let databaseURL = root.appendingPathComponent("bind-failure.sqlite3")
 
   do {
-    try BootstrapServerRunner.run(
+    try await BootstrapServerRunner.runAsync(
       componentName: "BindFailureServer",
       environment: [
         BootstrapEnvironment.serverHostKey: "127.0.0.1",
@@ -110,6 +110,81 @@ import Testing
     )
     Issue.record("Expected startup on an occupied port to fail.")
   } catch {}
+}
+
+@Test func serverStartupSignalAsyncWaitSupportsSuccessFailureAndConcurrentWaiters() async throws {
+  let readySignal = ServerStartupSignal()
+  let waiterA = Task { try await readySignal.waitUntilReady() }
+  let waiterB = Task { try await readySignal.waitUntilReady() }
+  Task.detached {
+    readySignal.ready()
+    readySignal.fail(POSIXError(.EIO))
+  }
+  try await waiterA.value
+  try await waiterB.value
+
+  let failedSignal = ServerStartupSignal()
+  let expectedError = POSIXError(.ECONNREFUSED)
+  Task.detached {
+    failedSignal.fail(expectedError)
+    failedSignal.ready()
+  }
+
+  do {
+    try await failedSignal.waitUntilReady()
+    Issue.record("Expected the first startup failure to be preserved for async waiters.")
+  } catch let error as POSIXError {
+    #expect(error.code == expectedError.code)
+  }
+}
+
+@Test func serverStartupSignalSyncWaitCoversBlockingAndImmediateBranches() throws {
+  let syncSignal = ServerStartupSignal()
+  let syncWaitStarted = DispatchSemaphore(value: 0)
+  let syncWaitFinished = DispatchSemaphore(value: 0)
+  let syncWaitError = LockedErrorBox()
+  DispatchQueue.global().async {
+    syncWaitStarted.signal()
+    do {
+      try syncSignal.wait()
+    } catch {
+      syncWaitError.error = error
+    }
+    syncWaitFinished.signal()
+  }
+  #expect(syncWaitStarted.wait(timeout: .now() + 1) == .success)
+  Thread.sleep(forTimeInterval: 0.05)
+  #expect(syncWaitFinished.wait(timeout: .now() + 0.05) == .timedOut)
+  syncSignal.ready()
+  #expect(syncWaitFinished.wait(timeout: .now() + 1) == .success)
+  #expect(syncWaitError.error == nil)
+  try syncSignal.wait()
+
+  let syncFailure = ServerStartupSignal()
+  let expectedSyncError = POSIXError(.ETIMEDOUT)
+  syncFailure.fail(expectedSyncError)
+  do {
+    try syncFailure.wait()
+    Issue.record("Expected synchronous waiters to surface pre-signaled failures.")
+  } catch let error as POSIXError {
+    #expect(error.code == expectedSyncError.code)
+  }
+}
+
+@Test func serverStartupSignalAsyncWaitCoversImmediateResultBranches() async throws {
+  let asyncReady = ServerStartupSignal()
+  asyncReady.ready()
+  try await asyncReady.waitUntilReady()
+
+  let asyncFailure = ServerStartupSignal()
+  let expectedAsyncError = POSIXError(.ECONNABORTED)
+  asyncFailure.fail(expectedAsyncError)
+  do {
+    try await asyncFailure.waitUntilReady()
+    Issue.record("Expected async waiters to surface pre-signaled failures.")
+  } catch let error as POSIXError {
+    #expect(error.code == expectedAsyncError.code)
+  }
 }
 
 @Test func startupStateUsesProvidedLaunchArguments() {
@@ -218,6 +293,38 @@ import Testing
 
   try BootstrapServerRunner.run(
     componentName: "BootstrapDefaultOrchestrator",
+    environment: [
+      BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+      BootstrapEnvironment.workflowPathKey: workflowURL.path,
+      "GITHUB_TOKEN": "token",
+    ],
+    output: { _ in },
+    keepAlive: {},
+    startServer: false,
+    startOrchestrator: true
+  )
+}
+
+@Test func bootstrapServerRunnerRunAsyncCanStartOrchestratorUsingDefaultFactories() async throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-default-orchestrator-async.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try """
+  ---
+  tracker:
+    kind: github
+    endpoint: https://api.github.com/graphql
+    project_owner: owner
+    project_owner_type: organization
+    project_number: 1
+  polling:
+    interval_ms: 50
+  ---
+  Resolve {{issue.title}}
+  """.write(to: workflowURL, atomically: true, encoding: .utf8)
+
+  try await BootstrapServerRunner.runAsync(
+    componentName: "BootstrapDefaultAsyncOrchestrator",
     environment: [
       BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
       BootstrapEnvironment.workflowPathKey: workflowURL.path,
@@ -664,6 +771,16 @@ private final class EmptyApplicationSupportFileManager: FileManager, @unchecked 
 
   override var homeDirectoryForCurrentUser: URL {
     testHomeDirectory
+  }
+}
+
+private final class LockedErrorBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: Error?
+
+  var error: Error? {
+    get { lock.withLock { storage } }
+    set { lock.withLock { storage = newValue } }
   }
 }
 

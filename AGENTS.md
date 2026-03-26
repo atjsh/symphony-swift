@@ -22,43 +22,44 @@ This repository uses a test-first workflow for all changes.
 - Tests and implementation may be developed incrementally in a topic branch, but they should be committed together only after the topic passes.
 - Do not inherit the current git index blindly. Stage intentionally for each commit.
 - The repository-level pre-commit harness is authoritative once installed. Do not bypass it with `--no-verify` unless the user explicitly tells you to do so for a one-off emergency.
-- After cloning a fresh checkout, run `swift run --quiet symphony-build hooks install` once so the committed `.githooks/pre-commit` hook is active for that clone and any future worktrees attached to it.
+- Run all operator-facing `swift run ... symphony-build ...` commands against the dedicated build-tool package path `--package-path Tools/SymphonyBuildPackage` and scratch path `--scratch-path .build/symphony-build-cli` so the CLI avoids unrelated runtime dependencies and does not share build products with coverage-instrumented test runs.
+- After cloning a fresh checkout, run `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build hooks install` once so the committed `.githooks/pre-commit` hook is active for that clone and any future worktrees attached to it.
 
 ## Required validation
 
 - Minimum gate for any code change:
-  - `swift run --quiet symphony-build harness`
-  - `swift run --quiet symphony-build doctor`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build harness`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build doctor`
   - Those commands are environment-aware. On machines without Xcode, they must still pass for SwiftPM/server work while reporting any skipped Xcode-backed checks as notes or explicit skip reasons instead of hard failures.
 - The commit harness is the canonical gate for package-level changes:
   - It runs `swift test --quiet --enable-code-coverage`.
   - It measures first-party code coverage from SwiftPM’s exported coverage JSON, filtered to tracked files under `Sources/`.
   - On machines where Xcode-backed tooling is available, it also runs Xcode-backed test passes (which include coverage) for the bootstrap client and server products:
-    - `swift run --quiet symphony-build test --product client --platform macos`
-    - `swift run --quiet symphony-build test --product server`
+    - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build test --product client --platform macos`
+    - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build test --product server`
   - On machines where Xcode-backed tooling is unavailable, the harness must skip those Apple-only test+coverage passes automatically and report the skip explicitly.
   - Test files, generated runners, and checked-out dependency sources are excluded from the threshold calculation.
   - Commits must not proceed if source coverage falls below `100%`.
   - The current threshold is intentionally lower than the long-term goal; treat regressions below the current floor as hard failures.
 - If the change touches `SymphonyBuildCore`, `SymphonyBuildCLI`, `project.yml`, `Symphony.xcworkspace`, `SymphonyApps.xcodeproj`, or the bootstrap app/server targets, run the dry-run command surface as well:
-  - `swift run --quiet symphony-build build --product server --dry-run --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build test --product server --dry-run --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build run --product server --dry-run --xcode-output-mode quiet`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build build --product server --dry-run --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build test --product server --dry-run --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build run --product server --dry-run --xcode-output-mode quiet`
 - If the change touches commit gating, validation plumbing, or agent harness behavior, validate the harness explicitly:
-  - `swift run --quiet symphony-build harness`
-  - `swift run --quiet symphony-build hooks install`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build harness`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build hooks install`
 - If the change touches simulator resolution, destination defaults, runtime endpoint injection, or the client bootstrap target, also validate the client path:
-  - `swift run --quiet symphony-build build --dry-run`
-  - `swift run --quiet symphony-build run --product client --dry-run`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build build --dry-run`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build run --product client --dry-run`
   - On machines without Xcode, also confirm that non-dry-run client/app commands fail with the explicit unsupported-environment warning: `not supported because the current environment has no Xcode available; Editing those sources is not encouraged`.
   - On machines where the default `iPhone 17` destination is ambiguous, those two commands must fail with a clear `ambiguous_simulator_name` error. Use an explicit UDID for all remaining client validations.
-  - Use `swift run --quiet symphony-build sim list` to select the simulator UDID for explicit client runs only when Xcode-backed simulator tooling is available.
+  - Use `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build sim list` to select the simulator UDID for explicit client runs only when Xcode-backed simulator tooling is available.
 - If the change touches artifact generation, xcresult export, launch behavior, or any real Xcode invocation path, run the live smoke checks:
-  - `swift run --quiet symphony-build build --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build test --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build run --product server --worker 1 --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build build --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
-  - `swift run --quiet symphony-build run --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build build --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build test --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build run --product server --worker 1 --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build build --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build run --product client --worker 2 --simulator <UDID> --xcode-output-mode filtered`
   - These live Xcode-backed smoke checks are required only when the current environment provides Xcode-backed tooling. On Xcode-less environments, validate the SwiftPM/server path and the explicit unsupported-environment warning instead.
 - Always clean up long-lived processes after live verification:
   - Stop detached `SymphonyServer` processes after `run --product server`.
@@ -69,10 +70,10 @@ This repository uses a test-first workflow for all changes.
 ## Canonical artifact inspection
 
 - Use the tool itself to resolve artifact roots; do not guess paths manually:
-  - `swift run --quiet symphony-build artifacts build`
-  - `swift run --quiet symphony-build artifacts test`
-  - `swift run --quiet symphony-build artifacts run`
-  - Use `swift run --quiet symphony-build artifacts <build|test|run> --run <run-id>` when you need a non-latest run.
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build artifacts build`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build artifacts test`
+  - `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build artifacts run`
+  - Use `swift run --quiet --package-path Tools/SymphonyBuildPackage symphony-build artifacts <build|test|run> --run <run-id>` when you need a non-latest run.
 - Inspect artifacts in this order:
   1. `summary.txt`
   2. `index.json`
@@ -93,7 +94,7 @@ This repository uses a test-first workflow for all changes.
 - Test artifacts include coverage outputs when code coverage is enabled (which is always the case):
   - `coverage.txt` is the primary human-readable coverage summary.
   - `coverage.json` is the machine-readable coverage summary derived from `xccov`.
-  - For the commit harness, the equivalent machine-readable source is SwiftPM’s exported coverage JSON path printed by `swift test --quiet --show-code-coverage-path`, but the rendered `swift run --quiet symphony-build harness --json` output is the canonical normalized view.
+- For the commit harness, the equivalent machine-readable source is SwiftPM’s exported coverage JSON path printed by `swift test --quiet --show-code-coverage-path`, but the rendered `swift run --quiet --package-path Tools/SymphonyBuildPackage --scratch-path .build/symphony-build-cli symphony-build harness --json` output is the canonical normalized view.
 - `summary.json` must contain exported xcresult JSON for successful Xcode-backed runs. An empty `{}` payload is only acceptable when the run legitimately produced no result bundle and the summary/index record that explicitly.
 - `process-stdout-stderr.txt` is the canonical raw transcript for diagnosing filtered output. Use it when:
   - filtered mode suppressed too much detail
@@ -114,3 +115,6 @@ This repository uses a test-first workflow for all changes.
 - Flag and remove repetition aggressively.
 - Add tests for edge cases rather than relying on manual verification alone.
 - Keep abstractions shallow unless duplication or coupling clearly justifies a new layer.
+- In async runtime paths and Swift Testing helpers, do not block the cooperative executor with
+  `DispatchSemaphore.wait()` or similar synchronous waits. Prefer async-safe continuations,
+  streams, or other awaited coordination primitives for startup handshakes and long-lived fixtures.

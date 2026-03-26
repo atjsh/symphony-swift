@@ -700,8 +700,11 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
     let path = components.path
     let method = request.method.uppercased()
 
-    switch (method, path) {
-    case ("GET", "/api/v1/health"):
+    switch path {
+    case "/api/v1/health":
+      guard method == "GET" else {
+        return try methodNotAllowed(message: "This endpoint only supports GET.")
+      }
       return try ok(
         HealthResponse(
           status: "ok",
@@ -709,9 +712,15 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
           version: version,
           trackerKind: trackerKind
         ))
-    case ("GET", "/api/v1/issues"):
+    case "/api/v1/issues":
+      guard method == "GET" else {
+        return try methodNotAllowed(message: "This endpoint only supports GET.")
+      }
       return try ok(IssuesResponse(items: store.issues()))
-    case ("POST", "/api/v1/refresh"):
+    case "/api/v1/refresh":
+      guard method == "POST" else {
+        return try methodNotAllowed(message: "This endpoint only supports POST.")
+      }
       refresh()
       return try response(
         statusCode: 202, value: RefreshResponse(queued: true, requestedAt: Self.iso8601(now())))
@@ -721,8 +730,7 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
 
     if path.hasPrefix("/api/v1/issues/") {
       guard method == "GET" else {
-        return try error(
-          statusCode: 405, code: "method_not_allowed", message: "This endpoint only supports GET.")
+        return try methodNotAllowed(message: "This endpoint only supports GET.")
       }
       let issueID = String(path.dropFirst("/api/v1/issues/".count))
       guard let detail = try store.issueDetail(id: IssueID(issueID)) else {
@@ -734,8 +742,7 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
 
     if path.hasPrefix("/api/v1/runs/") {
       guard method == "GET" else {
-        return try error(
-          statusCode: 405, code: "method_not_allowed", message: "This endpoint only supports GET.")
+        return try methodNotAllowed(message: "This endpoint only supports GET.")
       }
       let runID = String(path.dropFirst("/api/v1/runs/".count))
       guard let detail = try store.runDetail(id: RunID(runID)) else {
@@ -747,8 +754,7 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
 
     if path.hasPrefix("/api/v1/logs/") {
       guard method == "GET" else {
-        return try error(
-          statusCode: 405, code: "method_not_allowed", message: "This endpoint only supports GET.")
+        return try methodNotAllowed(message: "This endpoint only supports GET.")
       }
       let sessionID = SessionID(String(path.dropFirst("/api/v1/logs/".count)))
       let queryItems = components.queryItems ?? []
@@ -778,6 +784,10 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
 
   private func ok<T: Encodable>(_ value: T) throws -> SymphonyHTTPResponse {
     try response(statusCode: 200, value: value)
+  }
+
+  private func methodNotAllowed(message: String) throws -> SymphonyHTTPResponse {
+    try error(statusCode: 405, code: "method_not_allowed", message: message)
   }
 
   private func error(statusCode: Int, code: String, message: String) throws -> SymphonyHTTPResponse

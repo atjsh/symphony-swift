@@ -91,7 +91,42 @@ import Testing
   #expect(stubLauncher.invocations.count == 1)
   #expect(stubLauncher.invocations[0].command == "codex app-server")
   #expect(stubLauncher.invocations[0].workspacePath == "/tmp/workspace")
+  #expect(stubProcess.recordedInputStrings == ["Fix the bug"])
   _ = stream
+}
+
+@Test func codexAdapterStartSessionWithEmptyPromptDoesNotWriteInput() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-empty"),
+    workspacePath: "/tmp/workspace",
+    prompt: "",
+    environment: [:]
+  )
+
+  #expect(stubProcess.recordedInputStrings.isEmpty)
+}
+
+@Test func codexAdapterStartSessionFailsWhenPromptSubmissionFails() async {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("stdin failed"))
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+
+  await #expect(throws: ProviderAdapterError.self) {
+    _ = try await adapter.startSession(
+      sessionID: SessionID("s-fail"),
+      workspacePath: "/tmp/workspace",
+      prompt: "Fix the bug",
+      environment: [:]
+    )
+  }
 }
 
 @Test func codexAdapterContinueSessionThrows() async {
@@ -182,6 +217,8 @@ import Testing
   #expect(stubLauncher.invocations.count == 1)
   #expect(stubLauncher.invocations[0].command.contains("claude"))
   #expect(stubLauncher.invocations[0].command.contains("-p --output-format stream-json"))
+  #expect(stubLauncher.invocations[0].workspacePath == "/tmp/ws")
+  #expect(stubProcess.recordedInputStrings == ["fix"])
 }
 
 @Test func claudeCodeAdapterStartSessionWithPermissionMode() async throws {
@@ -267,6 +304,8 @@ import Testing
 
   #expect(stubLauncher.invocations.count == 1)
   #expect(stubLauncher.invocations[0].command == "copilot --acp --stdio")
+  #expect(stubLauncher.invocations[0].workspacePath == "/tmp/ws")
+  #expect(stubProcess.recordedInputStrings == ["fix"])
 }
 
 @Test func copilotCLIAdapterContinueSessionThrows() async {
@@ -462,6 +501,66 @@ import Testing
   // Terminate should not crash
   process.terminate()
   Thread.sleep(forTimeInterval: 0.5)
+}
+
+@Test func defaultLaunchedProcessSendInputWritesToProcessStdin() throws {
+  // Build a Process directly to avoid bash login-shell profile interference.
+  let proc = Process()
+  proc.executableURL = URL(fileURLWithPath: "/usr/bin/head")
+  proc.arguments = ["-c", "3"]
+  proc.currentDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
+
+  let stdout = Pipe()
+  let stdin = Pipe()
+  proc.standardOutput = stdout
+  proc.standardInput = stdin
+  proc.standardError = FileHandle.nullDevice
+  try proc.run()
+
+  let process = DefaultLaunchedProcess(process: proc, stdoutPipe: stdout, stdinPipe: stdin)
+
+  let received = Mutex<[Data]>([])
+  let terminated = Mutex<Int32?>(nil)
+  process.onOutput { data in received.withLock { $0.append(data) } }
+  process.onTermination { code in terminated.withLock { $0 = code } }
+
+  try process.sendInput(Data("abc".utf8))
+  Thread.sleep(forTimeInterval: 0.5)
+
+  if terminated.withLock({ $0 }) == nil {
+    process.terminate()
+    Thread.sleep(forTimeInterval: 0.2)
+  }
+
+  let output = received.withLock { data in
+    data.compactMap { String(data: $0, encoding: .utf8) }.joined()
+  }
+  #expect(output.contains("abc"))
+  #expect(terminated.withLock { $0 } == 0)
+}
+
+@Test func defaultProcessLauncherLaunchesCommand() throws {
+  let launcher = DefaultProcessLauncher()
+  let process = try launcher.launch(
+    command: "echo ok",
+    workspacePath: NSTemporaryDirectory(),
+    environment: ["TEST_VAR": "1"]
+  )
+  let received = Mutex<[Data]>([])
+  let terminated = Mutex<Int32?>(nil)
+  process.onOutput { data in received.withLock { $0.append(data) } }
+  process.onTermination { code in terminated.withLock { $0 = code } }
+  // echo is fast — just wait for it
+  Thread.sleep(forTimeInterval: 1.0)
+  if terminated.withLock({ $0 }) == nil {
+    process.terminate()
+    Thread.sleep(forTimeInterval: 0.2)
+  }
+  let output = received.withLock { $0 }
+    .compactMap { String(data: $0, encoding: .utf8) }
+    .joined()
+  #expect(output.contains("ok"))
+  #expect(terminated.withLock { $0 } == 0)
 }
 
 // MARK: - Event Stream Empty Output Handling
@@ -786,15 +885,16 @@ import Testing
 
 @Test func claudeCodeAdapterContinueSessionLaunchesNewProcess() async throws {
   let stubLauncher = StubProcessLauncher()
-  let stubProcess = StubLaunchedProcess()
-  stubLauncher.setStubProcess(stubProcess)
+  let initialProcess = StubLaunchedProcess()
+  let continuedProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcesses([initialProcess, continuedProcess])
 
   let adapter = ClaudeCodeAdapter(config: .defaults, processLauncher: stubLauncher)
   _ = try await adapter.startSession(
     sessionID: SessionID("s1"),
     workspacePath: "/tmp/ws",
     prompt: "fix",
-    environment: [:]
+    environment: ["ALPHA": "1"]
   )
 
   #expect(stubLauncher.invocations.count == 1)
@@ -807,6 +907,9 @@ import Testing
   #expect(stubLauncher.invocations.count == 2)
   #expect(stubLauncher.invocations[1].command.contains("--continue"))
   #expect(stubLauncher.invocations[1].command.contains("-p --output-format stream-json"))
+  #expect(stubLauncher.invocations[1].workspacePath == "/tmp/ws")
+  #expect(stubLauncher.invocations[1].environment == ["ALPHA": "1"])
+  #expect(continuedProcess.recordedInputStrings == ["keep going"])
 }
 
 @Test func claudeCodeAdapterContinueSessionWithPermissionMode() async throws {

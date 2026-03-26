@@ -2086,6 +2086,118 @@ import Testing
   }
 }
 
+@Test
+func buildToolHarnessWritesPackageInspectionFromCommitHarnessExecutionBeforeArtifactsAreRewritten()
+  throws
+{
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    let codecovRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov", isDirectory: true)
+    let testBundleRoot = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/symphony-swiftPackageTests.xctest/Contents/MacOS",
+      isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/Foo", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: codecovRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: testBundleRoot, withIntermediateDirectories: true)
+
+    let sourceFile = repoRoot.appendingPathComponent("Sources/Foo/Bar.swift")
+    try "func bar() {}".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/symphony-build", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+    let coveragePath = codecovRoot.appendingPathComponent("symphony-swift.json")
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/Foo/Bar.swift", "summary": { "lines": { "count": 4, "covered": 2 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+    let profdataPath = codecovRoot.appendingPathComponent("default.profdata")
+    let testBinaryPath = testBundleRoot.appendingPathComponent("symphony-swiftPackageTests")
+    try Data().write(to: profdataPath)
+    try Data().write(to: testBinaryPath)
+
+    let runner = HarnessPackageInspectionOverwriteProcessRunner(
+      packageCoveragePath: coveragePath.path,
+      sourceFilePath: sourceFile.path,
+      profdataPath: profdataPath.path,
+      testBinaryPath: testBinaryPath.path
+    )
+    let perfectCoverage = CoverageReport(
+      coveredLines: 1,
+      executableLines: 1,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let tool = SymphonyBuildTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      commitHarness: CommitHarness(
+        processRunner: runner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in
+          runner.markArtifactsRewritten()
+          return perfectCoverage
+        },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      )
+    )
+
+    _ = try tool.harness(
+      HarnessCommandRequest(minimumCoveragePercent: 50, json: false, currentDirectory: repoRoot)
+    )
+
+    let artifactRoot = workspace.buildStateRoot.appendingPathComponent("artifacts/harness/latest")
+      .resolvingSymlinksInPath()
+    let packageInspection = try JSONDecoder().decode(
+      HarnessCoverageInspectionArtifact.self,
+      from: Data(contentsOf: artifactRoot.appendingPathComponent("package-inspection.json"))
+    )
+    #expect(
+      packageInspection.files == [
+        CoverageInspectionFileReport(
+          targetName: "Foo",
+          path: "Sources/Foo/Bar.swift",
+          coveredLines: 2,
+          executableLines: 4,
+          lineCoverage: 0.5,
+          missingLineRanges: [CoverageLineRange(startLine: 2, endLine: 3)],
+          functions: [
+            CoverageInspectionFunctionReport(
+              name: "initial()",
+              coveredLines: 2,
+              executableLines: 4,
+              lineCoverage: 0.5
+            )
+          ]
+        )
+      ])
+  }
+}
+
 @Test func buildToolUsesDryRunFallbackDestinationsWhenSimulatorToolingIsUnavailable() throws {
   try withTemporaryRepositoryFixture { repoRoot in
     let workspace = WorkspaceContext(
@@ -2257,5 +2369,101 @@ private final class RoutedProcessRunner: ProcessRunning, @unchecked Sendable {
     startedDetachedExecutions.append((executablePath, environment, output))
     lock.unlock()
     return 4242
+  }
+}
+
+private final class HarnessPackageInspectionOverwriteProcessRunner: ProcessRunning,
+  @unchecked Sendable
+{
+  private let packageCoveragePath: String
+  private let showArguments: [String]
+  private let reportArguments: [String]
+  private let lock = NSLock()
+  private var artifactsWereRewritten = false
+
+  init(
+    packageCoveragePath: String,
+    sourceFilePath: String,
+    profdataPath: String,
+    testBinaryPath: String
+  ) {
+    self.packageCoveragePath = packageCoveragePath
+    self.showArguments = [
+      "llvm-cov", "show",
+      "-instr-profile", profdataPath,
+      testBinaryPath,
+      sourceFilePath,
+    ]
+    self.reportArguments = [
+      "llvm-cov", "report",
+      "--show-functions",
+      "-instr-profile", profdataPath,
+      testBinaryPath,
+      sourceFilePath,
+    ]
+  }
+
+  func markArtifactsRewritten() {
+    lock.lock()
+    artifactsWereRewritten = true
+    lock.unlock()
+  }
+
+  func run(
+    command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
+    observation: ProcessObservation?
+  ) throws -> CommandResult {
+    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      return StubProcessRunner.success()
+    }
+    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      return StubProcessRunner.success(packageCoveragePath + "\n")
+    }
+    if command == "xcrun", arguments == showArguments {
+      return StubProcessRunner.success(
+        artifactsWereRewritten
+          ? """
+            1|      0|func bar() {
+            2|      0|    overwritten()
+            3|      0|    overwrittenAgain()
+            4|      0|}
+          """
+          : """
+            1|      1|func bar() {
+            2|      0|    initial()
+            3|      0|    initialAgain()
+            4|      1|}
+          """
+      )
+    }
+    if command == "xcrun", arguments == reportArguments {
+      return StubProcessRunner.success(
+        artifactsWereRewritten
+          ? """
+          File '':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          overwritten()                               2       2   0.00%         4       4   0.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       2   0.00%         4       4   0.00%         0       0   0.00%
+          """
+          : """
+          File '':
+          Name                                     Regions    Miss   Cover     Lines    Miss   Cover  Branches    Miss   Cover
+          --------------------------------------------------------------------------------------------------------------------------------
+          initial()                                   2       1  50.00%         4       2  50.00%         0       0   0.00%
+          --------------------------------------------------------------------------------------------------------------------------------
+          TOTAL                                        2       1  50.00%         4       2  50.00%         0       0   0.00%
+          """
+      )
+    }
+    return StubProcessRunner.success()
+  }
+
+  func startDetached(
+    executablePath: String, arguments: [String], environment: [String: String],
+    currentDirectory: URL?, output: URL
+  ) throws -> Int32 {
+    0
   }
 }

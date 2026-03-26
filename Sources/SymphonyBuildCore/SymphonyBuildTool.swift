@@ -761,10 +761,11 @@ public final class SymphonyBuildTool {
       runID: "commit-harness"
     )
 
-    let packageInspection = try makePackageHarnessInspectionArtifact(
-      workspace: workspace,
-      report: execution.report.packageCoverage,
-      generatedAt: generatedAt
+    let packageInspection = HarnessCoverageInspectionArtifact(
+      suite: "package",
+      backend: .swiftPM,
+      generatedAt: generatedAt,
+      files: execution.packageInspectionFiles
     )
     let clientInspection = HarnessCoverageInspectionArtifact(
       suite: "client",
@@ -868,51 +869,6 @@ public final class SymphonyBuildTool {
       ShellQuoting.render(command: "swift", arguments: ["build", "--show-bin-path"]),
       ShellQuoting.render(command: resolvedBinPath, arguments: []),
     ].joined(separator: "\n")
-  }
-
-  private func makePackageHarnessInspectionArtifact(
-    workspace: WorkspaceContext,
-    report: PackageCoverageReport,
-    generatedAt: String
-  ) throws -> HarnessCoverageInspectionArtifact {
-    let candidates = report.files.compactMap { file -> CoverageInspectionFileCandidate? in
-      guard file.executableLines > 0, file.coveredLines < file.executableLines else {
-        return nil
-      }
-      let components = file.path.split(separator: "/")
-      let targetName = components.count > 2 ? String(components[1]) : "Sources"
-      return CoverageInspectionFileCandidate(
-        targetName: targetName,
-        path: file.path,
-        coveredLines: file.coveredLines,
-        executableLines: file.executableLines,
-        lineCoverage: file.lineCoverage
-      )
-    }
-    let inspection: CoverageInspectionResult
-    do {
-      inspection = try SwiftPMCoverageInspector(
-        processRunner: processRunner,
-        llvmCovCommand: try toolchainCapabilitiesResolver.resolve().llvmCovCommand
-      ).inspect(
-        coverageJSONPath: URL(fileURLWithPath: report.coverageJSONPath),
-        projectRoot: workspace.projectRoot,
-        candidates: candidates,
-        includeFunctions: true,
-        includeMissingLines: true
-      )
-    } catch let error as SymphonyBuildError
-      where error.code == "missing_swiftpm_profdata" || error.code == "missing_swiftpm_test_binary"
-      || error.code == "missing_llvm_cov"
-    {
-      inspection = CoverageInspectionResult(files: [], rawCommands: [])
-    }
-    return HarnessCoverageInspectionArtifact(
-      suite: "package",
-      backend: .swiftPM,
-      generatedAt: generatedAt,
-      files: inspection.files
-    )
   }
 
   private func writeHarnessInspectionArtifacts(
@@ -1029,6 +985,9 @@ public final class SymphonyBuildTool {
       var result = [
         "\(violation.suite) \(violation.kind) \(violation.name) \(percentage) (\(violation.coveredLines)/\(violation.executableLines))"
       ]
+      if let missingLineRanges = violation.missingLineRanges, !missingLineRanges.isEmpty {
+        result.append("  missing_lines \(renderMissingLineRanges(missingLineRanges))")
+      }
       if let functions = violation.uncoveredFunctions, !functions.isEmpty {
         for function in functions {
           result.append("  function \(function)")

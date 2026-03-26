@@ -542,6 +542,7 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
   public let executableLines: Int
   public let lineCoverage: Double
   public let uncoveredFunctions: [String]?
+  public let missingLineRanges: [CoverageLineRange]?
 
   public init(
     suite: String,
@@ -550,7 +551,8 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     coveredLines: Int,
     executableLines: Int,
     lineCoverage: Double,
-    uncoveredFunctions: [String]? = nil
+    uncoveredFunctions: [String]? = nil,
+    missingLineRanges: [CoverageLineRange]? = nil
   ) {
     self.suite = suite
     self.kind = kind
@@ -559,10 +561,18 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     self.executableLines = executableLines
     self.lineCoverage = lineCoverage
     self.uncoveredFunctions = uncoveredFunctions
+    self.missingLineRanges = missingLineRanges
   }
 
   enum CodingKeys: String, CodingKey {
-    case suite, kind, name, coveredLines, executableLines, lineCoverage, uncoveredFunctions
+    case suite
+    case kind
+    case name
+    case coveredLines
+    case executableLines
+    case lineCoverage
+    case uncoveredFunctions
+    case missingLineRanges
   }
 
   public init(from decoder: Decoder) throws {
@@ -574,6 +584,10 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     executableLines = try container.decode(Int.self, forKey: .executableLines)
     lineCoverage = try container.decode(Double.self, forKey: .lineCoverage)
     uncoveredFunctions = try container.decodeIfPresent([String].self, forKey: .uncoveredFunctions)
+    missingLineRanges = try container.decodeIfPresent(
+      [CoverageLineRange].self,
+      forKey: .missingLineRanges
+    )
   }
 }
 

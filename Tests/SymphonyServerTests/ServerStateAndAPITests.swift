@@ -275,6 +275,37 @@ import Testing
   let notFound = try api.respond(to: SymphonyAPIRequest(method: "GET", path: "/api/v1/unknown"))
   #expect(notFound.statusCode == 404)
   #expect(try decodeBody(ErrorEnvelope.self, from: notFound).error.code == "not_found")
+
+  let reservedPrefix = try api.respond(
+    to: SymphonyAPIRequest(method: "GET", path: "/api/v1/issues-reserved"))
+  #expect(reservedPrefix.statusCode == 405)
+  #expect(
+    try decodeBody(ErrorEnvelope.self, from: reservedPrefix).error.code == "method_not_allowed")
+}
+
+@Test func apiRouterReturnsMethodNotAllowedForExactEndpointVerbMismatches() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-methods.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertIssue(fixture.issue)
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let headHealth = try api.respond(
+    to: SymphonyAPIRequest(method: "HEAD", path: "/api/v1/health"))
+  #expect(headHealth.statusCode == 405)
+  #expect(try decodeBody(ErrorEnvelope.self, from: headHealth).error.code == "method_not_allowed")
+
+  let putIssues = try api.respond(
+    to: SymphonyAPIRequest(method: "PUT", path: "/api/v1/issues"))
+  #expect(putIssues.statusCode == 405)
+  #expect(try decodeBody(ErrorEnvelope.self, from: putIssues).error.code == "method_not_allowed")
+
+  let patchRefresh = try api.respond(
+    to: SymphonyAPIRequest(method: "PATCH", path: "/api/v1/refresh"))
+  #expect(patchRefresh.statusCode == 405)
+  #expect(
+    try decodeBody(ErrorEnvelope.self, from: patchRefresh).error.code == "method_not_allowed")
 }
 
 @Test func sqliteDiagnosticsCoverPrivateFailureBranches() throws {

@@ -8,7 +8,7 @@ import Testing
 @Test func inProcessServerServesHTTPRoutesAndWebSocketBacklog() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: true)
   let refreshCounter = Counter()
-  let serverTask = try launchInProcessServer(
+  let serverTask = try await launchInProcessServer(
     fixture: fixture,
     refresh: { refreshCounter.increment() }
   )
@@ -64,7 +64,7 @@ import Testing
 
 @Test func inProcessServerLiveTailPublishesNewEvents() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
-  let serverTask = try launchInProcessServer(fixture: fixture)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
   defer { serverTask.cancel() }
 
   let websocket = try WebSocketProbe(
@@ -92,7 +92,7 @@ import Testing
 
 @Test func inProcessServerRejectsWebSocketUpgradeForMissingSessions() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
-  let serverTask = try launchInProcessServer(fixture: fixture)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
   defer { serverTask.cancel() }
 
   let task = URLSession(configuration: .ephemeral).webSocketTask(
@@ -113,7 +113,7 @@ import Testing
 
 @Test func inProcessServerWebSocketLoopExitsWhenServerIsCancelled() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
-  let serverTask = try launchInProcessServer(fixture: fixture)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
 
   let websocket = try WebSocketProbe(
     endpoint: fixture.endpoint,
@@ -149,7 +149,7 @@ import Testing
   }
   defer { serverTask.cancel() }
 
-  try startup.wait()
+  try await startup.waitUntilReady()
   try await waitForServerHealth(endpoint: fixture.endpoint)
   serverTask.cancel()
   _ = try? await serverTask.value
@@ -170,7 +170,9 @@ import Testing
   #expect(SymphonyHTTPServer.queryValue(named: "message", in: encodedQuery) == "hello world")
   #expect(SymphonyHTTPServer.queryValue(named: "missing", in: encodedQuery) == nil)
   #expect(SymphonyHTTPServer.queryValue(named: "session_id", in: nil) == nil)
+  #expect(SymphonyHTTPServer.sessionID(query: nil) == nil)
   #expect(SymphonyHTTPServer.sessionID(query: encodedQuery) == SessionID("session-42"))
+  #expect(SymphonyHTTPServer.cursor(query: nil) == nil)
   #expect(SymphonyHTTPServer.cursor(query: encodedQuery) == cursor)
 
   let encoder = SymphonyHTTPServer.makeEncoder()
@@ -193,9 +195,36 @@ import Testing
     ])
 }
 
+@Test func inProcessServerRoutesAdditionalSupportedHTTPMethods() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
+  defer { serverTask.cancel() }
+
+  let headResponse = try await request(
+    endpoint: fixture.endpoint,
+    path: "/api/v1/health",
+    method: "HEAD"
+  )
+  #expect(headResponse.statusCode == 405)
+
+  let patchResponse = try await request(
+    endpoint: fixture.endpoint,
+    path: "/api/v1/refresh",
+    method: "PATCH"
+  )
+  #expect(patchResponse.statusCode == 405)
+
+  let putResponse = try await request(
+    endpoint: fixture.endpoint,
+    path: "/api/v1/issues",
+    method: "PUT"
+  )
+  #expect(putResponse.statusCode == 405)
+}
+
 @Test func inProcessWebSocketSubscribesToLiveLogHub() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
-  let serverTask = try launchInProcessServer(fixture: fixture)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
   defer { serverTask.cancel() }
 
   let websocket = try WebSocketProbe(
@@ -214,7 +243,7 @@ import Testing
 
 @Test func pollForwarderDeliversCrossProcessWriteAndDeduplicatesOverlap() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
-  let serverTask = try launchInProcessServer(fixture: fixture)
+  let serverTask = try await launchInProcessServer(fixture: fixture)
   defer { serverTask.cancel() }
 
   let websocket = try WebSocketProbe(
@@ -348,6 +377,20 @@ import Testing
   let appendedEvent = try await appendTask.value
   #expect(secondEvent == fixture.secondEvent)
   #expect(appendedEvent == fixture.secondEvent)
+}
+
+@Test func terminateAndWaitKillsProcessesThatIgnoreTerminate() throws {
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: "/bin/sh")
+  process.arguments = ["-c", "trap '' TERM; while :; do sleep 1; done"]
+  let output = Pipe()
+  process.standardOutput = output
+  process.standardError = output
+  try process.run()
+
+  process.terminateAndWait(timeout: 0.2)
+
+  #expect(!process.isRunning)
 }
 
 private struct WebSocketFixture {
@@ -640,7 +683,7 @@ private func makeTemporaryDirectory() throws -> URL {
 private func launchInProcessServer(
   fixture: WebSocketFixture,
   refresh: @escaping @Sendable () -> Void = {}
-) throws -> Task<Void, Error> {
+) async throws -> Task<Void, Error> {
   let api = SymphonyHTTPAPI(
     store: fixture.store,
     version: "1.0.0",
@@ -654,13 +697,13 @@ private func launchInProcessServer(
     liveLogHub: fixture.liveLogHub
   )
   let startup = ServerStartupSignal()
-  let serverTask = Task {
+  let serverTask = Task.detached {
     try await server.run {
       startup.ready()
     }
   }
   do {
-    try startup.wait()
+    try await startup.waitUntilReady()
     return serverTask
   } catch {
     serverTask.cancel()
@@ -738,11 +781,25 @@ private func builtProductsDirectory() -> URL {
 private final class BundleLocator {}
 
 extension Process {
-  fileprivate func terminateAndWait() {
-    if isRunning {
-      terminate()
-      waitUntilExit()
+  fileprivate func terminateAndWait(timeout: TimeInterval = 1) {
+    guard isRunning else {
+      return
     }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    let waitQueue = DispatchQueue(label: "symphony.tests.process.wait.\(processIdentifier)")
+    waitQueue.async {
+      self.waitUntilExit()
+      semaphore.signal()
+    }
+
+    terminate()
+    if semaphore.wait(timeout: .now() + timeout) == .success {
+      return
+    }
+
+    Darwin.kill(processIdentifier, SIGKILL)
+    _ = semaphore.wait(timeout: .now() + timeout)
   }
 }
 

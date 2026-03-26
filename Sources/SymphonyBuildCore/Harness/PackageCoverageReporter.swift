@@ -122,6 +122,9 @@ public struct PackageCoverageReporter {
         lines.append(
           "\(violation.suite) \(violation.kind) \(violation.name) \(percentage(violation.lineCoverage)) (\(violation.coveredLines)/\(violation.executableLines))"
         )
+        if let missingLineRanges = violation.missingLineRanges, !missingLineRanges.isEmpty {
+          lines.append("  missing_lines \(renderMissingLineRanges(missingLineRanges))")
+        }
         if let functions = violation.uncoveredFunctions, !functions.isEmpty {
           for function in functions {
             lines.append("  function \(function)")

@@ -2,14 +2,18 @@ import Foundation
 
 public struct CommitHarnessExecution: Sendable {
   public let report: HarnessReport
+  public let packageInspectionFiles: [CoverageInspectionFileReport]
   public let clientInspection: CoverageInspectionReport?
   public let serverInspection: CoverageInspectionReport?
 
   public init(
-    report: HarnessReport, clientInspection: CoverageInspectionReport?,
+    report: HarnessReport,
+    packageInspectionFiles: [CoverageInspectionFileReport],
+    clientInspection: CoverageInspectionReport?,
     serverInspection: CoverageInspectionReport?
   ) {
     self.report = report
+    self.packageInspectionFiles = packageInspectionFiles
     self.clientInspection = clientInspection
     self.serverInspection = serverInspection
   }
@@ -112,6 +116,23 @@ public struct CommitHarness {
       at: URL(fileURLWithPath: rawPath),
       projectRoot: workspace.projectRoot
     )
+    let capabilities = try toolchainCapabilitiesResolver.resolve()
+    let packageInspectionFiles =
+      (try? Self.inspectPackageCoverageFiles(
+        report: coverageReport,
+        projectRoot: workspace.projectRoot,
+        processRunner: processRunner,
+        llvmCovCommand: capabilities.llvmCovCommand
+      )) ?? []
+    let threshold = request.minimumCoveragePercent / 100
+    let rawPackageFileViolations = coverageReporter.makePackageFileViolations(
+      report: coverageReport, minimumLineCoverage: threshold)
+    let packageFileViolations = Self.applyInspectionFiles(
+      packageInspectionFiles,
+      to: rawPackageFileViolations,
+      processRunner: processRunner,
+      xcrunAvailable: capabilities.xcrunAvailable
+    )
     let clientCoverageInvocation = ShellQuoting.render(
       command: Self.currentExecutablePath(workingDirectory: workspace.projectRoot),
       arguments: Self.coverageSuiteArguments(
@@ -122,7 +143,6 @@ public struct CommitHarness {
       arguments: Self.coverageSuiteArguments(
         product: "server", platform: nil, outputMode: request.outputMode)
     )
-    let capabilities = try toolchainCapabilitiesResolver.resolve()
     let clientExecution: CoverageSuiteExecution?
     let clientCoverageInvocationForReport: String?
     let clientCoverageSkipReason: String?
@@ -163,22 +183,6 @@ public struct CommitHarness {
     }
     let clientCoverage = clientExecution?.report
     let serverCoverage = serverExecution.report
-    let threshold = request.minimumCoveragePercent / 100
-    let rawPackageFileViolations = coverageReporter.makePackageFileViolations(
-      report: coverageReport, minimumLineCoverage: threshold)
-    let packageFileViolations: [HarnessCoverageViolation]
-    if rawPackageFileViolations.isEmpty {
-      packageFileViolations = rawPackageFileViolations
-    } else {
-      packageFileViolations =
-        (try? Self.enrichViolationsWithFunctions(
-          violations: rawPackageFileViolations,
-          coverageJSONPath: URL(fileURLWithPath: coverageReport.coverageJSONPath),
-          projectRoot: workspace.projectRoot,
-          processRunner: processRunner,
-          toolchainCapabilitiesResolver: toolchainCapabilitiesResolver
-        )) ?? rawPackageFileViolations
-    }
     let clientTargetViolations =
       clientCoverage.map {
         coverageReporter.makeTargetViolations(
@@ -213,6 +217,7 @@ public struct CommitHarness {
 
     return CommitHarnessExecution(
       report: report,
+      packageInspectionFiles: packageInspectionFiles,
       clientInspection: clientExecution?.inspection,
       serverInspection: serverExecution.inspection
     )
@@ -341,7 +346,8 @@ public struct CommitHarness {
     processRunner: ProcessRunning,
     toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
   ) throws -> [HarnessCoverageViolation] {
-    let llvmCovCommand = try toolchainCapabilitiesResolver.resolve().llvmCovCommand
+    let capabilities = try toolchainCapabilitiesResolver.resolve()
+    let llvmCovCommand = capabilities.llvmCovCommand
     let inspector = SwiftPMCoverageInspector(
       processRunner: processRunner,
       llvmCovCommand: llvmCovCommand
@@ -362,13 +368,76 @@ public struct CommitHarness {
       projectRoot: projectRoot,
       candidates: candidates,
       includeFunctions: true,
-      includeMissingLines: false
+      includeMissingLines: true
     )
+    return applyInspectionFiles(
+      result.files,
+      to: violations,
+      processRunner: processRunner,
+      xcrunAvailable: capabilities.xcrunAvailable
+    )
+  }
+
+  private static func inspectPackageCoverageFiles(
+    report: PackageCoverageReport,
+    projectRoot: URL,
+    processRunner: ProcessRunning,
+    llvmCovCommand: LLVMCovCommand?
+  ) throws -> [CoverageInspectionFileReport] {
+    guard let llvmCovCommand else {
+      return []
+    }
+    let candidates = report.files.compactMap { file -> CoverageInspectionFileCandidate? in
+      guard file.executableLines > 0, file.coveredLines < file.executableLines else {
+        return nil
+      }
+      let components = file.path.split(separator: "/")
+      let targetName = components.count > 2 ? String(components[1]) : "Sources"
+      return CoverageInspectionFileCandidate(
+        targetName: targetName,
+        path: file.path,
+        coveredLines: file.coveredLines,
+        executableLines: file.executableLines,
+        lineCoverage: file.lineCoverage
+      )
+    }
+    guard !candidates.isEmpty else {
+      return []
+    }
+
+    let inspection = try SwiftPMCoverageInspector(
+      processRunner: processRunner,
+      llvmCovCommand: llvmCovCommand
+    ).inspect(
+      coverageJSONPath: URL(fileURLWithPath: report.coverageJSONPath),
+      projectRoot: projectRoot,
+      candidates: candidates,
+      includeFunctions: true,
+      includeMissingLines: true
+    )
+    return inspection.files
+  }
+
+  private static func applyInspectionFiles(
+    _ inspectionFiles: [CoverageInspectionFileReport],
+    to violations: [HarnessCoverageViolation],
+    processRunner: ProcessRunning,
+    xcrunAvailable: Bool
+  ) -> [HarnessCoverageViolation] {
+    var demangledNames = [String: String]()
     return violations.map { violation in
-      let functions = result.files
-        .first { $0.path == violation.name }?
+      let fileReport = inspectionFiles.first { $0.path == violation.name }
+      let functions = fileReport?
         .functions
-        .map(\.name)
+        .map {
+          demangleCoverageFunctionName(
+            $0.name,
+            processRunner: processRunner,
+            xcrunAvailable: xcrunAvailable,
+            cache: &demangledNames
+          )
+        }
+      let missingLineRanges = fileReport?.missingLineRanges
       return HarnessCoverageViolation(
         suite: violation.suite,
         kind: violation.kind,
@@ -376,9 +445,73 @@ public struct CommitHarness {
         coveredLines: violation.coveredLines,
         executableLines: violation.executableLines,
         lineCoverage: violation.lineCoverage,
-        uncoveredFunctions: functions?.isEmpty == false ? functions : nil
+        uncoveredFunctions: functions?.isEmpty == false ? functions : nil,
+        missingLineRanges: missingLineRanges?.isEmpty == false ? missingLineRanges : nil
       )
     }
+  }
+
+  private static func demangleCoverageFunctionName(
+    _ name: String,
+    processRunner: ProcessRunning,
+    xcrunAvailable: Bool,
+    cache: inout [String: String]
+  ) -> String {
+    if let cached = cache[name] {
+      return cached
+    }
+
+    let resolvedName: String
+    if xcrunAvailable,
+      isSwiftMangledSymbol(name),
+      let demangled = try? demangleSwiftSymbol(name, processRunner: processRunner)
+    {
+      resolvedName = demangled
+    } else {
+      resolvedName = name
+    }
+    cache[name] = resolvedName
+    return resolvedName
+  }
+
+  private static func isSwiftMangledSymbol(_ name: String) -> Bool {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.hasPrefix("$s")
+      || trimmed.hasPrefix("_$s")
+      || trimmed.hasPrefix("$S")
+      || trimmed.hasPrefix("_$S")
+  }
+
+  private static func demangleSwiftSymbol(_ symbol: String, processRunner: ProcessRunning) throws
+    -> String
+  {
+    let result = try processRunner.run(
+      command: "xcrun",
+      arguments: ["swift-demangle", symbol],
+      environment: [:],
+      currentDirectory: nil,
+      observation: nil
+    )
+    guard result.exitStatus == 0 else {
+      return symbol
+    }
+
+    let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !output.isEmpty else {
+      return symbol
+    }
+    let firstLine: String
+    if let newlineIndex = output.firstIndex(of: "\n") {
+      firstLine = String(output[..<newlineIndex])
+    } else {
+      firstLine = output
+    }
+    guard let separatorRange = firstLine.range(of: " ---> ") else {
+      return firstLine
+    }
+    return String(firstLine[separatorRange.upperBound...]).trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
   }
 }
 

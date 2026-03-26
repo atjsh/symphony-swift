@@ -60,6 +60,22 @@ public struct ProviderSessionMetadata: Equatable, Sendable {
   }
 }
 
+public struct ProviderManagedSession: Sendable {
+  public let process: LaunchedProcess
+  public let workspacePath: String
+  public let environment: [String: String]
+
+  public init(
+    process: LaunchedProcess,
+    workspacePath: String,
+    environment: [String: String]
+  ) {
+    self.process = process
+    self.workspacePath = workspacePath
+    self.environment = environment
+  }
+}
+
 // MARK: - Event Kind Inference
 
 enum EventKindInference {
@@ -138,20 +154,34 @@ final class SessionSequenceCounter: @unchecked Sendable {
 
 public final class SessionStore: @unchecked Sendable {
   private let lock = NSLock()
-  private var _sessions: [SessionID: LaunchedProcess] = [:]
+  private var _sessions: [SessionID: ProviderManagedSession] = [:]
 
   public init() {}
 
-  public func store(sessionID: SessionID, process: LaunchedProcess) {
-    lock.withLock { _sessions[sessionID] = process }
+  public func store(
+    sessionID: SessionID,
+    process: LaunchedProcess,
+    workspacePath: String = "",
+    environment: [String: String] = [:]
+  ) {
+    let session = ProviderManagedSession(
+      process: process,
+      workspacePath: workspacePath,
+      environment: environment
+    )
+    lock.withLock { _sessions[sessionID] = session }
   }
 
   @discardableResult
   public func remove(sessionID: SessionID) -> LaunchedProcess? {
-    lock.withLock { _sessions.removeValue(forKey: sessionID) }
+    lock.withLock { _sessions.removeValue(forKey: sessionID)?.process }
   }
 
   public func process(for sessionID: SessionID) -> LaunchedProcess? {
+    lock.withLock { _sessions[sessionID]?.process }
+  }
+
+  public func managedSession(for sessionID: SessionID) -> ProviderManagedSession? {
     lock.withLock { _sessions[sessionID] }
   }
 
@@ -194,7 +224,13 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    activeSessions.store(sessionID: sessionID, process: process)
+    try submitInput(prompt, to: process)
+    activeSessions.store(
+      sessionID: sessionID,
+      process: process,
+      workspacePath: workspacePath,
+      environment: environment
+    )
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -291,7 +327,13 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    activeSessions.store(sessionID: sessionID, process: process)
+    try submitInput(prompt, to: process)
+    activeSessions.store(
+      sessionID: sessionID,
+      process: process,
+      workspacePath: workspacePath,
+      environment: environment
+    )
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -299,10 +341,11 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
     sessionID: SessionID,
     guidance: String
   ) async throws -> AsyncThrowingStream<AgentRawEvent, Error> {
-    guard let existingProcess = activeSessions.remove(sessionID: sessionID) else {
+    guard let existingSession = activeSessions.managedSession(for: sessionID) else {
       throw ProviderAdapterError.sessionNotFound(sessionID)
     }
-    existingProcess.terminate()
+    _ = activeSessions.remove(sessionID: sessionID)
+    existingSession.process.terminate()
 
     var args = config.command
     args += " -p --output-format stream-json --continue"
@@ -312,10 +355,16 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
 
     let process = try processLauncher.launch(
       command: args,
-      workspacePath: "/tmp",
-      environment: [:]
+      workspacePath: existingSession.workspacePath,
+      environment: existingSession.environment
     )
-    activeSessions.store(sessionID: sessionID, process: process)
+    try submitInput(guidance, to: process)
+    activeSessions.store(
+      sessionID: sessionID,
+      process: process,
+      workspacePath: existingSession.workspacePath,
+      environment: existingSession.environment
+    )
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -399,7 +448,13 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    activeSessions.store(sessionID: sessionID, process: process)
+    try submitInput(prompt, to: process)
+    activeSessions.store(
+      sessionID: sessionID,
+      process: process,
+      workspacePath: workspacePath,
+      environment: environment
+    )
     return makeEventStream(from: process, sessionID: sessionID)
   }
 
@@ -471,6 +526,7 @@ public protocol ProcessLaunching: Sendable {
 public protocol LaunchedProcess: Sendable {
   func onOutput(_ handler: @escaping @Sendable (Data) -> Void)
   func onTermination(_ handler: @escaping @Sendable (Int32) -> Void)
+  func sendInput(_ data: Data) throws
   func terminate()
 }
 
@@ -496,7 +552,9 @@ public final class DefaultProcessLauncher: ProcessLaunching, Sendable {
     process.environment = env
 
     let stdout = Pipe()
+    let stdin = Pipe()
     process.standardOutput = stdout
+    process.standardInput = stdin
     process.standardError = FileHandle.nullDevice
 
     do {
@@ -505,7 +563,7 @@ public final class DefaultProcessLauncher: ProcessLaunching, Sendable {
       throw ProviderAdapterError.processLaunchFailed(error.localizedDescription)
     }
 
-    return DefaultLaunchedProcess(process: process, stdoutPipe: stdout)
+    return DefaultLaunchedProcess(process: process, stdoutPipe: stdout, stdinPipe: stdin)
   }
 }
 
@@ -514,16 +572,20 @@ public final class DefaultProcessLauncher: ProcessLaunching, Sendable {
 final class DefaultLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   private let process: Process
   private let stdoutPipe: Pipe
+  private let stdinPipe: Pipe
 
-  init(process: Process, stdoutPipe: Pipe) {
+  init(process: Process, stdoutPipe: Pipe, stdinPipe: Pipe) {
     self.process = process
     self.stdoutPipe = stdoutPipe
+    self.stdinPipe = stdinPipe
   }
 
   func onOutput(_ handler: @escaping @Sendable (Data) -> Void) {
     stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
       let data = handle.availableData
-      if !data.isEmpty {
+      if data.isEmpty {
+        handle.readabilityHandler = nil
+      } else {
         handler(data)
       }
     }
@@ -535,6 +597,10 @@ final class DefaultLaunchedProcess: LaunchedProcess, @unchecked Sendable {
     }
   }
 
+  func sendInput(_ data: Data) throws {
+    try stdinPipe.fileHandleForWriting.write(contentsOf: data)
+  }
+
   func terminate() {
     process.terminate()
   }
@@ -544,13 +610,15 @@ final class DefaultLaunchedProcess: LaunchedProcess, @unchecked Sendable {
 
 public final class StubProcessLauncher: ProcessLaunching, @unchecked Sendable {
   private let lock = NSLock()
-  private var _invocations: [(command: String, workspacePath: String)] = []
-  private var _stubProcess: StubLaunchedProcess?
+  private var _invocations:
+    [(command: String, workspacePath: String, environment: [String: String])] = []
+  private var _stubProcesses: [StubLaunchedProcess] = []
   private var _launchError: Error?
 
   public init() {}
 
-  public var invocations: [(command: String, workspacePath: String)] {
+  public var invocations: [(command: String, workspacePath: String, environment: [String: String])]
+  {
     lock.lock()
     defer { lock.unlock() }
     return _invocations
@@ -558,7 +626,13 @@ public final class StubProcessLauncher: ProcessLaunching, @unchecked Sendable {
 
   public func setStubProcess(_ process: StubLaunchedProcess) {
     lock.lock()
-    _stubProcess = process
+    _stubProcesses = [process]
+    lock.unlock()
+  }
+
+  public func setStubProcesses(_ processes: [StubLaunchedProcess]) {
+    lock.lock()
+    _stubProcesses = processes
     lock.unlock()
   }
 
@@ -574,9 +648,14 @@ public final class StubProcessLauncher: ProcessLaunching, @unchecked Sendable {
     environment: [String: String]
   ) throws -> LaunchedProcess {
     lock.lock()
-    _invocations.append((command: command, workspacePath: workspacePath))
+    _invocations.append(
+      (
+        command: command,
+        workspacePath: workspacePath,
+        environment: environment
+      ))
     let error = _launchError
-    let process = _stubProcess ?? StubLaunchedProcess()
+    let process = _stubProcesses.isEmpty ? StubLaunchedProcess() : _stubProcesses.removeFirst()
     lock.unlock()
 
     if let error { throw error }
@@ -588,9 +667,17 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   private let lock = NSLock()
   private var _outputHandler: (@Sendable (Data) -> Void)?
   private var _terminationHandler: (@Sendable (Int32) -> Void)?
+  private var _recordedInputs: [Data] = []
+  private var _inputError: Error?
   private var _terminated = false
 
   public init() {}
+
+  public var recordedInputStrings: [String] {
+    lock.withLock {
+      _recordedInputs.compactMap { String(data: $0, encoding: .utf8) }
+    }
+  }
 
   public func onOutput(_ handler: @escaping @Sendable (Data) -> Void) {
     lock.lock()
@@ -601,6 +688,24 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   public func onTermination(_ handler: @escaping @Sendable (Int32) -> Void) {
     lock.lock()
     _terminationHandler = handler
+    lock.unlock()
+  }
+
+  public func sendInput(_ data: Data) throws {
+    lock.lock()
+    let inputError = _inputError
+    if inputError == nil {
+      _recordedInputs.append(data)
+    }
+    lock.unlock()
+    if let inputError {
+      throw inputError
+    }
+  }
+
+  public func setInputError(_ error: Error?) {
+    lock.lock()
+    _inputError = error
     lock.unlock()
   }
 
@@ -635,6 +740,15 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
     let handler = _terminationHandler
     lock.unlock()
     handler?(exitCode)
+  }
+}
+
+private func submitInput(_ input: String, to process: LaunchedProcess) throws {
+  guard !input.isEmpty else { return }
+  do {
+    try process.sendInput(Data(input.utf8))
+  } catch {
+    throw ProviderAdapterError.processLaunchFailed(error.localizedDescription)
   }
 }
 
