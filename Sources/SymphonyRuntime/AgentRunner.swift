@@ -229,26 +229,26 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     let stallTimeoutMS = config.providers.stallTimeoutMS(for: config.agent.defaultProvider)
     let stallDetector = StallDetector(stallTimeoutMS: stallTimeoutMS)
     let stallState = StallWatchState(lastEventAt: Date())
-    let stallWatchdog: Task<Void, Never>? =
-      if stallDetector.isEnabled {
-        Task {
-          while !Task.isCancelled {
-            do {
-              try await Task.sleep(nanoseconds: UInt64(stallTimeoutMS) * 1_000_000)
-            } catch {
-              break
-            }
+    let stallWatchdog: Task<Void, Never>?
+    if stallDetector.isEnabled {
+      stallWatchdog = Task {
+        while !Task.isCancelled {
+          do {
+            try await Task.sleep(nanoseconds: UInt64(stallTimeoutMS) * 1_000_000)
+          } catch {
+            break
+          }
 
-            if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
-              stallState.markStalled(timeoutMS: stallTimeoutMS)
-              try? await adapter.cancelSession(sessionID: sessionID)
-              break
-            }
+          if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
+            stallState.markStalled(timeoutMS: stallTimeoutMS)
+            try? await adapter.cancelSession(sessionID: sessionID)
+            break
           }
         }
-      } else {
-        nil
       }
+    } else {
+      stallWatchdog = nil
+    }
 
     do {
       for try await event in eventStream {

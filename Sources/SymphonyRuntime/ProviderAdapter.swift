@@ -95,6 +95,16 @@ enum EventKindInference {
   }
 
   private static func inferCodex(_ json: [String: Any]) -> NormalizedEventKind {
+    if let method = json["method"] as? String {
+      switch method {
+      case "turn/completed", "turn/failed", "turn/cancelled", "initialized", "thread/start",
+        "turn/start":
+        return .status
+      default:
+        break
+      }
+    }
+
     guard let type = json["type"] as? String else { return .unknown }
     switch type {
     case "message", "text": return .message
@@ -122,6 +132,10 @@ enum EventKindInference {
   }
 
   private static func inferCopilotCLI(_ json: [String: Any]) -> NormalizedEventKind {
+    if let method = json["method"] as? String, method == "session/update" {
+      return .status
+    }
+
     guard let type = json["type"] as? String ?? json["event"] as? String else { return .unknown }
     switch type {
     case "message", "update", "text": return .message
@@ -131,6 +145,88 @@ enum EventKindInference {
     case "usage": return .usage
     case "error": return .error
     default: return .unknown
+    }
+  }
+}
+
+private struct ProviderEventDescriptor {
+  let eventType: String
+  let normalizedKind: NormalizedEventKind
+  let isTerminal: Bool
+}
+
+private enum ProviderEventInspection {
+  static func describe(from rawJSON: String, provider: ProviderName) -> ProviderEventDescriptor {
+    guard let data = rawJSON.data(using: .utf8),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return ProviderEventDescriptor(
+        eventType: "unknown",
+        normalizedKind: .unknown,
+        isTerminal: false
+      )
+    }
+
+    let eventType = eventType(from: json, provider: provider)
+    let normalizedKind = EventKindInference.infer(from: rawJSON, provider: provider)
+    let isTerminal = isTerminalEvent(json, provider: provider)
+    return ProviderEventDescriptor(
+      eventType: eventType,
+      normalizedKind: normalizedKind,
+      isTerminal: isTerminal
+    )
+  }
+
+  private static func eventType(from json: [String: Any], provider: ProviderName) -> String {
+    switch provider {
+    case .codex:
+      return json["method"] as? String ?? json["type"] as? String ?? "unknown"
+    case .claudeCode:
+      return json["type"] as? String ?? "unknown"
+    case .copilotCLI:
+      return json["method"] as? String ?? json["type"] as? String ?? json["event"] as? String
+        ?? "unknown"
+    }
+  }
+
+  private static func isTerminalEvent(_ json: [String: Any], provider: ProviderName) -> Bool {
+    switch provider {
+    case .codex:
+      let method = json["method"] as? String
+      return ["turn/completed", "turn/failed", "turn/cancelled"].contains(method)
+    case .claudeCode:
+      let type = json["type"] as? String
+      return ["result", "error"].contains(type)
+    case .copilotCLI:
+      if let method = json["method"] as? String,
+        method == "session/update",
+        let params = json["params"] as? [String: Any],
+        let status = params["status"] as? String
+      {
+        return ["completed", "cancelled", "failed", "timed_out", "timeout"].contains(status)
+      }
+      return false
+    }
+  }
+}
+
+private final class StreamFinishState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _finished = false
+
+  var isFinished: Bool {
+    lock.withLock { _finished }
+  }
+
+  func finishIfNeeded(_ action: () -> Void) {
+    let shouldFinish = lock.withLock {
+      guard !_finished else { return false }
+      _finished = true
+      return true
+    }
+
+    if shouldFinish {
+      action()
     }
   }
 }
@@ -224,7 +320,38 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    try submitInput(prompt, to: process)
+    try submitJSONMessages(
+      [
+        [
+          "id": 1,
+          "method": "initialize",
+          "params": [
+            "client": "symphony",
+            "session_id": sessionID.rawValue,
+          ],
+        ],
+        [
+          "method": "initialized",
+          "params": [:],
+        ],
+        [
+          "id": 2,
+          "method": "thread/start",
+          "params": [
+            "session_id": sessionID.rawValue
+          ],
+        ],
+        [
+          "id": 3,
+          "method": "turn/start",
+          "params": [
+            "session_id": sessionID.rawValue,
+            "prompt": prompt,
+          ],
+        ],
+      ],
+      to: process
+    )
     activeSessions.store(
       sessionID: sessionID,
       process: process,
@@ -254,33 +381,44 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
     let counter = SessionSequenceCounter()
     let activeSessions = self.activeSessions
+    let finishState = StreamFinishState()
     return AsyncThrowingStream { continuation in
       process.onOutput { data in
-        guard
-          let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
-            in: .whitespacesAndNewlines),
-          !line.isEmpty
-        else { return }
+        guard let output = String(data: data, encoding: .utf8) else { return }
 
-        let kind = EventKindInference.infer(from: line, provider: .codex)
-        let event = AgentRawEvent(
-          sessionID: sessionID,
-          provider: "codex",
-          sequence: counter.next(),
-          timestamp: ISO8601DateFormatter().string(from: Date()),
-          rawJSON: line,
-          providerEventType: "codex_event",
-          normalizedEventKind: kind.rawValue
-        )
-        continuation.yield(event)
+        for line in protocolLines(from: output) {
+          guard !finishState.isFinished else { return }
+
+          let descriptor = ProviderEventInspection.describe(from: line, provider: .codex)
+          let event = AgentRawEvent(
+            sessionID: sessionID,
+            provider: "codex",
+            sequence: counter.next(),
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            rawJSON: line,
+            providerEventType: descriptor.eventType,
+            normalizedEventKind: descriptor.normalizedKind.rawValue
+          )
+          continuation.yield(event)
+
+          if descriptor.isTerminal {
+            activeSessions.remove(sessionID: sessionID)
+            finishState.finishIfNeeded {
+              continuation.finish()
+            }
+            return
+          }
+        }
       }
       process.onTermination { exitCode in
         activeSessions.remove(sessionID: sessionID)
-        if exitCode == 0 {
-          continuation.finish()
-        } else {
-          continuation.finish(
-            throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+        finishState.finishIfNeeded {
+          if exitCode == 0 {
+            continuation.finish()
+          } else {
+            continuation.finish(
+              throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+          }
         }
       }
     }
@@ -381,33 +519,44 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
     let counter = SessionSequenceCounter()
     let activeSessions = self.activeSessions
+    let finishState = StreamFinishState()
     return AsyncThrowingStream { continuation in
       process.onOutput { data in
-        guard
-          let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
-            in: .whitespacesAndNewlines),
-          !line.isEmpty
-        else { return }
+        guard let output = String(data: data, encoding: .utf8) else { return }
 
-        let kind = EventKindInference.infer(from: line, provider: .claudeCode)
-        let event = AgentRawEvent(
-          sessionID: sessionID,
-          provider: "claude_code",
-          sequence: counter.next(),
-          timestamp: ISO8601DateFormatter().string(from: Date()),
-          rawJSON: line,
-          providerEventType: "stream_json",
-          normalizedEventKind: kind.rawValue
-        )
-        continuation.yield(event)
+        for line in protocolLines(from: output) {
+          guard !finishState.isFinished else { return }
+
+          let descriptor = ProviderEventInspection.describe(from: line, provider: .claudeCode)
+          let event = AgentRawEvent(
+            sessionID: sessionID,
+            provider: "claude_code",
+            sequence: counter.next(),
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            rawJSON: line,
+            providerEventType: descriptor.eventType,
+            normalizedEventKind: descriptor.normalizedKind.rawValue
+          )
+          continuation.yield(event)
+
+          if descriptor.isTerminal {
+            activeSessions.remove(sessionID: sessionID)
+            finishState.finishIfNeeded {
+              continuation.finish()
+            }
+            return
+          }
+        }
       }
       process.onTermination { exitCode in
         activeSessions.remove(sessionID: sessionID)
-        if exitCode == 0 {
-          continuation.finish()
-        } else {
-          continuation.finish(
-            throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+        finishState.finishIfNeeded {
+          if exitCode == 0 {
+            continuation.finish()
+          } else {
+            continuation.finish(
+              throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+          }
         }
       }
     }
@@ -448,7 +597,34 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    try submitInput(prompt, to: process)
+    try submitJSONMessages(
+      [
+        [
+          "id": 1,
+          "method": "initialize",
+          "params": [
+            "client": "symphony",
+            "protocol": "acp",
+          ],
+        ],
+        [
+          "id": 2,
+          "method": "session/start",
+          "params": [
+            "session_id": sessionID.rawValue
+          ],
+        ],
+        [
+          "id": 3,
+          "method": "session/prompt",
+          "params": [
+            "session_id": sessionID.rawValue,
+            "prompt": prompt,
+          ],
+        ],
+      ],
+      to: process
+    )
     activeSessions.store(
       sessionID: sessionID,
       process: process,
@@ -478,33 +654,44 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
     let counter = SessionSequenceCounter()
     let activeSessions = self.activeSessions
+    let finishState = StreamFinishState()
     return AsyncThrowingStream { continuation in
       process.onOutput { data in
-        guard
-          let line = String(data: data, encoding: .utf8)?.trimmingCharacters(
-            in: .whitespacesAndNewlines),
-          !line.isEmpty
-        else { return }
+        guard let output = String(data: data, encoding: .utf8) else { return }
 
-        let kind = EventKindInference.infer(from: line, provider: .copilotCLI)
-        let event = AgentRawEvent(
-          sessionID: sessionID,
-          provider: "copilot_cli",
-          sequence: counter.next(),
-          timestamp: ISO8601DateFormatter().string(from: Date()),
-          rawJSON: line,
-          providerEventType: "acp_event",
-          normalizedEventKind: kind.rawValue
-        )
-        continuation.yield(event)
+        for line in protocolLines(from: output) {
+          guard !finishState.isFinished else { return }
+
+          let descriptor = ProviderEventInspection.describe(from: line, provider: .copilotCLI)
+          let event = AgentRawEvent(
+            sessionID: sessionID,
+            provider: "copilot_cli",
+            sequence: counter.next(),
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            rawJSON: line,
+            providerEventType: descriptor.eventType,
+            normalizedEventKind: descriptor.normalizedKind.rawValue
+          )
+          continuation.yield(event)
+
+          if descriptor.isTerminal {
+            activeSessions.remove(sessionID: sessionID)
+            finishState.finishIfNeeded {
+              continuation.finish()
+            }
+            return
+          }
+        }
       }
       process.onTermination { exitCode in
         activeSessions.remove(sessionID: sessionID)
-        if exitCode == 0 {
-          continuation.finish()
-        } else {
-          continuation.finish(
-            throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+        finishState.finishIfNeeded {
+          if exitCode == 0 {
+            continuation.finish()
+          } else {
+            continuation.finish(
+              throwing: ProviderAdapterError.processExitedUnexpectedly(exitCode: exitCode))
+          }
         }
       }
     }
@@ -750,6 +937,24 @@ private func submitInput(_ input: String, to process: LaunchedProcess) throws {
   } catch {
     throw ProviderAdapterError.processLaunchFailed(error.localizedDescription)
   }
+}
+
+private func submitJSONMessages(_ messages: [[String: Any]], to process: LaunchedProcess) throws {
+  do {
+    for message in messages {
+      let data = try JSONSerialization.data(withJSONObject: message)
+      try process.sendInput(data + Data("\n".utf8))
+    }
+  } catch {
+    throw ProviderAdapterError.processLaunchFailed(error.localizedDescription)
+  }
+}
+
+private func protocolLines(from output: String) -> [String] {
+  output
+    .split(whereSeparator: \.isNewline)
+    .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+    .filter { !$0.isEmpty }
 }
 
 // MARK: - Provider Adapter Factory

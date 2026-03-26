@@ -91,7 +91,20 @@ import Testing
   #expect(stubLauncher.invocations.count == 1)
   #expect(stubLauncher.invocations[0].command == "codex app-server")
   #expect(stubLauncher.invocations[0].workspacePath == "/tmp/workspace")
-  #expect(stubProcess.recordedInputStrings == ["Fix the bug"])
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 4)
+  #expect(
+    recordedMessages.map { $0["method"] as? String } == [
+      "initialize",
+      "initialized",
+      "thread/start",
+      "turn/start",
+    ])
+
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["prompt"] as? String == "Fix the bug")
   _ = stream
 }
 
@@ -108,7 +121,11 @@ import Testing
     environment: [:]
   )
 
-  #expect(stubProcess.recordedInputStrings.isEmpty)
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 4)
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["prompt"] as? String == "")
 }
 
 @Test func codexAdapterStartSessionFailsWhenPromptSubmissionFails() async {
@@ -165,9 +182,28 @@ import Testing
   }
   #expect(events.count == 1)
   #expect(events[0].provider == "codex")
-  #expect(events[0].providerEventType == "codex_event")
+  #expect(events[0].providerEventType == "message")
   #expect(events[0].normalizedKind == .message)
   #expect(events[0].sequence == EventSequence(0))
+}
+
+@Test func codexAdapterTurnCompletedStopsStreamingFurtherEvents() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CodexAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-turn"))
+
+  stubProcess.simulateOutput("{\"method\":\"turn/completed\",\"params\":{\"turn_id\":\"t1\"}}\n")
+  stubProcess.simulateOutput("{\"type\":\"message\",\"content\":\"late\"}\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "turn/completed")
 }
 
 @Test func codexAdapterMakeEventStreamFailure() async throws {
@@ -238,6 +274,24 @@ import Testing
   #expect(stubLauncher.invocations[0].command.contains("--permission-mode auto"))
 }
 
+@Test func claudeCodeAdapterStartSessionFailsWhenPromptSubmissionFails() async {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("stdin failed"))
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = ClaudeCodeAdapter(config: .defaults, processLauncher: stubLauncher)
+
+  await #expect(throws: ProviderAdapterError.self) {
+    _ = try await adapter.startSession(
+      sessionID: SessionID("s-fail"),
+      workspacePath: "/tmp/ws",
+      prompt: "fix",
+      environment: [:]
+    )
+  }
+}
+
 @Test func claudeCodeAdapterContinueSessionThrowsWhenNoSession() async {
   let adapter = ClaudeCodeAdapter(config: .defaults)
   do {
@@ -272,7 +326,61 @@ import Testing
   }
   #expect(events.count == 1)
   #expect(events[0].provider == "claude_code")
-  #expect(events[0].providerEventType == "stream_json")
+  #expect(events[0].providerEventType == "text")
+}
+
+@Test func claudeCodeAdapterResultStopsStreamingFurtherEvents() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = ClaudeCodeAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-result"))
+  stubProcess.simulateOutput("{\"type\":\"result\",\"content\":\"done\"}\n")
+  stubProcess.simulateOutput("{\"type\":\"text\",\"content\":\"late\"}\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "result")
+}
+
+@Test func claudeCodeAdapterInvalidJSONUsesUnknownEventDescriptor() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = ClaudeCodeAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-invalid"))
+  stubProcess.simulateOutput("not-json\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "unknown")
+  #expect(events[0].normalizedKind == .unknown)
+}
+
+@Test func claudeCodeAdapterMissingTypeUsesUnknownEventDescriptor() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = ClaudeCodeAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-missing-type"))
+  stubProcess.simulateOutput("{\"payload\":\"noop\"}\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "unknown")
+  #expect(events[0].normalizedKind == .unknown)
 }
 
 // MARK: - CopilotCLIAdapter Tests
@@ -305,7 +413,19 @@ import Testing
   #expect(stubLauncher.invocations.count == 1)
   #expect(stubLauncher.invocations[0].command == "copilot --acp --stdio")
   #expect(stubLauncher.invocations[0].workspacePath == "/tmp/ws")
-  #expect(stubProcess.recordedInputStrings == ["fix"])
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 3)
+  #expect(
+    recordedMessages.map { $0["method"] as? String } == [
+      "initialize",
+      "session/start",
+      "session/prompt",
+    ])
+
+  let promptMessage = try #require(recordedMessages.last)
+  let promptParams = try #require(promptMessage["params"] as? [String: Any])
+  #expect(promptParams["prompt"] as? String == "fix")
 }
 
 @Test func copilotCLIAdapterContinueSessionThrows() async {
@@ -342,7 +462,45 @@ import Testing
   }
   #expect(events.count == 1)
   #expect(events[0].provider == "copilot_cli")
-  #expect(events[0].providerEventType == "acp_event")
+  #expect(events[0].providerEventType == "update")
+}
+
+@Test func copilotCLIAdapterCompletedUpdateStopsStreamingFurtherEvents() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CopilotCLIAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-acp"))
+  stubProcess.simulateOutput(
+    "{\"method\":\"session/update\",\"params\":{\"status\":\"completed\"}}\n")
+  stubProcess.simulateOutput("{\"event\":\"update\",\"content\":\"late\"}\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "session/update")
+}
+
+@Test func copilotCLIAdapterMissingEnvelopeUsesUnknownEventDescriptor() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CopilotCLIAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(
+    from: stubProcess, sessionID: SessionID("s-missing-envelope"))
+  stubProcess.simulateOutput("{\"payload\":\"noop\"}\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "unknown")
+  #expect(events[0].normalizedKind == .unknown)
 }
 
 // MARK: - StubProcessLauncher Tests
@@ -642,6 +800,14 @@ import Testing
   #expect(kind == .status)
 }
 
+@Test func eventKindInferenceCodexUnknownMethodFallsBackToType() {
+  let kind = EventKindInference.infer(
+    from: "{\"method\": \"custom/notification\", \"type\": \"message\"}",
+    provider: .codex
+  )
+  #expect(kind == .message)
+}
+
 @Test func eventKindInferenceCodexUsage() {
   let kind = EventKindInference.infer(from: "{\"type\": \"usage\"}", provider: .codex)
   #expect(kind == .usage)
@@ -785,6 +951,22 @@ import Testing
 @Test func eventKindInferenceMissingTypeCopilot() {
   let kind = EventKindInference.infer(from: "{\"data\": \"hello\"}", provider: .copilotCLI)
   #expect(kind == .unknown)
+}
+
+@Test func eventKindInferenceCodexMethodCompletionIsStatus() {
+  let kind = EventKindInference.infer(
+    from: "{\"method\": \"turn/completed\"}",
+    provider: .codex
+  )
+  #expect(kind == .status)
+}
+
+@Test func eventKindInferenceCopilotMethodUpdateIsStatus() {
+  let kind = EventKindInference.infer(
+    from: "{\"method\": \"session/update\"}",
+    provider: .copilotCLI
+  )
+  #expect(kind == .status)
 }
 
 // MARK: - Session Tracking Tests
@@ -933,4 +1115,10 @@ import Testing
 
   #expect(stubLauncher.invocations[1].command.contains("--permission-mode auto"))
   #expect(stubLauncher.invocations[1].command.contains("--continue"))
+}
+
+private func parseJSONObject(_ rawJSON: String) throws -> [String: Any] {
+  let data = try #require(rawJSON.data(using: .utf8))
+  let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+  return object
 }

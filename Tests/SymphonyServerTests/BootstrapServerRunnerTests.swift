@@ -748,34 +748,35 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
   process.standardOutput = output
   process.standardError = output
   try process.run()
-  defer {
-    if process.isRunning {
-      process.terminate()
-      process.waitUntilExit()
-    }
-  }
 
-  let url = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/health"))
-  let session = URLSession(configuration: .ephemeral)
-  var responseData: Data?
+  do {
+    let url = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/health"))
+    let session = URLSession(configuration: .ephemeral)
+    var responseData: Data?
 
-  for _ in 0..<30 {
-    do {
-      let (data, response) = try await session.data(from: url)
-      let httpResponse = try #require(response as? HTTPURLResponse)
-      if httpResponse.statusCode == 200 {
-        responseData = data
-        break
+    for _ in 0..<30 {
+      do {
+        let (data, response) = try await session.data(from: url)
+        let httpResponse = try #require(response as? HTTPURLResponse)
+        if httpResponse.statusCode == 200 {
+          responseData = data
+          break
+        }
+      } catch {
+        try await Task.sleep(for: .milliseconds(100))
       }
-    } catch {
-      try await Task.sleep(for: .milliseconds(100))
     }
+
+    let data = try #require(responseData)
+    let health = try JSONDecoder().decode(HealthResponse.self, from: data)
+    #expect(health.status == "ok")
+    #expect(health.trackerKind == "github")
+  } catch {
+    try await terminateProcessIfRunning(process)
+    throw error
   }
 
-  let data = try #require(responseData)
-  let health = try JSONDecoder().decode(HealthResponse.self, from: data)
-  #expect(health.status == "ok")
-  #expect(health.trackerKind == "github")
+  try await terminateProcessIfRunning(process)
 }
 
 @Test func builtServerExecutablePrintsFailureAndExitsForInvalidSQLitePath() throws {
@@ -1004,4 +1005,28 @@ private func waitUntil(
 
   Issue.record("Timed out waiting for \(description).")
   throw POSIXError(.ETIMEDOUT)
+}
+
+private func terminateProcessIfRunning(
+  _ process: Process,
+  timeout: Duration = .seconds(2)
+) async throws {
+  guard process.isRunning else { return }
+
+  process.terminate()
+  do {
+    try await waitUntil(
+      "process \(process.processIdentifier) exits after SIGTERM", timeout: timeout
+    ) {
+      !process.isRunning
+    }
+  } catch {
+    guard process.isRunning else { return }
+    kill(process.processIdentifier, SIGKILL)
+    try await waitUntil(
+      "process \(process.processIdentifier) exits after SIGKILL", timeout: timeout
+    ) {
+      !process.isRunning
+    }
+  }
 }

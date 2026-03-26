@@ -776,6 +776,7 @@ struct AgentRunnerStallDetectionTests {
 
     // Config with stall detection disabled (0ms)
     let config = WorkflowConfig(
+      agent: AgentConfig(defaultProvider: .codex),
       providers: ProvidersConfig(
         codex: CodexProviderConfig(stallTimeoutMS: 0)))
 
