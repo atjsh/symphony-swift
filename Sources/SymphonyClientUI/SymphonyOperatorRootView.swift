@@ -76,11 +76,11 @@ public struct SymphonyOperatorRootView: View {
       }
 
       HStack {
-        Button(model.isConnecting ? "Connecting…" : "Connect", action: triggerConnect)
+        Button(model.isConnecting ? "Connecting…" : "Connect", action: makeConnectAction())
           .disabled(model.isConnecting)
           .accessibilityIdentifier("connect-button")
 
-        Button(model.isRefreshing ? "Refreshing…" : "Refresh", action: triggerRefresh)
+        Button(model.isRefreshing ? "Refreshing…" : "Refresh", action: makeRefreshAction())
           .disabled(model.isRefreshing || model.isConnecting)
           .accessibilityIdentifier("refresh-button")
       }
@@ -309,18 +309,49 @@ public struct SymphonyOperatorRootView: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
       ForEach(sessions, id: \.sessionID.rawValue) { session in
-        HStack {
-          ProviderBadge(label: session.provider)
-          Text(session.status)
-            .font(.caption)
-          Spacer()
-          Text("Turns: \(session.turnCount)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          if let lastEventAt = session.lastEventAt {
-            Text(formatTimestamp(lastEventAt))
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            ProviderBadge(label: session.provider)
+            Text(session.status)
+              .font(.caption)
+            Spacer()
+            Text("Turns: \(session.turnCount)")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            if let lastEventAt = session.lastEventAt {
+              Text(formatTimestamp(lastEventAt))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          metadataLine(label: "Session", value: session.sessionID.rawValue)
+
+          if let providerSessionID = session.providerSessionID {
+            metadataLine(label: "Provider session", value: providerSessionID)
+          }
+
+          if let providerThreadID = session.providerThreadID {
+            metadataLine(label: "Provider thread", value: providerThreadID)
+          }
+
+          if let providerTurnID = session.providerTurnID {
+            metadataLine(label: "Provider turn", value: providerTurnID)
+          }
+
+          if let providerRunID = session.providerRunID {
+            metadataLine(label: "Provider run", value: providerRunID)
+          }
+
+          if recentSessionHasVisibleTokenUsage(session.tokenUsage) {
+            tokenUsageView(session.tokenUsage)
+          }
+
+          if let rateLimitPayload = session.latestRateLimitPayload {
+            Text(rateLimitPayload)
               .font(.system(.caption2, design: .monospaced))
               .foregroundStyle(.secondary)
+              .textSelection(.enabled)
           }
         }
         .padding(8)
@@ -349,6 +380,12 @@ public struct SymphonyOperatorRootView: View {
 
         if let providerSessionID = runDetail.providerSessionID {
           Text("Provider session: \(providerSessionID)")
+            .font(.system(.footnote, design: .monospaced))
+            .foregroundStyle(.secondary)
+        }
+
+        if let providerRunID = runDetail.providerRunID {
+          Text("Provider run: \(providerRunID)")
             .font(.system(.footnote, design: .monospaced))
             .foregroundStyle(.secondary)
         }
@@ -388,6 +425,12 @@ public struct SymphonyOperatorRootView: View {
         Text("Turns: \(runDetail.turnCount) • Events: \(runDetail.logs.eventCount)")
           .font(.footnote)
           .foregroundStyle(.secondary)
+
+        if let latestSequence = runDetail.logs.latestSequence {
+          Text("Latest sequence: #\(latestSequence.rawValue)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
 
         if let endedAt = runDetail.endedAt {
           Text("Ended: \(formatTimestamp(endedAt))")
@@ -438,6 +481,18 @@ public struct SymphonyOperatorRootView: View {
     .padding(.vertical, 4)
     .background(
       Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private func metadataLine(label: String, value: String) -> some View {
+    HStack(spacing: 6) {
+      Text(label)
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+      Text(value)
+        .font(.system(.caption2, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+    }
   }
 
   private var logsSection: some View {
@@ -515,6 +570,14 @@ public struct SymphonyOperatorRootView: View {
 }
 
 extension SymphonyOperatorRootView {
+  func makeConnectAction() -> () -> Void {
+    { triggerConnect() }
+  }
+
+  func makeRefreshAction() -> () -> Void {
+    { triggerRefresh() }
+  }
+
   func triggerConnect() {
     Task { await model.connect() }
   }
@@ -566,6 +629,16 @@ private func formatState(_ state: String) -> String {
   state.split(separator: "_")
     .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
     .joined(separator: " ")
+}
+
+func recentSessionHasVisibleTokenUsage(_ tokens: TokenUsage) -> Bool {
+  if tokens.inputTokens != nil {
+    return true
+  }
+  if tokens.outputTokens != nil {
+    return true
+  }
+  return tokens.totalTokens != nil
 }
 
 #if DEBUG

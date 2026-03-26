@@ -3,19 +3,49 @@ import SymphonyRuntime
 
 @main
 struct SymphonyServerMain {
+  typealias Runner = (
+    _ environment: [String: String],
+    _ output: @escaping (String) -> Void,
+    _ keepAlive: @escaping () -> Void,
+    _ startServer: Bool
+  ) throws -> Void
+
   static func main() {
-    let environment = ProcessInfo.processInfo.environment
+    main(
+      environment: ProcessInfo.processInfo.environment,
+      output: { print($0) },
+      errorOutput: { fputs($0, stderr) },
+      exit: { Foundation.exit($0) },
+      runner: { environment, output, keepAlive, startServer in
+        try BootstrapServerRunner.run(
+          environment: environment,
+          output: output,
+          keepAlive: keepAlive,
+          startServer: startServer
+        )
+      }
+    )
+  }
+
+  static func main(
+    environment: [String: String],
+    output: @escaping (String) -> Void,
+    errorOutput: (String) -> Void,
+    exit: (Int32) -> Void,
+    runner: Runner
+  ) {
     let shouldExitAfterStartup = BootstrapKeepAlivePolicy.shouldExitAfterStartup(
-      environment: environment)
+      environment: environment
+    )
     do {
-      try BootstrapServerRunner.run(
-        environment: environment,
-        output: { print($0) },
-        keepAlive: BootstrapKeepAlivePolicy.makeKeepAlive(environment: environment),
-        startServer: !shouldExitAfterStartup
+      try runner(
+        environment,
+        output,
+        BootstrapKeepAlivePolicy.makeKeepAlive(environment: environment),
+        !shouldExitAfterStartup
       )
     } catch {
-      fputs("[SymphonyServer] failed to start: \(error)\n", stderr)
+      errorOutput("[SymphonyServer] failed to start: \(error)\n")
       exit(1)
     }
   }

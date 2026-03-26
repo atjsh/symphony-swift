@@ -528,169 +528,149 @@ import Testing
   try await Task.sleep(for: .milliseconds(50))
 }
 
-@Test func keepAlivePolicyCanExitImmediatelyForServerCoverageRuns() {
-  withBootstrapRuntimeHooksLock {
-    #expect(!BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: [:]))
-    #expect(
-      BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: [
-        BootstrapKeepAlivePolicy.exitAfterStartupKey: "1"
-      ]))
-
-    let action = BootstrapKeepAlivePolicy.makeKeepAlive(environment: [
-      BootstrapKeepAlivePolicy.exitAfterStartupKey: "1"
-    ])
-    action()
-
-    var didKeepAlive = false
-    let previousKeepAlive = BootstrapRuntimeHooks.keepAliveOverride
-    BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
-    defer { BootstrapRuntimeHooks.keepAliveOverride = previousKeepAlive }
-
-    let blockingAction = BootstrapKeepAlivePolicy.makeKeepAlive(environment: [:])
-    blockingAction()
-    #expect(didKeepAlive)
-  }
-}
-
-@Test func bootstrapServerRunnerRunUsesDefaultHooksAndFallsBackToDefaultPort() throws {
-  try withBootstrapRuntimeHooksLock {
-    var lines = [String]()
-    var didKeepAlive = false
-    let previousOutput = BootstrapRuntimeHooks.outputOverride
-    let previousKeepAlive = BootstrapRuntimeHooks.keepAliveOverride
-    BootstrapRuntimeHooks.outputOverride = { lines.append($0) }
-    BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
-    defer {
-      BootstrapRuntimeHooks.outputOverride = previousOutput
-      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAlive
-    }
-
-    try BootstrapServerRunner.run(
-      componentName: "DefaultHookServer",
-      environment: [
-        BootstrapEnvironment.serverPortKey: "abc"
-      ],
-      processIdentifier: 88,
-      launchArguments: ["server"],
-      startedAt: Date(timeIntervalSince1970: 1_700_000_400),
-      startServer: false
-    )
-
-    #expect(didKeepAlive)
-    #expect(lines.contains("[DefaultHookServer] endpoint=http://127.0.0.1:8080"))
-    #expect(
-      BootstrapEnvironment.effectiveServerEndpoint(environment: [:]).host == "127.0.0.1")
-    #expect(
-      BootstrapEnvironment.effectiveServerEndpoint(environment: [
-        BootstrapEnvironment.serverPortKey: "abc"
-      ]).port == 8080)
-  }
-}
-
-@Test func bootstrapRuntimeHooksDefaultBranchesAndEndpointFallbacks() {
-  withBootstrapRuntimeHooksLock {
-    let previousOutput = BootstrapRuntimeHooks.outputOverride
-    let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
-    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
-    BootstrapRuntimeHooks.outputOverride = nil
-
-    var didDefaultRunLoop = false
-    var didCustomRunLoop = false
-    BootstrapRuntimeHooks.keepAliveOverride = nil
-    BootstrapRuntimeHooks.runLoopRunnerOverride = { didCustomRunLoop = true }
-    BootstrapRuntimeHooks.withDefaultRunLoopAction { didDefaultRunLoop = true }
-    defer {
-      BootstrapRuntimeHooks.outputOverride = previousOutput
-      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
-      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
-      BootstrapRuntimeHooks.resetDefaultRunLoopAction()
-    }
-
-    BootstrapRuntimeHooks.defaultOutput("[SymphonyServer] probe")
-    BootstrapRuntimeHooks.keepAlive()
-    #expect(didCustomRunLoop)
-
-    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
-    BootstrapRuntimeHooks.keepAlive()
-    #expect(didDefaultRunLoop)
-
-    let normalized = BootstrapServerEndpoint(scheme: " ", host: " ", port: 0)
-    #expect(normalized == .defaultEndpoint)
-    #expect(normalized.description == "http://127.0.0.1:8080")
-    #expect(BootstrapServerEndpoint.defaultEndpoint.host == "127.0.0.1")
-
-    let fallbackEndpoint = BootstrapServerEndpoint(scheme: "http", host: "bad host", port: 8080)
-    #expect(fallbackEndpoint.url == nil)
-    #expect(fallbackEndpoint.displayString == "http://bad host:8080")
-    #expect(fallbackEndpoint.description == "http://bad host:8080")
-  }
-}
-
-@Test func bootstrapRuntimeHooksDefaultRunLoopFallbackCanBeExercisedDirectly() {
-  withBootstrapRuntimeHooksLock {
-    var didRunDefaultPath = false
-    BootstrapRuntimeHooks.withDefaultRunLoopAction { didRunDefaultPath = true }
-    defer { BootstrapRuntimeHooks.resetDefaultRunLoopAction() }
-    let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
-    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
-    BootstrapRuntimeHooks.keepAliveOverride = nil
-    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
-    defer {
-      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
-      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
-    }
-
-    BootstrapRuntimeHooks.keepAlive()
-
-    #expect(didRunDefaultPath)
-  }
-}
-
-@Test func bootstrapRuntimeHooksCanRunRealMainRunLoopFallback() async {
-  var previousKeepAliveOverride: (() -> Void)?
-  var previousRunLoopRunner: (() -> Void)?
-
-  withBootstrapRuntimeHooksLock {
-    previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
-    previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
-    BootstrapRuntimeHooks.keepAliveOverride = nil
-    BootstrapRuntimeHooks.runLoopRunnerOverride = nil
-    BootstrapRuntimeHooks.resetDefaultRunLoopAction()
-  }
-
-  defer {
+@Suite(.serialized)
+struct BootstrapRuntimeHooksIsolationTests {
+  @Test func keepAlivePolicyCanExitImmediatelyForServerCoverageRuns() {
     withBootstrapRuntimeHooksLock {
-      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
-      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+      #expect(!BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: [:]))
+      #expect(
+        BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: [
+          BootstrapKeepAlivePolicy.exitAfterStartupKey: "1"
+        ]))
+
+      let action = BootstrapKeepAlivePolicy.makeKeepAlive(environment: [
+        BootstrapKeepAlivePolicy.exitAfterStartupKey: "1"
+      ])
+      action()
+
+      var didKeepAlive = false
+      let previousKeepAlive = BootstrapRuntimeHooks.keepAliveOverride
+      BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
+      defer { BootstrapRuntimeHooks.keepAliveOverride = previousKeepAlive }
+
+      let blockingAction = BootstrapKeepAlivePolicy.makeKeepAlive(environment: [:])
+      blockingAction()
+      #expect(didKeepAlive)
     }
   }
 
-  await MainActor.run {
-    RunLoop.main.perform {
-      CFRunLoopStop(CFRunLoopGetMain())
-    }
+  @Test func bootstrapServerRunnerRunUsesDefaultHooksAndFallsBackToDefaultPort() throws {
+    try withBootstrapRuntimeHooksLock {
+      var lines = [String]()
+      var didKeepAlive = false
+      let previousOutput = BootstrapRuntimeHooks.outputOverride
+      let previousKeepAlive = BootstrapRuntimeHooks.keepAliveOverride
+      BootstrapRuntimeHooks.outputOverride = { lines.append($0) }
+      BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
+      defer {
+        BootstrapRuntimeHooks.outputOverride = previousOutput
+        BootstrapRuntimeHooks.keepAliveOverride = previousKeepAlive
+      }
 
-    BootstrapRuntimeHooks.keepAlive()
+      try BootstrapServerRunner.run(
+        componentName: "DefaultHookServer",
+        environment: [
+          BootstrapEnvironment.serverPortKey: "abc"
+        ],
+        processIdentifier: 88,
+        launchArguments: ["server"],
+        startedAt: Date(timeIntervalSince1970: 1_700_000_400),
+        startServer: false
+      )
+
+      #expect(didKeepAlive)
+      #expect(lines.contains("[DefaultHookServer] endpoint=http://127.0.0.1:8080"))
+      #expect(
+        BootstrapEnvironment.effectiveServerEndpoint(environment: [:]).host == "127.0.0.1")
+      #expect(
+        BootstrapEnvironment.effectiveServerEndpoint(environment: [
+          BootstrapEnvironment.serverPortKey: "abc"
+        ]).port == 8080)
+    }
   }
-}
 
-@Test func bootstrapRuntimeHooksKeepAliveUsesExplicitOverrideFirst() {
-  withBootstrapRuntimeHooksLock {
-    let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
-    let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
-    var didKeepAlive = false
-    var didRunLoop = false
-    BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
-    BootstrapRuntimeHooks.runLoopRunnerOverride = { didRunLoop = true }
-    defer {
-      BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
-      BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+  @Test func bootstrapRuntimeHooksDefaultBranchesAndEndpointFallbacks() {
+    withBootstrapRuntimeHooksLock {
+      let previousOutput = BootstrapRuntimeHooks.outputOverride
+      let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+      let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+      BootstrapRuntimeHooks.outputOverride = nil
+
+      var didDefaultRunLoop = false
+      var didCustomRunLoop = false
+      BootstrapRuntimeHooks.keepAliveOverride = nil
+      BootstrapRuntimeHooks.runLoopRunnerOverride = { didCustomRunLoop = true }
+      BootstrapRuntimeHooks.withDefaultRunLoopAction { didDefaultRunLoop = true }
+      defer {
+        BootstrapRuntimeHooks.outputOverride = previousOutput
+        BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+        BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+        BootstrapRuntimeHooks.resetDefaultRunLoopAction()
+      }
+
+      BootstrapRuntimeHooks.defaultOutput("[SymphonyServer] probe")
+      BootstrapRuntimeHooks.keepAlive()
+      #expect(didCustomRunLoop)
+
+      BootstrapRuntimeHooks.runLoopRunnerOverride = nil
+      BootstrapRuntimeHooks.keepAlive()
+      #expect(didDefaultRunLoop)
+
+      let normalized = BootstrapServerEndpoint(scheme: " ", host: " ", port: 0)
+      #expect(normalized == .defaultEndpoint)
+      #expect(normalized.description == "http://127.0.0.1:8080")
+      #expect(BootstrapServerEndpoint.defaultEndpoint.host == "127.0.0.1")
+
+      let fallbackEndpoint = BootstrapServerEndpoint(
+        scheme: "http", host: "bad host", port: 8080)
+      #expect(fallbackEndpoint.url == nil)
+      #expect(fallbackEndpoint.displayString == "http://bad host:8080")
+      #expect(fallbackEndpoint.description == "http://bad host:8080")
     }
+  }
 
-    BootstrapRuntimeHooks.keepAlive()
+  @Test func bootstrapRuntimeHooksDefaultRunLoopFallbackCanBeExercisedDirectly() {
+    withBootstrapRuntimeHooksLock {
+      let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+      let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+      BootstrapRuntimeHooks.keepAliveOverride = nil
+      BootstrapRuntimeHooks.runLoopRunnerOverride = nil
+      defer {
+        BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+        BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+      }
 
-    #expect(didKeepAlive)
-    #expect(!didRunLoop)
+      var didReachStopBlock = false
+      let runLoop = CFRunLoopGetCurrent()
+      CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
+        didReachStopBlock = true
+        CFRunLoopStop(runLoop)
+      }
+      CFRunLoopWakeUp(runLoop)
+      BootstrapRuntimeHooks.keepAlive()
+
+      #expect(didReachStopBlock)
+    }
+  }
+
+  @Test func bootstrapRuntimeHooksKeepAliveUsesExplicitOverrideFirst() {
+    withBootstrapRuntimeHooksLock {
+      let previousKeepAliveOverride = BootstrapRuntimeHooks.keepAliveOverride
+      let previousRunLoopRunner = BootstrapRuntimeHooks.runLoopRunnerOverride
+      var didKeepAlive = false
+      var didRunLoop = false
+      BootstrapRuntimeHooks.keepAliveOverride = { didKeepAlive = true }
+      BootstrapRuntimeHooks.runLoopRunnerOverride = { didRunLoop = true }
+      defer {
+        BootstrapRuntimeHooks.keepAliveOverride = previousKeepAliveOverride
+        BootstrapRuntimeHooks.runLoopRunnerOverride = previousRunLoopRunner
+      }
+
+      BootstrapRuntimeHooks.keepAlive()
+
+      #expect(didKeepAlive)
+      #expect(!didRunLoop)
+    }
   }
 }
 

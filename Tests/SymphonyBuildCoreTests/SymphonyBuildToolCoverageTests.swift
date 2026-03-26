@@ -2376,6 +2376,7 @@ private final class HarnessPackageInspectionOverwriteProcessRunner: ProcessRunni
   @unchecked Sendable
 {
   private let packageCoveragePath: String
+  private let packageCoverageData: Data?
   private let showArguments: [String]
   private let reportArguments: [String]
   private let lock = NSLock()
@@ -2388,6 +2389,7 @@ private final class HarnessPackageInspectionOverwriteProcessRunner: ProcessRunni
     testBinaryPath: String
   ) {
     self.packageCoveragePath = packageCoveragePath
+    self.packageCoverageData = try? Data(contentsOf: URL(fileURLWithPath: packageCoveragePath))
     self.showArguments = [
       "llvm-cov", "show",
       "-instr-profile", profdataPath,
@@ -2414,6 +2416,16 @@ private final class HarnessPackageInspectionOverwriteProcessRunner: ProcessRunni
     observation: ProcessObservation?
   ) throws -> CommandResult {
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      if let packageCoverageData,
+        !FileManager.default.fileExists(atPath: packageCoveragePath)
+      {
+        let coverageURL = URL(fileURLWithPath: packageCoveragePath)
+        try FileManager.default.createDirectory(
+          at: coverageURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try packageCoverageData.write(to: coverageURL)
+      }
       return StubProcessRunner.success()
     }
     if command == "swift", arguments == ["test", "--show-code-coverage-path"] {

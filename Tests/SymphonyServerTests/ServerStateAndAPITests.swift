@@ -188,6 +188,13 @@ import Testing
   #expect(issueDetailResponse.statusCode == 200)
   let issueDetail = try decodeBody(IssueDetail.self, from: issueDetailResponse)
   #expect(issueDetail.issue.id == fixture.issue.id)
+  let recentSession = try #require(issueDetail.recentSessions.first)
+  #expect(recentSession.providerSessionID == fixture.session.providerSessionID)
+  #expect(recentSession.providerThreadID == fixture.session.providerThreadID)
+  #expect(recentSession.providerTurnID == fixture.session.providerTurnID)
+  #expect(recentSession.providerRunID == fixture.session.providerRunID)
+  #expect(recentSession.tokenUsage == fixture.session.tokenUsage)
+  #expect(recentSession.latestRateLimitPayload == fixture.session.latestRateLimitPayload)
 
   let runDetailResponse = try api.respond(
     to: SymphonyAPIRequest(method: "GET", path: "/api/v1/runs/\(fixture.runDetail.runID.rawValue)"))
@@ -195,6 +202,11 @@ import Testing
   let runDetail = try decodeBody(RunDetail.self, from: runDetailResponse)
   #expect(runDetail.runID == fixture.runDetail.runID)
   #expect(runDetail.provider == fixture.runDetail.provider)
+  #expect(runDetail.providerSessionID == fixture.runDetail.providerSessionID)
+  #expect(runDetail.providerRunID == fixture.runDetail.providerRunID)
+  #expect(runDetail.lastAgentMessage == fixture.runDetail.lastAgentMessage)
+  #expect(runDetail.tokens == fixture.runDetail.tokens)
+  #expect(runDetail.logs.latestSequence == EventSequence(1))
 
   let logsResponse = try api.respond(
     to: SymphonyAPIRequest(

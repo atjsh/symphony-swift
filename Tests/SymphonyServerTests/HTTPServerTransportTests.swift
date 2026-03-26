@@ -282,6 +282,32 @@ import Testing
   #expect(thirdEvent.providerEventType == "tool_call")
 }
 
+@Test func polledEventForwarderYieldsStoredEventsAndPreservesSequenceForMissingSessions() throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: false)
+  var yielded = [AgentRawEvent]()
+
+  let unchangedSequence = SymphonyHTTPServer.forwardPolledEvents(
+    store: fixture.store,
+    sessionID: SessionID("missing-session"),
+    lastPolledSequence: EventSequence(7)
+  ) { event in
+    yielded.append(event)
+  }
+  #expect(unchangedSequence == EventSequence(7))
+  #expect(yielded.isEmpty)
+
+  let advancedSequence = SymphonyHTTPServer.forwardPolledEvents(
+    store: fixture.store,
+    sessionID: fixture.session.sessionID,
+    lastPolledSequence: EventSequence(0)
+  ) { event in
+    yielded.append(event)
+  }
+
+  #expect(yielded == [fixture.firstEvent, fixture.secondEvent])
+  #expect(advancedSequence == fixture.secondEvent.sequence)
+}
+
 @Test func liveLogHubPublishesToSubscribersAndRemovesTerminatedStreams() async throws {
   let hub = LiveLogHub()
   let sessionID = SessionID("session-42")

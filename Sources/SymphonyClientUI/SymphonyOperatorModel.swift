@@ -93,9 +93,7 @@ public final class SymphonyOperatorModel: ObservableObject {
     do {
       _ = try await client.refresh(endpoint: endpoint)
       issues = try await client.issues(endpoint: endpoint).items
-      if let selectionToRestore,
-        let summary = issues.first(where: { $0.issueID == selectionToRestore })
-      {
+      if let summary = selectedIssueSummary(restoring: selectionToRestore, in: issues) {
         await selectIssue(summary)
       }
     } catch {
@@ -175,29 +173,58 @@ public final class SymphonyOperatorModel: ObservableObject {
     liveStatus = "Connecting live stream"
     let client = self.client
 
-    liveLogTask = Task { [weak self, client] in
+    liveLogTask = Task { @MainActor [weak self, client] in
       do {
         let stream = try client.logStream(endpoint: endpoint, sessionID: sessionID, cursor: cursor)
-        await MainActor.run {
-          self?.liveStatus = "Live"
-        }
+        self?.setLiveStatus("Live")
 
         for try await event in stream {
-          await MainActor.run {
-            self?.appendLogEvent(event)
-          }
+          self?.appendLogEvent(event)
         }
 
-        await MainActor.run {
-          self?.liveStatus = "Ended"
-        }
+        self?.setLiveStatus("Ended")
       } catch is CancellationError {
       } catch {
-        await MainActor.run {
-          self?.liveStatus = error.localizedDescription
-        }
+        self?.setLiveStatus(error.localizedDescription)
       }
     }
+  }
+
+  func testingAppendLogEvent(_ event: AgentRawEvent) {
+    appendLogEvent(event)
+  }
+
+  func testingMergeLogEvents(_ events: [AgentRawEvent]) {
+    mergeLogEvents(events)
+  }
+
+  var testingLogCursor: EventCursor? {
+    logCursor
+  }
+
+  func testingSelectedIssueSummary(
+    restoring selectionToRestore: IssueID?,
+    in issues: [IssueSummary]
+  ) -> IssueSummary? {
+    selectedIssueSummary(restoring: selectionToRestore, in: issues)
+  }
+
+  private func selectedIssueSummary(
+    restoring selectionToRestore: IssueID?,
+    in issues: [IssueSummary]
+  ) -> IssueSummary? {
+    guard let selectionToRestore else {
+      return nil
+    }
+
+    for summary in issues where summary.issueID == selectionToRestore {
+      return summary
+    }
+    return nil
+  }
+
+  private func setLiveStatus(_ status: String) {
+    liveStatus = status
   }
 
   private func appendLogEvent(_ event: AgentRawEvent) {

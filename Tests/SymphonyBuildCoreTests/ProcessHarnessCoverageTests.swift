@@ -738,7 +738,9 @@ import Testing
     do {
       _ = try CommitHarness(
         processRunner: StubProcessRunner(results: [
-          "swift test --enable-code-coverage": StubProcessRunner.failure("tests failed")
+          "swift test --show-code-coverage-path": StubProcessRunner.success(
+            coveragePath.path + "\n"),
+          "swift test --enable-code-coverage": StubProcessRunner.failure("tests failed"),
         ])
       ).run(
         workspace: workspace,
@@ -1778,12 +1780,23 @@ func commitHarnessExecuteInspectsPackageViolationsBeforeCoverageLoadersRewriteSw
 private struct CoverageCommandProcessRunner: ProcessRunning {
   let packageCoveragePath: String
   let coverageResult: CommandResult
+  private let packageCoverageData: Data?
+
+  init(packageCoveragePath: String, coverageResult: CommandResult) {
+    self.packageCoveragePath = packageCoveragePath
+    self.coverageResult = coverageResult
+    self.packageCoverageData = capturePackageCoverageSeed(at: packageCoveragePath)
+  }
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
     observation: ProcessObservation?
   ) throws -> CommandResult {
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      try restorePackageCoverageSeed(
+        packageCoverageData,
+        at: packageCoveragePath
+      )
       observation?.onLine?(.stdout, "swift test passed")
       observation?.onStaleSignal?("[symphony-build] swift test still running")
       return StubProcessRunner.success()
@@ -1810,6 +1823,7 @@ private struct CoverageCommandProcessRunner: ProcessRunning {
 
 private final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @unchecked Sendable {
   private let packageCoveragePath: String
+  private let packageCoverageData: Data?
   private let showArguments: [String]
   private let reportArguments: [String]
   private let lock = NSLock()
@@ -1822,6 +1836,7 @@ private final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @un
     testBinaryPath: String
   ) {
     self.packageCoveragePath = packageCoveragePath
+    self.packageCoverageData = capturePackageCoverageSeed(at: packageCoveragePath)
     self.showArguments = [
       "llvm-cov", "show",
       "-instr-profile", profdataPath,
@@ -1848,6 +1863,7 @@ private final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @un
     observation: ProcessObservation?
   ) throws -> CommandResult {
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
     if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
@@ -1905,12 +1921,14 @@ private final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @un
 private final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecked Sendable {
   let packageCoveragePath: String
   let artifactRoot: String
+  private let packageCoverageData: Data?
   private let lock = NSLock()
   private var storage = [String]()
 
   init(packageCoveragePath: String, artifactRoot: String) {
     self.packageCoveragePath = packageCoveragePath
     self.artifactRoot = artifactRoot
+    self.packageCoverageData = capturePackageCoverageSeed(at: packageCoveragePath)
   }
 
   var commands: [String] {
@@ -1929,6 +1947,7 @@ private final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecke
     lock.unlock()
 
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       observation?.onLine?(.stdout, "Compiling NIOCore AsyncChannel.swift")
       observation?.onLine?(.stderr, "warning: important harness warning")
       return StubProcessRunner.success()
@@ -1994,12 +2013,20 @@ private struct ObservationCoverageRunner: ProcessRunning {
 private struct DualCoverageProcessRunner: ProcessRunning {
   let packageCoveragePath: String
   let artifactRoot: String
+  private let packageCoverageData: Data?
+
+  init(packageCoveragePath: String, artifactRoot: String) {
+    self.packageCoveragePath = packageCoveragePath
+    self.artifactRoot = artifactRoot
+    self.packageCoverageData = capturePackageCoverageSeed(at: packageCoveragePath)
+  }
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
     observation: ProcessObservation?
   ) throws -> CommandResult {
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
     if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
@@ -2024,12 +2051,20 @@ private struct DualCoverageProcessRunner: ProcessRunning {
 private struct ArtifactPathProcessRunner: ProcessRunning {
   let packageCoveragePath: String
   let artifactRoot: String
+  private let packageCoverageData: Data?
+
+  init(packageCoveragePath: String, artifactRoot: String) {
+    self.packageCoveragePath = packageCoveragePath
+    self.artifactRoot = artifactRoot
+    self.packageCoverageData = capturePackageCoverageSeed(at: packageCoveragePath)
+  }
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
     observation: ProcessObservation?
   ) throws -> CommandResult {
     if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+      try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
     if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
@@ -2049,4 +2084,25 @@ private struct ArtifactPathProcessRunner: ProcessRunning {
   ) throws -> Int32 {
     0
   }
+}
+
+private func capturePackageCoverageSeed(at path: String) -> Data? {
+  try? Data(contentsOf: URL(fileURLWithPath: path))
+}
+
+private func restorePackageCoverageSeed(_ data: Data?, at path: String) throws {
+  guard let data else {
+    return
+  }
+
+  let coverageURL = URL(fileURLWithPath: path)
+  guard !FileManager.default.fileExists(atPath: coverageURL.path) else {
+    return
+  }
+
+  try FileManager.default.createDirectory(
+    at: coverageURL.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try data.write(to: coverageURL)
 }

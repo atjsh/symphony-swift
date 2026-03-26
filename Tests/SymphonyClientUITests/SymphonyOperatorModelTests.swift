@@ -1,11 +1,13 @@
+import Foundation
 import SymphonyShared
-import XCTest
+import Testing
 
 @testable import SymphonyClientUI
 
 @MainActor
-final class SymphonyOperatorModelTests: XCTestCase {
-  func testDefaultInitializerUsesDefaultEndpointAndIdleState() {
+@Suite("SymphonyOperatorModel")
+struct SymphonyOperatorModelTests {
+  @Test func DefaultInitializerUsesDefaultEndpointAndIdleState() {
     let model = SymphonyOperatorModel()
 
     XCTAssertEqual(model.host, "localhost")
@@ -18,7 +20,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.liveStatus, "Idle")
   }
 
-  func testConnectLoadsHealthAndIssuesFromConfiguredEndpoint() async throws {
+  @Test func ConnectLoadsHealthAndIssuesFromConfiguredEndpoint() async throws {
     let client = MockSymphonyAPIClient()
     client.healthResponse = HealthResponse(
       status: "ok", serverTime: "2026-03-24T12:00:00Z", version: "1.0.0", trackerKind: "github")
@@ -37,7 +39,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertNil(model.connectionError)
   }
 
-  func testInitialStateServerEndpointResolutionAndConnectCanRestoreSelection() async throws {
+  @Test func InitialStateServerEndpointResolutionAndConnectCanRestoreSelection() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     client.healthResponse = HealthResponse(
@@ -81,7 +83,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertNil(model.serverEndpoint)
   }
 
-  func testSelectingIssueLoadsRunDetailHistoricalLogsAndLiveTail() async throws {
+  @Test func SelectingIssueLoadsRunDetailHistoricalLogsAndLiveTail() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     client.healthResponse = HealthResponse(
@@ -115,7 +117,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.logEvents.last?.normalizedKind, .toolCall)
   }
 
-  func testRefreshReloadsIssuesAndRetainsSelection() async throws {
+  @Test func RefreshReloadsIssuesAndRetainsSelection() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     client.healthResponse = HealthResponse(
@@ -157,7 +159,89 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.selectedIssueID?.rawValue, "issue-42")
   }
 
-  func testRefreshReusesLastDeliveredCursorForSelectedRun() async throws {
+  @Test func RefreshWithMatchingSelectionReloadsSelectedIssueDetail() async throws {
+    let client = MockSymphonyAPIClient()
+    let issueSummary = makeIssueSummary()
+    client.issuesResponse = IssuesResponse(items: [issueSummary])
+    client.issueDetailResponse = makeIssueDetail()
+    client.runDetailResponse = makeRunDetail()
+    client.logsResponse = LogEntriesResponse(
+      sessionID: SessionID("session-42"),
+      provider: "claude_code",
+      items: [],
+      nextCursor: nil,
+      hasMore: false
+    )
+
+    let model = SymphonyOperatorModel(client: client)
+    model.selectedIssueID = issueSummary.issueID
+
+    await model.refresh()
+    try await waitUntil {
+      model.issueDetail?.issue.id == issueSummary.issueID && model.liveStatus == "Ended"
+    }
+
+    XCTAssertEqual(client.issueDetailRequests, [issueSummary.issueID])
+    XCTAssertEqual(model.runDetail?.runID, RunID("run-42"))
+  }
+
+  @Test func RefreshWithMissingSelectionDoesNotReloadIssueDetail() async {
+    let client = MockSymphonyAPIClient()
+    client.issuesResponse = IssuesResponse(items: [
+      IssueSummary(
+        issueID: IssueID("issue-84"),
+        identifier: try! IssueIdentifier(validating: "atjsh/example#84"),
+        title: "Other issue",
+        state: "queued",
+        issueState: "OPEN",
+        priority: 2,
+        currentProvider: nil,
+        currentRunID: nil,
+        currentSessionID: nil
+      )
+    ])
+
+    let model = SymphonyOperatorModel(client: client)
+    model.selectedIssueID = IssueID("issue-42")
+
+    await model.refresh()
+
+    XCTAssertTrue(client.issueDetailRequests.isEmpty)
+    XCTAssertEqual(model.selectedIssueID, IssueID("issue-42"))
+  }
+
+  @Test func TestingSelectedIssueSummaryCoversMatchedAndMissingSelections() {
+    let model = SymphonyOperatorModel(client: MockSymphonyAPIClient())
+    let selectedIssue = makeIssueSummary()
+    let otherIssue = IssueSummary(
+      issueID: IssueID("issue-84"),
+      identifier: try! IssueIdentifier(validating: "atjsh/example#84"),
+      title: "Other issue",
+      state: "queued",
+      issueState: "OPEN",
+      priority: 2,
+      currentProvider: nil,
+      currentRunID: nil,
+      currentSessionID: nil
+    )
+
+    XCTAssertEqual(
+      model.testingSelectedIssueSummary(
+        restoring: selectedIssue.issueID,
+        in: [otherIssue, selectedIssue]
+      ),
+      selectedIssue
+    )
+    XCTAssertNil(
+      model.testingSelectedIssueSummary(
+        restoring: selectedIssue.issueID,
+        in: [otherIssue]
+      )
+    )
+    XCTAssertNil(model.testingSelectedIssueSummary(restoring: nil, in: [selectedIssue]))
+  }
+
+  @Test func RefreshReusesLastDeliveredCursorForSelectedRun() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     let firstCursor = EventCursor(
@@ -211,7 +295,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(client.streamRequests[1].cursor, secondCursor)
   }
 
-  func testRefreshStartedBeforeSelectionDoesNotRerequestIssueDetail() async throws {
+  @Test func RefreshStartedBeforeSelectionDoesNotRerequestIssueDetail() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     client.healthResponse = HealthResponse(
@@ -252,7 +336,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
   }
 
-  func testInvalidEndpointAndFailuresUpdateConnectionState() async throws {
+  @Test func InvalidEndpointAndFailuresUpdateConnectionState() async throws {
     let client = MockSymphonyAPIClient()
     client.healthError = TestModelFailure.failed("health")
 
@@ -277,7 +361,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.connectionError, "refresh")
   }
 
-  func testConnectSurfacesServerEnvelopeMessage() async throws {
+  @Test func ConnectSurfacesServerEnvelopeMessage() async throws {
     let client = MockSymphonyAPIClient()
     client.healthError = SymphonyClientError.serverEnvelope(
       statusCode: 404,
@@ -295,7 +379,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.connectionError, "Issue issue-42 was not found.")
   }
 
-  func testConnectAndRefreshFailuresClearStateAndRespectInvalidEndpoints() async throws {
+  @Test func ConnectAndRefreshFailuresClearStateAndRespectInvalidEndpoints() async throws {
     let client = MockSymphonyAPIClient()
     client.healthResponse = HealthResponse(
       status: "ok", serverTime: "2026-03-24T12:00:00Z", version: "1.0.0", trackerKind: "github")
@@ -328,7 +412,8 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertFalse(model.isRefreshing)
   }
 
-  func testSelectIssueAndSelectRunFailuresCoverIssueLogsAndInvalidEndpointBranches() async throws {
+  @Test func SelectIssueAndSelectRunFailuresCoverIssueLogsAndInvalidEndpointBranches() async throws
+  {
     let client = MockSymphonyAPIClient()
     let model = SymphonyOperatorModel(
       client: client,
@@ -354,7 +439,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.connectionError, "logs")
   }
 
-  func testSelectIssueWithoutLatestRunClearsRunAndLogs() async throws {
+  @Test func SelectIssueWithoutLatestRunClearsRunAndLogs() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
     client.issueDetailResponse = IssueDetail(
@@ -378,7 +463,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.liveStatus, "Idle")
   }
 
-  func testSelectRunWithoutSessionAndLiveStreamErrorsUpdateStatus() async throws {
+  @Test func SelectRunWithoutSessionAndLiveStreamErrorsUpdateStatus() async throws {
     let client = MockSymphonyAPIClient()
     client.runDetailResponse = RunDetail(
       runID: RunID("run-42"),
@@ -429,7 +514,8 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.liveStatus, "stream")
   }
 
-  func testSelectRunFailureSetsConnectionErrorAndPresentationExtractsFallbackContent() async throws
+  @Test func SelectRunFailureSetsConnectionErrorAndPresentationExtractsFallbackContent()
+    async throws
   {
     let client = MockSymphonyAPIClient()
     client.runDetailError = TestModelFailure.failed("run detail")
@@ -463,7 +549,7 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(fallback.detail, "status_update")
   }
 
-  func testLiveStreamCancellationOnDeinitAndOutOfOrderEventsAreSorted() async throws {
+  @Test func LiveStreamCancellationOnDeinitAndOutOfOrderEventsAreSorted() async throws {
     let client = MockSymphonyAPIClient()
     client.runDetailResponse = makeRunDetail()
     client.logsResponse = LogEntriesResponse(
@@ -513,7 +599,26 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(hangingClient.streamTerminationCount, 1)
   }
 
-  func testEventPresentationCoversKnownKindsAndUnknownFallback() {
+  @Test func TestingLogHelpersAppendMergeDeduplicateAndAdvanceCursor() {
+    let client = MockSymphonyAPIClient()
+    let model = SymphonyOperatorModel(client: client)
+    let third = makeEvent(sequence: 3, kind: "status")
+    let first = makeEvent(sequence: 1, kind: "message")
+    let duplicateThird = makeEvent(sequence: 3, kind: "status")
+    let fourth = makeEvent(sequence: 4, kind: "tool_result")
+
+    model.testingMergeLogEvents([third, first, duplicateThird])
+    XCTAssertEqual(model.logEvents.map(\.sequence.rawValue), [1, 3])
+
+    model.testingAppendLogEvent(fourth)
+    XCTAssertEqual(model.logEvents.map(\.sequence.rawValue), [1, 3, 4])
+    XCTAssertEqual(
+      model.testingLogCursor,
+      EventCursor(sessionID: fourth.sessionID, lastDeliveredSequence: fourth.sequence)
+    )
+  }
+
+  @Test func EventPresentationCoversKnownKindsAndUnknownFallback() {
     let message = SymphonyEventPresentation(event: makeEvent(sequence: 1, kind: "message"))
     XCTAssertEqual(message.title, "Message")
     XCTAssertFalse(message.showsRawJSON)

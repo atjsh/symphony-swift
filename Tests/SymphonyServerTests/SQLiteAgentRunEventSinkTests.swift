@@ -171,6 +171,100 @@ struct SQLiteAgentRunEventSinkTests {
     #expect(snapshot.time == "2026-03-26T01:33:00Z")
   }
 
+  @Test func providerSnapshotHelpersCoverDefaultMergeAndNestedExtractionPaths() throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-provider-helpers.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+    let runID = RunID("R_helper")
+
+    let defaultSnapshot = sink.testingProviderSnapshot(for: runID)
+    #expect(defaultSnapshot.providerSessionID == nil)
+    #expect(defaultSnapshot.providerThreadID == nil)
+    #expect(defaultSnapshot.providerTurnID == nil)
+    #expect(defaultSnapshot.providerRunID == nil)
+    #expect(defaultSnapshot.tokenUsage == (try TokenUsage()))
+    #expect(defaultSnapshot.latestRateLimitPayload == nil)
+    #expect(defaultSnapshot.lastAgentMessage == nil)
+    #expect(defaultSnapshot.latestSequence == nil)
+
+    let metadataEvent = AgentRawEvent(
+      sessionID: SessionID("session-helper"),
+      provider: ProviderName.claudeCode.rawValue,
+      sequence: EventSequence(0),
+      timestamp: "2026-03-26T01:34:00Z",
+      rawJSON:
+        #"[{"wrapper":{"session_id":{"session_id":"provider-session-array"},"thread_id":42,"turn_id":{"turn_id":"turn-array"},"run_id":{"run_id":"provider-run-array"},"usage":{"input_tokens":"9","output_tokens":"3","total_tokens":"12"},"rate_limit":"{\"remaining\":5}"}}]"#,
+      providerEventType: "system",
+      normalizedEventKind: "status"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID, event: metadataEvent, storedSequence: EventSequence(9))
+
+    let mergedSnapshot = sink.testingProviderSnapshot(for: runID)
+    let expectedUsage = try TokenUsage(inputTokens: 9, outputTokens: 3, totalTokens: 12)
+    #expect(mergedSnapshot.providerSessionID == "provider-session-array")
+    #expect(mergedSnapshot.providerThreadID == "42")
+    #expect(mergedSnapshot.providerTurnID == "turn-array")
+    #expect(mergedSnapshot.providerRunID == "provider-run-array")
+    #expect(mergedSnapshot.tokenUsage == expectedUsage)
+    #expect(mergedSnapshot.latestRateLimitPayload == #"{"remaining":5}"#)
+    #expect(mergedSnapshot.lastAgentMessage == nil)
+    #expect(mergedSnapshot.latestSequence == EventSequence(9))
+
+    sink.testingMergeProviderSnapshot(for: runID)
+    let preservedSnapshot = sink.testingProviderSnapshot(for: runID)
+    #expect(preservedSnapshot.latestSequence == EventSequence(9))
+  }
+
+  @Test func providerSnapshotHelpersCoverArrayMessageAndNilFallbackPaths() throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-provider-message.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+    let runID = RunID("R_message")
+
+    let messageArrayEvent = AgentRawEvent(
+      sessionID: SessionID("session-message"),
+      provider: ProviderName.codex.rawValue,
+      sequence: EventSequence(0),
+      timestamp: "2026-03-26T01:34:30Z",
+      rawJSON: #"[ "   ", {"payload":[{"text":"array hello"}]} ]"#,
+      providerEventType: "assistant",
+      normalizedEventKind: "message"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID, event: messageArrayEvent, storedSequence: EventSequence(3))
+
+    let initialSnapshot = sink.testingProviderSnapshot(for: runID)
+    #expect(initialSnapshot.lastAgentMessage == "array hello")
+    #expect(initialSnapshot.latestSequence == EventSequence(3))
+
+    let emptyPayloadEvent = AgentRawEvent(
+      sessionID: SessionID("session-message"),
+      provider: ProviderName.codex.rawValue,
+      sequence: EventSequence(1),
+      timestamp: "2026-03-26T01:34:31Z",
+      rawJSON: #"{"payload":{}}"#,
+      providerEventType: "assistant",
+      normalizedEventKind: "message"
+    )
+
+    sink.testingMergeProviderUpdate(
+      for: runID, event: emptyPayloadEvent, storedSequence: EventSequence(4))
+
+    let fallbackSnapshot = sink.testingProviderSnapshot(for: runID)
+    let numericUsage = try TokenUsage(inputTokens: 11)
+    #expect(fallbackSnapshot.lastAgentMessage == "array hello")
+    #expect(fallbackSnapshot.latestSequence == EventSequence(4))
+    #expect(sink.testingProviderMessageText(from: [[:]]) == nil)
+    #expect(
+      sink.testingProviderTokenUsage(from: ["input_tokens": NSNumber(value: 11.5)]) == numericUsage)
+    #expect(sink.testingProviderTokenUsage(from: ["input_tokens": ["unexpected": true]]) == nil)
+  }
+
   @Test func receiveEventWithoutKnownSessionReturnsWithoutPersisting() throws {
     let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
       "agent-run-sink-missing-session.sqlite3")
@@ -190,6 +284,96 @@ struct SQLiteAgentRunEventSinkTests {
 
     let logs = try store.logs(sessionID: SessionID("missing-session"), cursor: nil, limit: 10)
     #expect(logs?.items.isEmpty != false)
+  }
+
+  @Test func persistsProviderMetadataUsageAndLastMessageAcrossRestart() async throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-metadata.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+
+    let issue = try makeAgentRunSinkIssue(id: "I_5", number: 5)
+    let context = try makeAgentRunSinkContext(issueID: issue.id, number: issue.number, runID: "R_5")
+    let startInfo = AgentRunStartInfo(
+      context: context,
+      issue: issue,
+      provider: ProviderName.claudeCode.rawValue,
+      sessionID: SessionID("session-5"),
+      workspacePath: "/tmp/symphony/o_r_5"
+    )
+
+    sink.runDidStart(startInfo)
+    sink.runDidTransition(context, to: .streamingTurn)
+    sink.runDidReceiveEvent(
+      AgentRawEvent(
+        sessionID: startInfo.sessionID,
+        provider: startInfo.provider,
+        sequence: EventSequence(0),
+        timestamp: "2026-03-26T01:35:00Z",
+        rawJSON:
+          #"{"type":"system","session_id":"provider-session-5","thread_id":"thread-5","turn_id":"turn-5","run_id":"provider-run-5","rate_limit":{"remaining":100}}"#,
+        providerEventType: "system",
+        normalizedEventKind: "status"
+      ))
+    sink.runDidReceiveEvent(
+      AgentRawEvent(
+        sessionID: startInfo.sessionID,
+        provider: startInfo.provider,
+        sequence: EventSequence(1),
+        timestamp: "2026-03-26T01:35:01Z",
+        rawJSON: #"{"type":"assistant","message":"hello from claude"}"#,
+        providerEventType: "assistant",
+        normalizedEventKind: "message"
+      ))
+    sink.runDidReceiveEvent(
+      AgentRawEvent(
+        sessionID: startInfo.sessionID,
+        provider: startInfo.provider,
+        sequence: EventSequence(2),
+        timestamp: "2026-03-26T01:35:02Z",
+        rawJSON:
+          #"{"type":"usage","usage":{"input_tokens":7,"output_tokens":5,"total_tokens":12}}"#,
+        providerEventType: "usage",
+        normalizedEventKind: "usage"
+      ))
+    sink.runDidComplete(
+      AgentRunResult(
+        context: context,
+        sessionID: startInfo.sessionID,
+        finalState: .succeeded,
+        eventCount: 3,
+        error: nil
+      ))
+
+    let expectedUsage = try TokenUsage(inputTokens: 7, outputTokens: 5, totalTokens: 12)
+    let runDetail = try #require(try store.runDetail(id: context.runID))
+    #expect(runDetail.providerSessionID == "provider-session-5")
+    #expect(runDetail.providerRunID == "provider-run-5")
+    #expect(runDetail.lastAgentMessage == "hello from claude")
+    #expect(runDetail.tokens == expectedUsage)
+    #expect(runDetail.logs.eventCount == 3)
+    #expect(runDetail.logs.latestSequence == EventSequence(3))
+
+    let session = try #require(try store.session(sessionID: startInfo.sessionID))
+    #expect(session.providerSessionID == "provider-session-5")
+    #expect(session.providerThreadID == "thread-5")
+    #expect(session.providerTurnID == "turn-5")
+    #expect(session.providerRunID == "provider-run-5")
+    #expect(session.tokenUsage == expectedUsage)
+    #expect(session.latestRateLimitPayload == #"{"remaining":100}"#)
+
+    let reopenedStore = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let reopenedRunDetail = try #require(try reopenedStore.runDetail(id: context.runID))
+    #expect(reopenedRunDetail.providerSessionID == "provider-session-5")
+    #expect(reopenedRunDetail.providerRunID == "provider-run-5")
+    #expect(reopenedRunDetail.lastAgentMessage == "hello from claude")
+    #expect(reopenedRunDetail.tokens == expectedUsage)
+    #expect(reopenedRunDetail.logs.latestSequence == EventSequence(3))
+
+    let reopenedSession = try #require(try reopenedStore.session(sessionID: startInfo.sessionID))
+    #expect(reopenedSession.providerThreadID == "thread-5")
+    #expect(reopenedSession.providerTurnID == "turn-5")
+    #expect(reopenedSession.latestRateLimitPayload == #"{"remaining":100}"#)
   }
 }
 

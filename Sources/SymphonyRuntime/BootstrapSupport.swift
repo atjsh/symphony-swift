@@ -1,12 +1,9 @@
+import CoreFoundation
 import Foundation
 import SymphonyShared
 
 enum BootstrapRuntimeHooks {
   private final class Storage: @unchecked Sendable {
-    private static func defaultRunLoopAction() {
-      RunLoop.main.run()
-    }
-
     private let lock = NSLock()
     private var output: ((String) -> Void)?
     private var keepAlive: (() -> Void)?
@@ -65,9 +62,10 @@ enum BootstrapRuntimeHooks {
       lock.unlock()
       if let override {
         override()
-      } else {
-        Storage.defaultRunLoopAction()
+        return
       }
+
+      CFRunLoopRun()
     }
   }
 

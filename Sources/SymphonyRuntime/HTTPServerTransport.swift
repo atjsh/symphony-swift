@@ -109,13 +109,12 @@ final class SymphonyHTTPServer: @unchecked Sendable {
           } catch {
             break
           }
-          let pollingCursor = EventCursor(
-            sessionID: sessionID, lastDeliveredSequence: lastPolledSequence)
-          if let page = try? store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100) {
-            for event in page.items {
-              mergedContinuation.yield(event)
-              lastPolledSequence = event.sequence
-            }
+          lastPolledSequence = forwardPolledEvents(
+            store: store,
+            sessionID: sessionID,
+            lastPolledSequence: lastPolledSequence
+          ) { event in
+            mergedContinuation.yield(event)
           }
         }
       }
@@ -191,6 +190,29 @@ final class SymphonyHTTPServer: @unchecked Sendable {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     return encoder
+  }
+
+  static func forwardPolledEvents(
+    store: SQLiteServerStateStore,
+    sessionID: SessionID,
+    lastPolledSequence: EventSequence,
+    onEvent: (AgentRawEvent) -> Void
+  ) -> EventSequence {
+    let pollingCursor = EventCursor(
+      sessionID: sessionID,
+      lastDeliveredSequence: lastPolledSequence
+    )
+    guard let page = try? store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100)
+    else {
+      return lastPolledSequence
+    }
+
+    var updatedSequence = lastPolledSequence
+    for event in page.items {
+      onEvent(event)
+      updatedSequence = event.sequence
+    }
+    return updatedSequence
   }
 
   private static let supportedMethods: [HTTPRequest.Method] = [

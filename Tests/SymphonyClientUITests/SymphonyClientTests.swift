@@ -1,35 +1,38 @@
 import Foundation
 import SymphonyShared
-import XCTest
+import Testing
 
 @testable import SymphonyClientUI
 
-final class SymphonyClientTests: XCTestCase {
-  func testErrorDescriptionsCoverAllCases() {
-    XCTAssertEqual(
-      SymphonyClientError.invalidEndpoint.errorDescription,
-      "The configured server endpoint is invalid.")
-    XCTAssertEqual(
-      SymphonyClientError.invalidResponse.errorDescription,
-      "The server returned an invalid response.")
-    XCTAssertEqual(
-      SymphonyClientError.server(statusCode: 503).errorDescription, "The server returned HTTP 503.")
-    XCTAssertEqual(
+@Suite("SymphonyClient")
+struct SymphonyClientTests {
+  @Test func errorDescriptionsCoverAllCases() {
+    #expect(
+      SymphonyClientError.invalidEndpoint.errorDescription
+        == "The configured server endpoint is invalid.")
+    #expect(
+      SymphonyClientError.invalidResponse.errorDescription
+        == "The server returned an invalid response.")
+    #expect(
+      SymphonyClientError.server(statusCode: 503).errorDescription
+        == "The server returned HTTP 503.")
+    #expect(
       SymphonyClientError.serverEnvelope(
         statusCode: 404,
         code: "issue_not_found",
         message: "Issue issue-42 was not found."
-      ).errorDescription,
-      "Issue issue-42 was not found.")
+      ).errorDescription == "Issue issue-42 was not found.")
   }
 
-  func testRequestMethodsUseExpectedPathsMethodsAndQueryItems() async throws {
+  @Test func requestMethodsUseExpectedPathsMethodsAndQueryItems() async throws {
     let session = TestHTTPSession()
     session.dataResponses = [
       httpResponse(
         HealthResponse(
-          status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github"),
-        path: "/api/v1/health"),
+          status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github"
+        ),
+        path: "/api/v1/health"
+      ),
       httpResponse(IssuesResponse(items: []), path: "/api/v1/issues"),
       httpResponse(makeIssueDetail(), path: "/api/v1/issues/issue-42"),
       httpResponse(makeRunDetail(), path: "/api/v1/runs/run-42"),
@@ -39,19 +42,22 @@ final class SymphonyClientTests: XCTestCase {
           provider: "claude_code",
           items: [],
           nextCursor: EventCursor(
-            sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(3)),
+            sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(3)
+          ),
           hasMore: false
         ),
         path: "/api/v1/logs/session-42?limit=50&cursor=session-42:3"
       ),
       httpResponse(
-        RefreshResponse(queued: true, requestedAt: "2026-03-24T00:00:01Z"), path: "/api/v1/refresh"),
+        RefreshResponse(queued: true, requestedAt: "2026-03-24T00:00:01Z"), path: "/api/v1/refresh"
+      ),
     ]
 
     let client = URLSessionSymphonyAPIClient(session: session)
     let endpoint = try ServerEndpoint(scheme: "https", host: "example.com", port: 9443)
     let cursor = EventCursor(
-      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(3))
+      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(3)
+    )
 
     _ = try await client.health(endpoint: endpoint)
     _ = try await client.issues(endpoint: endpoint)
@@ -65,55 +71,57 @@ final class SymphonyClientTests: XCTestCase {
     )
     _ = try await client.refresh(endpoint: endpoint)
 
-    XCTAssertEqual(session.recordedRequests.count, 6)
-    XCTAssertEqual(session.recordedRequests[0].httpMethod, "GET")
-    XCTAssertEqual(
-      session.recordedRequests[0].url?.absoluteString, "https://example.com:9443/api/v1/health")
-    XCTAssertEqual(
-      session.recordedRequests[1].url?.absoluteString, "https://example.com:9443/api/v1/issues")
-    XCTAssertEqual(
-      session.recordedRequests[2].url?.absoluteString,
-      "https://example.com:9443/api/v1/issues/issue-42")
-    XCTAssertEqual(
-      session.recordedRequests[3].url?.absoluteString, "https://example.com:9443/api/v1/runs/run-42"
-    )
-    XCTAssertEqual(
-      session.recordedRequests[4].url?.absoluteString,
-      "https://example.com:9443/api/v1/logs/session-42?limit=50&cursor=\(cursor.rawValue)")
-    XCTAssertEqual(session.recordedRequests[5].httpMethod, "POST")
-    XCTAssertEqual(
-      session.recordedRequests[5].url?.absoluteString, "https://example.com:9443/api/v1/refresh")
-    XCTAssertTrue(
+    #expect(session.recordedRequests.count == 6)
+    #expect(session.recordedRequests[0].httpMethod == "GET")
+    #expect(
+      session.recordedRequests[0].url?.absoluteString == "https://example.com:9443/api/v1/health")
+    #expect(
+      session.recordedRequests[1].url?.absoluteString == "https://example.com:9443/api/v1/issues")
+    #expect(
+      session.recordedRequests[2].url?.absoluteString
+        == "https://example.com:9443/api/v1/issues/issue-42")
+    #expect(
+      session.recordedRequests[3].url?.absoluteString
+        == "https://example.com:9443/api/v1/runs/run-42")
+    #expect(
+      session.recordedRequests[4].url?.absoluteString
+        == "https://example.com:9443/api/v1/logs/session-42?limit=50&cursor=\(cursor.rawValue)")
+    #expect(session.recordedRequests[5].httpMethod == "POST")
+    #expect(
+      session.recordedRequests[5].url?.absoluteString
+        == "https://example.com:9443/api/v1/refresh")
+    #expect(
       session.recordedRequests.allSatisfy {
         $0.value(forHTTPHeaderField: "Accept") == "application/json"
       })
   }
 
-  func testRequestFailuresSurfaceInvalidEndpointInvalidResponseAndServerStatus() async throws {
+  @Test func requestFailuresSurfaceInvalidEndpointInvalidResponseAndServerStatus() async throws {
     let invalidEndpointClient = URLSessionSymphonyAPIClient(session: TestHTTPSession())
     let invalidEndpoint = try ServerEndpoint(scheme: "http", host: "bad host", port: 8080)
-    await XCTAssertThrowsErrorAsync(
+    await expectAsyncThrows(
+      expected: SymphonyClientError.invalidEndpoint,
       try await invalidEndpointClient.health(endpoint: invalidEndpoint)
-    ) { error in
-      XCTAssertEqual(error as? SymphonyClientError, .invalidEndpoint)
-    }
+    )
 
     let invalidResponseSession = TestHTTPSession()
     invalidResponseSession.dataResponses = [
       (
         Data("{}".utf8),
         URLResponse(
-          url: URL(string: "https://example.com")!, mimeType: "application/json",
-          expectedContentLength: 2, textEncodingName: nil)
+          url: URL(string: "https://example.com")!,
+          mimeType: "application/json",
+          expectedContentLength: 2,
+          textEncodingName: nil
+        )
       )
     ]
     let invalidResponseClient = URLSessionSymphonyAPIClient(session: invalidResponseSession)
-    await XCTAssertThrowsErrorAsync(
+    await expectAsyncThrows(
+      expected: SymphonyClientError.invalidResponse,
       try await invalidResponseClient.health(
         endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443))
-    ) { error in
-      XCTAssertEqual(error as? SymphonyClientError, .invalidResponse)
-    }
+    )
 
     let serverErrorSession = TestHTTPSession()
     let serverErrorURL = URL(string: "https://example.com:9443/api/v1/issues")!
@@ -124,12 +132,11 @@ final class SymphonyClientTests: XCTestCase {
       )
     ]
     let serverErrorClient = URLSessionSymphonyAPIClient(session: serverErrorSession)
-    await XCTAssertThrowsErrorAsync(
+    await expectAsyncThrows(
+      expected: SymphonyClientError.server(statusCode: 503),
       try await serverErrorClient.issues(
         endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443))
-    ) { error in
-      XCTAssertEqual(error as? SymphonyClientError, .server(statusCode: 503))
-    }
+    )
 
     let serverEnvelopeSession = TestHTTPSession()
     serverEnvelopeSession.dataResponses = [
@@ -145,25 +152,26 @@ final class SymphonyClientTests: XCTestCase {
       )
     ]
     let serverEnvelopeClient = URLSessionSymphonyAPIClient(session: serverEnvelopeSession)
-    await XCTAssertThrowsErrorAsync(
-      try await serverEnvelopeClient.issueDetail(
+    do {
+      _ = try await serverEnvelopeClient.issueDetail(
         endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443),
         issueID: IssueID("issue-42")
       )
-    ) { error in
-      XCTAssertEqual(
-        error as? SymphonyClientError,
-        .serverEnvelope(
-          statusCode: 404,
-          code: "issue_not_found",
-          message: "Issue issue-42 was not found."
-        )
+      Issue.record("Expected issue detail lookup to surface the server envelope.")
+    } catch {
+      #expect(
+        error as? SymphonyClientError
+          == .serverEnvelope(
+            statusCode: 404,
+            code: "issue_not_found",
+            message: "Issue issue-42 was not found."
+          )
       )
-      XCTAssertEqual(error.localizedDescription, "Issue issue-42 was not found.")
+      #expect(error.localizedDescription == "Issue issue-42 was not found.")
     }
   }
 
-  func testLogStreamUsesWebSocketURLAndYieldsTextAndBinaryMessages() async throws {
+  @Test func logStreamUsesWebSocketURLAndYieldsTextAndBinaryMessages() async throws {
     let session = TestHTTPSession()
     session.webSocketTask.messages = [
       .success(.string(encoded(makeEvent(sequence: 1, kind: "message")))),
@@ -173,7 +181,8 @@ final class SymphonyClientTests: XCTestCase {
 
     let client = URLSessionSymphonyAPIClient(session: session)
     let cursor = EventCursor(
-      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(9))
+      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(9)
+    )
     let stream = try client.logStream(
       endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443),
       sessionID: SessionID("session-42"),
@@ -185,35 +194,35 @@ final class SymphonyClientTests: XCTestCase {
     let second = try await iterator.next()
     do {
       _ = try await iterator.next()
-      XCTFail("Expected the fake socket failure to end the stream.")
+      Issue.record("Expected the fake socket failure to end the stream.")
     } catch {
-      XCTAssertEqual(error as? TestClientFailure, .done)
+      #expect(error as? TestClientFailure == .done)
     }
 
-    XCTAssertEqual(first, makeEvent(sequence: 1, kind: "message"))
-    XCTAssertEqual(second, makeEvent(sequence: 2, kind: "tool_result"))
-    XCTAssertEqual(
-      session.recordedWebSocketURLs.map(\.absoluteString),
-      ["wss://example.com:9443/api/v1/logs/stream?session_id=session-42&cursor=\(cursor.rawValue)"])
-    XCTAssertTrue(session.webSocketTask.didResume)
+    #expect(first == makeEvent(sequence: 1, kind: "message"))
+    #expect(second == makeEvent(sequence: 2, kind: "tool_result"))
+    #expect(
+      session.recordedWebSocketURLs.map(\.absoluteString)
+        == [
+          "wss://example.com:9443/api/v1/logs/stream?session_id=session-42&cursor=\(cursor.rawValue)"
+        ])
+    #expect(session.webSocketTask.didResume)
   }
 
-  func testLogStreamRejectsInvalidWebSocketEndpoint() async throws {
+  @Test func logStreamRejectsInvalidWebSocketEndpoint() throws {
     let client = URLSessionSymphonyAPIClient(session: TestHTTPSession())
     let invalidEndpoint = try ServerEndpoint(scheme: "http", host: "bad host", port: 8080)
 
-    XCTAssertThrowsError(
+    #expect(throws: SymphonyClientError.invalidEndpoint) {
       try client.logStream(
         endpoint: invalidEndpoint,
         sessionID: SessionID("session-42"),
         cursor: nil
       )
-    ) { error in
-      XCTAssertEqual(error as? SymphonyClientError, .invalidEndpoint)
     }
   }
 
-  func testLogStreamSurfacesDecodeFailuresAndCancelsTaskOnTermination() async throws {
+  @Test func logStreamSurfacesDecodeFailuresAndCancelsTaskOnTermination() async throws {
     let session = TestHTTPSession()
     session.webSocketTask.messages = [.success(.string("{\"not\":\"an event\"}"))]
     let client = URLSessionSymphonyAPIClient(session: session)
@@ -224,8 +233,11 @@ final class SymphonyClientTests: XCTestCase {
       cursor: nil
     )
     var decodeIterator = decodeStream.makeAsyncIterator()
-    await XCTAssertThrowsErrorAsync(try await decodeIterator.next()) { error in
-      XCTAssertTrue(error is DecodingError)
+    do {
+      _ = try await decodeIterator.next()
+      Issue.record("Expected malformed websocket payloads to fail decoding.")
+    } catch {
+      #expect(error is DecodingError)
     }
 
     let hangingSession = TestHTTPSession()
@@ -244,19 +256,20 @@ final class SymphonyClientTests: XCTestCase {
     consumer.cancel()
     _ = await consumer.result
 
-    XCTAssertTrue(hangingSession.webSocketTask.didCancel)
+    #expect(hangingSession.webSocketTask.didCancel)
   }
 
-  func testPublicURLSessionInitializerUsesURLProtocolBackedHTTPRequests() async throws {
+  @Test func publicURLSessionInitializerUsesURLProtocolBackedHTTPRequests() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubURLProtocol.self]
 
     StubURLProtocol.requestHandler = { request in
-      XCTAssertEqual(request.httpMethod, "GET")
-      XCTAssertEqual(request.url?.absoluteString, "https://example.com:9443/api/v1/health")
+      #expect(request.httpMethod == "GET")
+      #expect(request.url?.absoluteString == "https://example.com:9443/api/v1/health")
       return httpResponse(
         HealthResponse(
-          status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github"),
+          status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github"
+        ),
         path: "/api/v1/health"
       )
     }
@@ -271,11 +284,12 @@ final class SymphonyClientTests: XCTestCase {
     let response = try await client.health(
       endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443))
 
-    XCTAssertEqual(response.status, "ok")
-    XCTAssertEqual(response.trackerKind, "github")
+    #expect(response.status == "ok")
+    #expect(response.trackerKind == "github")
   }
 
-  func testPublicURLSessionInitializerUsesConcreteWebSocketTaskOnConnectionFailure() async throws {
+  @Test func publicURLSessionInitializerUsesConcreteWebSocketTaskOnConnectionFailure() async throws
+  {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.timeoutIntervalForRequest = 1
     configuration.timeoutIntervalForResource = 1
@@ -290,18 +304,19 @@ final class SymphonyClientTests: XCTestCase {
       cursor: nil
     )
 
-    await XCTAssertThrowsErrorAsync(try await firstEvent(from: stream, timeout: .seconds(2))) {
-      error in
-      XCTAssertFalse(error is TestTimedOut)
+    do {
+      _ = try await firstEvent(from: stream, timeout: .seconds(2))
+      Issue.record("Expected the websocket connection attempt to fail.")
+    } catch {
+      #expect(!(error is TestTimedOut))
     }
   }
 
-  func testPublicInitializerDefaultArgumentsRemainUsable() {
-    let client = URLSessionSymphonyAPIClient()
-    XCTAssertNotNil(client)
+  @Test func publicInitializerDefaultArgumentsRemainUsable() {
+    _ = URLSessionSymphonyAPIClient()
   }
 
-  func testConcreteURLSessionWebSocketAdapterLifecycleMethodsRemainCallable() {
+  @Test func concreteURLSessionWebSocketAdapterLifecycleMethodsRemainCallable() {
     let session = URLSession(configuration: .ephemeral)
     defer { session.invalidateAndCancel() }
 
@@ -320,7 +335,11 @@ private final class TestHTTPSession: HTTPSessioning, @unchecked Sendable {
 
   func data(for request: URLRequest) async throws -> (Data, URLResponse) {
     recordedRequests.append(request)
-    return try XCTUnwrap(dataResponses.isEmpty ? nil : dataResponses.removeFirst())
+    guard !dataResponses.isEmpty else {
+      Issue.record("Expected a queued HTTP response for the recorded request.")
+      throw SymphonyClientError.invalidResponse
+    }
+    return dataResponses.removeFirst()
   }
 
   func webSocketTask(with url: URL) -> any WebSocketTasking {
@@ -366,8 +385,11 @@ private func httpResponse<T: Encodable>(_ value: T, path: String) -> (Data, URLR
   return (
     try! JSONEncoder().encode(value),
     HTTPURLResponse(
-      url: url, statusCode: 200, httpVersion: nil,
-      headerFields: ["Content-Type": "application/json"])!
+      url: url,
+      statusCode: 200,
+      httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
   )
 }
 
@@ -378,8 +400,11 @@ private func errorResponse<T: Encodable>(_ value: T, path: String, statusCode: I
   return (
     try! JSONEncoder().encode(value),
     HTTPURLResponse(
-      url: url, statusCode: statusCode, httpVersion: nil,
-      headerFields: ["Content-Type": "application/json"])!
+      url: url,
+      statusCode: statusCode,
+      httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
   )
 }
 
@@ -406,7 +431,11 @@ private func makeIssueDetail() -> IssueDetail {
     updatedAt: nil
   )
   return IssueDetail(
-    issue: issue, latestRun: makeRunSummary(), workspacePath: "/tmp/example", recentSessions: [])
+    issue: issue,
+    latestRun: makeRunSummary(),
+    workspacePath: "/tmp/example",
+    recentSessions: []
+  )
 }
 
 private func makeRunSummary() -> RunSummary {
@@ -463,15 +492,15 @@ private func makeEvent(sequence: Int, kind: String) -> AgentRawEvent {
   )
 }
 
-private func XCTAssertThrowsErrorAsync<T>(
-  _ expression: @autoclosure () async throws -> T,
-  _ verification: (Error) -> Void
+private func expectAsyncThrows<T, E: Error & Equatable>(
+  expected: E,
+  _ expression: @autoclosure () async throws -> T
 ) async {
   do {
     _ = try await expression()
-    XCTFail("Expected expression to throw.")
+    Issue.record("Expected the async expression to throw \(expected).")
   } catch {
-    verification(error)
+    #expect(error as? E == expected)
   }
 }
 

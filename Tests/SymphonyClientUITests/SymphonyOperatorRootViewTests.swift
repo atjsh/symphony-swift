@@ -1,6 +1,6 @@
 import SwiftUI
 import SymphonyShared
-import XCTest
+import Testing
 
 @testable import SymphonyClientUI
 
@@ -9,8 +9,9 @@ import XCTest
 #endif
 
 @MainActor
-final class SymphonyOperatorRootViewTests: XCTestCase {
-  func testBodyEvaluatesWithEmptyOperatorState() {
+@Suite("SymphonyOperatorRootView")
+struct SymphonyOperatorRootViewTests {
+  @Test func BodyEvaluatesWithEmptyOperatorState() {
     let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
     let view = SymphonyOperatorRootView(model: model)
 
@@ -22,7 +23,7 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     _ = view.body
   }
 
-  func testBodyEvaluatesWithLoadedIssueRunAndLogs() throws {
+  @Test func BodyEvaluatesWithLoadedIssueRunAndLogs() throws {
     let model = SymphonyOperatorModel(
       client: PassiveSymphonyAPIClient(),
       initialEndpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443)
@@ -47,7 +48,7 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     _ = view.body
   }
 
-  func testBodyEvaluatesWithTokensErrorBlockersLabelsAndAllEventKinds() throws {
+  @Test func BodyEvaluatesWithTokensErrorBlockersLabelsAndAllEventKinds() throws {
     let model = SymphonyOperatorModel(
       client: PassiveSymphonyAPIClient(),
       initialEndpoint: try ServerEndpoint(host: "localhost", port: 8080)
@@ -81,9 +82,9 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
       sessionID: SessionID("session-42"),
       provider: "claude_code",
       providerSessionID: "ps-42",
-      providerThreadID: nil,
-      providerTurnID: nil,
-      providerRunID: nil,
+      providerThreadID: "thread-42",
+      providerTurnID: "turn-42",
+      providerRunID: "provider-run-42",
       runID: RunID("run-42"),
       providerProcessPID: nil,
       status: "active",
@@ -91,13 +92,45 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
       lastEventAt: "2026-03-24T01:00:00Z",
       turnCount: 5,
       tokenUsage: try! TokenUsage(inputTokens: 10, outputTokens: 20),
+      latestRateLimitPayload: #"{"remaining":12,"reset_at":"2026-03-24T01:05:00Z"}"#
+    )
+    let outputOnlySession = AgentSession(
+      sessionID: SessionID("session-43"),
+      provider: "copilot",
+      providerSessionID: nil,
+      providerThreadID: nil,
+      providerTurnID: nil,
+      providerRunID: nil,
+      runID: RunID("run-43"),
+      providerProcessPID: nil,
+      status: "streaming_turn",
+      lastEventType: "usage",
+      lastEventAt: nil,
+      turnCount: 1,
+      tokenUsage: try! TokenUsage(outputTokens: 8),
+      latestRateLimitPayload: nil
+    )
+    let totalOnlySession = AgentSession(
+      sessionID: SessionID("session-44"),
+      provider: "codex",
+      providerSessionID: nil,
+      providerThreadID: nil,
+      providerTurnID: nil,
+      providerRunID: nil,
+      runID: RunID("run-44"),
+      providerProcessPID: nil,
+      status: "waiting_for_retry",
+      lastEventType: "usage",
+      lastEventAt: nil,
+      turnCount: 1,
+      tokenUsage: try! TokenUsage(totalTokens: 13),
       latestRateLimitPayload: nil
     )
     model.issueDetail = IssueDetail(
       issue: issueWithBlockers,
       latestRun: makeRunSummary(),
       workspacePath: "/tmp/ws",
-      recentSessions: [session]
+      recentSessions: [session, outputOnlySession, totalOnlySession]
     )
     model.issues = [
       IssueSummary(
@@ -154,7 +187,14 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     _ = view.body
   }
 
-  func testHostedViewLayoutsAcrossEmptyAndLoadedBranches() throws {
+  @Test func RecentSessionHasVisibleTokenUsageCoversInputOutputTotalAndEmptyBranches() throws {
+    XCTAssertTrue(recentSessionHasVisibleTokenUsage(try TokenUsage(inputTokens: 1)))
+    XCTAssertTrue(recentSessionHasVisibleTokenUsage(try TokenUsage(outputTokens: 2)))
+    XCTAssertTrue(recentSessionHasVisibleTokenUsage(try TokenUsage(totalTokens: 3)))
+    XCTAssertFalse(recentSessionHasVisibleTokenUsage(try TokenUsage()))
+  }
+
+  @Test func HostedViewLayoutsAcrossEmptyAndLoadedBranches() throws {
     #if canImport(AppKit)
       let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
       let hostingView = host(SymphonyOperatorRootView(model: model))
@@ -259,7 +299,7 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     #endif
   }
 
-  func testActionMethodsDispatchConnectRefreshAndSelectionFlows() async throws {
+  @Test func ActionMethodsDispatchConnectRefreshAndSelectionFlows() async throws {
     let client = ActionDrivenSymphonyAPIClient()
     let model = SymphonyOperatorModel(
       client: client,
@@ -296,13 +336,21 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     XCTAssertEqual(client.logRequests.last?.sessionID, SessionID("session-42"))
   }
 
-  func testSelectionActionFactoriesDispatchIssueAndRunSelections() async throws {
+  @Test func SelectionActionFactoriesDispatchIssueAndRunSelections() async throws {
     let client = ActionDrivenSymphonyAPIClient()
     let model = SymphonyOperatorModel(
       client: client,
       initialEndpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443)
     )
     let view = SymphonyOperatorRootView(model: model)
+
+    let connectAction = view.makeConnectAction()
+    connectAction()
+    try await waitUntil { model.health?.trackerKind == "github" && model.issues.count == 1 }
+
+    let refreshAction = view.makeRefreshAction()
+    refreshAction()
+    try await waitUntil { client.refreshCount == 1 }
 
     let issueAction = view.makeIssueSelectionAction(for: makeIssueSummary())
     issueAction()
@@ -316,6 +364,8 @@ final class SymphonyOperatorRootViewTests: XCTestCase {
     runAction()
     try await waitUntil { client.runDetailRequests.count >= 2 }
 
+    XCTAssertEqual(client.healthCount, 1)
+    XCTAssertEqual(client.refreshCount, 1)
     XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
     XCTAssertEqual(client.runDetailRequests.last, RunID("run-42"))
   }
@@ -461,7 +511,7 @@ private func makeIssueDetail() -> IssueDetail {
     lastEventAt: "2026-03-24T00:02:00Z",
     turnCount: 2,
     tokenUsage: try! TokenUsage(inputTokens: 7, outputTokens: 5),
-    latestRateLimitPayload: nil
+    latestRateLimitPayload: #"{"remaining":7,"reset_at":"2026-03-24T00:05:00Z"}"#
   )
   return IssueDetail(
     issue: issue, latestRun: makeRunSummary(), workspacePath: "/tmp/example",

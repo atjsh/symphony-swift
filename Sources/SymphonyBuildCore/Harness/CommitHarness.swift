@@ -76,6 +76,11 @@ public struct CommitHarness {
       command: "swift", arguments: ["test", "--enable-code-coverage"])
     let coveragePathInvocation = ShellQuoting.render(
       command: "swift", arguments: ["test", "--show-code-coverage-path"])
+    let packageCoveragePath = try Self.resolveSwiftPMCoveragePath(
+      processRunner: processRunner,
+      projectRoot: workspace.projectRoot
+    )
+    try Self.clearExistingCoverageExport(at: packageCoveragePath)
 
     statusSink("[symphony-build] running commit harness tests")
     let harnessReporter = XcodeOutputReporter(
@@ -93,27 +98,8 @@ public struct CommitHarness {
         message: "Commit harness failed because `swift test --enable-code-coverage` did not pass.")
     }
 
-    let coveragePathResult = try processRunner.run(
-      command: "swift",
-      arguments: ["test", "--show-code-coverage-path"],
-      environment: [:],
-      currentDirectory: workspace.projectRoot,
-      observation: nil
-    )
-    guard coveragePathResult.exitStatus == 0 else {
-      throw SymphonyBuildCommandFailure(
-        message: "Commit harness failed because SwiftPM did not return a coverage JSON path.")
-    }
-
-    let rawPath = coveragePathResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !rawPath.isEmpty else {
-      throw SymphonyBuildError(
-        code: "missing_package_coverage_path",
-        message: "SwiftPM returned an empty coverage JSON path.")
-    }
-
     let coverageReport = try coverageReporter.loadReport(
-      at: URL(fileURLWithPath: rawPath),
+      at: packageCoveragePath,
       projectRoot: workspace.projectRoot
     )
     let capabilities = try toolchainCapabilitiesResolver.resolve()
@@ -241,6 +227,39 @@ public struct CommitHarness {
       currentDirectory: currentDirectory,
       statusSink: statusSink
     ).report
+  }
+
+  private static func resolveSwiftPMCoveragePath(
+    processRunner: ProcessRunning,
+    projectRoot: URL
+  ) throws -> URL {
+    let coveragePathResult = try processRunner.run(
+      command: "swift",
+      arguments: ["test", "--show-code-coverage-path"],
+      environment: [:],
+      currentDirectory: projectRoot,
+      observation: nil
+    )
+    guard coveragePathResult.exitStatus == 0 else {
+      throw SymphonyBuildCommandFailure(
+        message: "Commit harness failed because SwiftPM did not return a coverage JSON path.")
+    }
+
+    let rawPath = coveragePathResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawPath.isEmpty else {
+      throw SymphonyBuildError(
+        code: "missing_package_coverage_path",
+        message: "SwiftPM returned an empty coverage JSON path.")
+    }
+
+    return URL(fileURLWithPath: rawPath)
+  }
+
+  private static func clearExistingCoverageExport(at coveragePath: URL) throws {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: coveragePath.path) {
+      try fileManager.removeItem(at: coveragePath)
+    }
   }
 
   static func runCoverageSuiteExecution(

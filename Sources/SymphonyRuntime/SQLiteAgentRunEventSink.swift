@@ -1,6 +1,267 @@
 import Foundation
 import SymphonyShared
 
+private struct ProviderSessionSnapshot: Sendable {
+  var providerSessionID: String?
+  var providerThreadID: String?
+  var providerTurnID: String?
+  var providerRunID: String?
+  var tokenUsage: TokenUsage
+  var latestRateLimitPayload: String?
+  var lastAgentMessage: String?
+  var latestSequence: EventSequence?
+
+  init(
+    providerSessionID: String? = nil,
+    providerThreadID: String? = nil,
+    providerTurnID: String? = nil,
+    providerRunID: String? = nil,
+    tokenUsage: TokenUsage = try! TokenUsage(),
+    latestRateLimitPayload: String? = nil,
+    lastAgentMessage: String? = nil,
+    latestSequence: EventSequence? = nil
+  ) {
+    self.providerSessionID = providerSessionID
+    self.providerThreadID = providerThreadID
+    self.providerTurnID = providerTurnID
+    self.providerRunID = providerRunID
+    self.tokenUsage = tokenUsage
+    self.latestRateLimitPayload = latestRateLimitPayload
+    self.lastAgentMessage = lastAgentMessage
+    self.latestSequence = latestSequence
+  }
+
+  func merging(_ update: ProviderSessionSnapshotUpdate) -> ProviderSessionSnapshot {
+    ProviderSessionSnapshot(
+      providerSessionID: update.providerSessionID ?? providerSessionID,
+      providerThreadID: update.providerThreadID ?? providerThreadID,
+      providerTurnID: update.providerTurnID ?? providerTurnID,
+      providerRunID: update.providerRunID ?? providerRunID,
+      tokenUsage: update.tokenUsage ?? tokenUsage,
+      latestRateLimitPayload: update.latestRateLimitPayload ?? latestRateLimitPayload,
+      lastAgentMessage: update.lastAgentMessage ?? lastAgentMessage,
+      latestSequence: update.latestSequence ?? latestSequence
+    )
+  }
+}
+
+private struct ProviderSessionSnapshotUpdate: Sendable {
+  var providerSessionID: String?
+  var providerThreadID: String?
+  var providerTurnID: String?
+  var providerRunID: String?
+  var tokenUsage: TokenUsage?
+  var latestRateLimitPayload: String?
+  var lastAgentMessage: String?
+  var latestSequence: EventSequence?
+}
+
+private enum ProviderSessionSnapshotExtractor {
+  static func update(from event: AgentRawEvent, storedSequence: EventSequence)
+    -> ProviderSessionSnapshotUpdate
+  {
+    let rawJSONObject = parseJSONObject(from: event.rawJSON)
+    return ProviderSessionSnapshotUpdate(
+      providerSessionID: rawJSONObject.flatMap {
+        firstString(for: ["provider_session_id", "session_id", "sessionId"], in: $0)
+      },
+      providerThreadID: rawJSONObject.flatMap {
+        firstString(for: ["provider_thread_id", "thread_id", "threadId"], in: $0)
+      },
+      providerTurnID: rawJSONObject.flatMap {
+        firstString(for: ["provider_turn_id", "turn_id", "turnId"], in: $0)
+      },
+      providerRunID: rawJSONObject.flatMap {
+        firstString(for: ["provider_run_id", "run_id", "runId"], in: $0)
+      },
+      tokenUsage: rawJSONObject.flatMap(tokenUsage(from:)),
+      latestRateLimitPayload: rawJSONObject.flatMap(rateLimitPayload(from:)),
+      lastAgentMessage: lastAgentMessage(from: event, rawJSONObject: rawJSONObject),
+      latestSequence: storedSequence
+    )
+  }
+
+  private static func parseJSONObject(from rawJSON: String) -> Any? {
+    guard let data = rawJSON.data(using: .utf8) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data)
+  }
+
+  fileprivate static func tokenUsage(from rawJSONObject: Any) -> TokenUsage? {
+    if let usageObject = firstValue(
+      for: ["usage", "token_usage", "tokenUsage", "tokens", "tokenUsageTotals"],
+      in: rawJSONObject
+    ),
+      let usage = tokenUsageObject(from: usageObject)
+    {
+      return usage
+    }
+
+    return tokenUsageObject(from: rawJSONObject)
+  }
+
+  private static func tokenUsageObject(from rawJSONObject: Any) -> TokenUsage? {
+    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    let inputTokens = firstInt(for: ["input_tokens", "inputTokens"], in: json)
+    let outputTokens = firstInt(for: ["output_tokens", "outputTokens"], in: json)
+    let totalTokens = firstInt(for: ["total_tokens", "totalTokens"], in: json)
+    guard inputTokens != nil || outputTokens != nil || totalTokens != nil else { return nil }
+    return try? TokenUsage(
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      totalTokens: totalTokens
+    )
+  }
+
+  private static func rateLimitPayload(from rawJSONObject: Any) -> String? {
+    guard
+      let rateLimitObject = firstValue(
+        for: ["rate_limit", "rate_limits", "rateLimit", "rateLimits"],
+        in: rawJSONObject
+      )
+    else { return nil }
+    return jsonString(from: rateLimitObject)
+  }
+
+  private static func lastAgentMessage(from event: AgentRawEvent, rawJSONObject: Any?) -> String? {
+    guard event.normalizedKind == .message, let rawJSONObject else { return nil }
+    return messageText(from: rawJSONObject)
+  }
+
+  fileprivate static func messageText(from rawJSONObject: Any) -> String? {
+    if let string = rawJSONObject as? String {
+      let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+
+    if let array = rawJSONObject as? [Any] {
+      for item in array {
+        if let text = messageText(from: item) {
+          return text
+        }
+      }
+      return nil
+    }
+
+    guard let json = rawJSONObject as? [String: Any] else { return nil }
+
+    for key in ["message", "content", "text"] {
+      if let value = json[key], let text = messageText(from: value) {
+        return text
+      }
+    }
+
+    for key in ["payload", "data", "delta"] {
+      if let value = json[key], let text = messageText(from: value) {
+        return text
+      }
+    }
+
+    return nil
+  }
+
+  private static func firstString(for keys: [String], in rawJSONObject: Any) -> String? {
+    if let array = rawJSONObject as? [Any] {
+      for item in array {
+        if let string = firstString(for: keys, in: item) {
+          return string
+        }
+      }
+      return nil
+    }
+
+    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    guard !keys.isEmpty else { return nil }
+    for key in keys {
+      if let value = json[key] {
+        if let string = stringValue(from: value) {
+          return string
+        }
+        if let string = firstString(for: keys, in: value) {
+          return string
+        }
+      }
+    }
+
+    for value in json.values {
+      if let string = firstString(for: keys, in: value) {
+        return string
+      }
+    }
+
+    return nil
+  }
+
+  private static func firstValue(for keys: [String], in rawJSONObject: Any) -> Any? {
+    if let array = rawJSONObject as? [Any] {
+      for item in array {
+        if let value = firstValue(for: keys, in: item) {
+          return value
+        }
+      }
+      return nil
+    }
+
+    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    for key in keys {
+      if let value = json[key] {
+        return value
+      }
+    }
+
+    for value in json.values {
+      if let nestedValue = firstValue(for: keys, in: value) {
+        return nestedValue
+      }
+    }
+
+    return nil
+  }
+
+  private static func firstInt(for keys: [String], in json: [String: Any]) -> Int? {
+    for key in keys {
+      if let value = json[key], let intValue = intValue(from: value) {
+        return intValue
+      }
+    }
+    return nil
+  }
+
+  private static func intValue(from value: Any) -> Int? {
+    if let intValue = value as? Int {
+      return intValue
+    }
+    if let number = value as? NSNumber {
+      return number.intValue
+    }
+    if let string = value as? String {
+      return Int(string)
+    }
+    return nil
+  }
+
+  private static func stringValue(from value: Any) -> String? {
+    if let string = value as? String {
+      let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    if let number = value as? NSNumber {
+      return number.stringValue
+    }
+    return nil
+  }
+
+  private static func jsonString(from value: Any) -> String? {
+    if let string = value as? String {
+      return string
+    }
+    guard JSONSerialization.isValidJSONObject(value),
+      let data = try? JSONSerialization.data(withJSONObject: value),
+      let string = String(data: data, encoding: .utf8)
+    else { return nil }
+    return string
+  }
+}
+
 public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendable {
   private let lock = NSLock()
   private let store: SQLiteServerStateStore
@@ -10,6 +271,7 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
   private var eventCountByRunID: [RunID: Int] = [:]
   private var lastEventTypeByRunID: [RunID: String] = [:]
   private var lastEventAtByRunID: [RunID: String] = [:]
+  private var providerSnapshotByRunID: [RunID: ProviderSessionSnapshot] = [:]
   private var runIDBySessionID: [SessionID: RunID] = [:]
 
   public init(store: SQLiteServerStateStore) {
@@ -69,13 +331,18 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
     _ event: AgentRawEvent,
     update: (runID: RunID, startInfo: AgentRunStartInfo, state: RunLifecycleState)
   ) throws {
-    _ = try? store.appendEvent(
+    let storedEvent = try store.appendEvent(
       sessionID: event.sessionID,
       provider: event.provider,
       timestamp: event.timestamp,
       rawJSON: event.rawJSON,
       providerEventType: event.providerEventType,
       normalizedEventKind: event.normalizedEventKind
+    )
+    mergeProviderSnapshot(
+      for: update.runID,
+      update: ProviderSessionSnapshotExtractor.update(
+        from: event, storedSequence: storedEvent.sequence)
     )
 
     try store.upsertRun(
@@ -162,6 +429,9 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
     if eventCountByRunID[startInfo.context.runID] == nil {
       eventCountByRunID[startInfo.context.runID] = 0
     }
+    if providerSnapshotByRunID[startInfo.context.runID] == nil {
+      providerSnapshotByRunID[startInfo.context.runID] = ProviderSessionSnapshot()
+    }
     runIDBySessionID[startInfo.sessionID] = startInfo.context.runID
     let currentState: RunLifecycleState
     if let storedState = lastStateByRunID[startInfo.context.runID] {
@@ -214,6 +484,22 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
     )
   }
 
+  private nonisolated func providerSnapshot(for runID: RunID) -> ProviderSessionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    return providerSnapshotByRunID[runID] ?? ProviderSessionSnapshot()
+  }
+
+  private nonisolated func mergeProviderSnapshot(
+    for runID: RunID,
+    update: ProviderSessionSnapshotUpdate
+  ) {
+    lock.lock()
+    let currentSnapshot = providerSnapshotByRunID[runID] ?? ProviderSessionSnapshot()
+    providerSnapshotByRunID[runID] = currentSnapshot.merging(update)
+    lock.unlock()
+  }
+
   private nonisolated func clearState(for runID: RunID, sessionID: SessionID) {
     lock.lock()
     defer { lock.unlock() }
@@ -223,6 +509,7 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
     eventCountByRunID.removeValue(forKey: runID)
     lastEventTypeByRunID.removeValue(forKey: runID)
     lastEventAtByRunID.removeValue(forKey: runID)
+    providerSnapshotByRunID.removeValue(forKey: runID)
     runIDBySessionID.removeValue(forKey: sessionID)
   }
 
@@ -232,6 +519,74 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
 
   func testingSnapshot(for runID: RunID) -> (count: Int, type: String?, time: String?) {
     snapshot(for: runID)
+  }
+
+  func testingProviderSnapshot(for runID: RunID) -> (
+    providerSessionID: String?,
+    providerThreadID: String?,
+    providerTurnID: String?,
+    providerRunID: String?,
+    tokenUsage: TokenUsage,
+    latestRateLimitPayload: String?,
+    lastAgentMessage: String?,
+    latestSequence: EventSequence?
+  ) {
+    let snapshot = providerSnapshot(for: runID)
+    return (
+      snapshot.providerSessionID,
+      snapshot.providerThreadID,
+      snapshot.providerTurnID,
+      snapshot.providerRunID,
+      snapshot.tokenUsage,
+      snapshot.latestRateLimitPayload,
+      snapshot.lastAgentMessage,
+      snapshot.latestSequence
+    )
+  }
+
+  func testingMergeProviderUpdate(
+    for runID: RunID,
+    event: AgentRawEvent,
+    storedSequence: EventSequence
+  ) {
+    mergeProviderSnapshot(
+      for: runID,
+      update: ProviderSessionSnapshotExtractor.update(from: event, storedSequence: storedSequence)
+    )
+  }
+
+  func testingMergeProviderSnapshot(
+    for runID: RunID,
+    providerSessionID: String? = nil,
+    providerThreadID: String? = nil,
+    providerTurnID: String? = nil,
+    providerRunID: String? = nil,
+    tokenUsage: TokenUsage? = nil,
+    latestRateLimitPayload: String? = nil,
+    lastAgentMessage: String? = nil,
+    latestSequence: EventSequence? = nil
+  ) {
+    mergeProviderSnapshot(
+      for: runID,
+      update: ProviderSessionSnapshotUpdate(
+        providerSessionID: providerSessionID,
+        providerThreadID: providerThreadID,
+        providerTurnID: providerTurnID,
+        providerRunID: providerRunID,
+        tokenUsage: tokenUsage,
+        latestRateLimitPayload: latestRateLimitPayload,
+        lastAgentMessage: lastAgentMessage,
+        latestSequence: latestSequence
+      )
+    )
+  }
+
+  func testingProviderMessageText(from rawJSONObject: Any) -> String? {
+    ProviderSessionSnapshotExtractor.messageText(from: rawJSONObject)
+  }
+
+  func testingProviderTokenUsage(from rawJSONObject: Any) -> TokenUsage? {
+    ProviderSessionSnapshotExtractor.tokenUsage(from: rawJSONObject)
   }
 
   func testingClearEventCount(for runID: RunID) {
@@ -249,6 +604,7 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
   ) throws -> RunDetail {
     let runID = startInfo.context.runID
     let snapshot = snapshot(for: runID)
+    let providerSnapshot = providerSnapshot(for: runID)
     return RunDetail(
       runID: runID,
       issueID: startInfo.issue.id,
@@ -256,8 +612,8 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
       attempt: startInfo.context.attempt,
       status: status.rawValue,
       provider: startInfo.provider,
-      providerSessionID: nil,
-      providerRunID: nil,
+      providerSessionID: providerSnapshot.providerSessionID,
+      providerRunID: providerSnapshot.providerRunID,
       startedAt: startedAt,
       endedAt: endedAt,
       workspacePath: startInfo.workspacePath,
@@ -266,9 +622,9 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
       issue: startInfo.issue,
       turnCount: snapshot.count,
       lastAgentEventType: snapshot.type,
-      lastAgentMessage: nil,
-      tokens: try TokenUsage(),
-      logs: RunLogStats(eventCount: snapshot.count, latestSequence: nil)
+      lastAgentMessage: providerSnapshot.lastAgentMessage,
+      tokens: providerSnapshot.tokenUsage,
+      logs: RunLogStats(eventCount: snapshot.count, latestSequence: providerSnapshot.latestSequence)
     )
   }
 
@@ -279,22 +635,23 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
   ) throws -> AgentSession {
     let runID = startInfo.context.runID
     let snapshot = snapshot(for: runID)
+    let providerSnapshot = providerSnapshot(for: runID)
     _ = lastError
     return AgentSession(
       sessionID: startInfo.sessionID,
       provider: startInfo.provider,
-      providerSessionID: nil,
-      providerThreadID: nil,
-      providerTurnID: nil,
-      providerRunID: nil,
+      providerSessionID: providerSnapshot.providerSessionID,
+      providerThreadID: providerSnapshot.providerThreadID,
+      providerTurnID: providerSnapshot.providerTurnID,
+      providerRunID: providerSnapshot.providerRunID,
       runID: runID,
       providerProcessPID: nil,
       status: status.rawValue,
       lastEventType: snapshot.type,
       lastEventAt: snapshot.time,
       turnCount: snapshot.count,
-      tokenUsage: try TokenUsage(),
-      latestRateLimitPayload: nil
+      tokenUsage: providerSnapshot.tokenUsage,
+      latestRateLimitPayload: providerSnapshot.latestRateLimitPayload
     )
   }
 
