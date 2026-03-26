@@ -1,0 +1,147 @@
+import Foundation
+import SwiftUI
+import SymphonyShared
+
+struct OperatorTheme {
+  let compact: Bool
+
+  var pagePadding: CGFloat { compact ? 12 : 18 }
+  var sectionSpacing: CGFloat { compact ? 12 : 16 }
+  var blockSpacing: CGFloat { compact ? 10 : 12 }
+  var panelPadding: CGFloat { compact ? 12 : 16 }
+  var itemPadding: CGFloat { compact ? 10 : 12 }
+  var rowSpacing: CGFloat { compact ? 8 : 10 }
+  var panelCornerRadius: CGFloat { compact ? 14 : 18 }
+  var itemCornerRadius: CGFloat { compact ? 10 : 14 }
+  var iconSize: CGFloat { compact ? 18 : 20 }
+
+  var bodyText: Color { .primary }
+  var quietText: Color { .secondary }
+  var subduedText: Color { .secondary }
+  var accentTint: Color { .accentColor }
+  var toolTint: Color { .blue }
+  var successTint: Color { .green }
+  var warningTint: Color { .orange }
+  var errorTint: Color { .red }
+  var badgeFill: Color { .primary.opacity(0.05) }
+  var badgeBorder: Color { .secondary.opacity(0.16) }
+  var selectedFill: Color { .accentColor.opacity(0.12) }
+  var selectedStroke: Color { .accentColor.opacity(0.28) }
+  var panelStroke: Color { .secondary.opacity(0.18) }
+  var insetStroke: Color { .secondary.opacity(0.12) }
+}
+
+func formatTimestamp(_ isoString: String) -> String {
+  let formatter = ISO8601DateFormatter()
+  guard let date = formatter.date(from: isoString) else { return isoString }
+  let relative = RelativeDateTimeFormatter()
+  relative.unitsStyle = .abbreviated
+  return relative.localizedString(for: date, relativeTo: Date())
+}
+
+func formatState(_ state: String) -> String {
+  state.split(separator: "_")
+    .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+    .joined(separator: " ")
+}
+
+func recentSessionHasVisibleTokenUsage(_ tokens: TokenUsage) -> Bool {
+  if tokens.inputTokens != nil {
+    return true
+  }
+  if tokens.outputTokens != nil {
+    return true
+  }
+  return tokens.totalTokens != nil
+}
+
+func statusTint(_ state: String) -> Color {
+  let normalized = state.lowercased()
+
+  if normalized.contains("error") || normalized.contains("fail") {
+    return .red
+  }
+  if normalized.contains("approve") || normalized.contains("queue") || normalized.contains("wait")
+    || normalized.contains("backlog") || normalized.contains("pending")
+  {
+    return .orange
+  }
+  if normalized.contains("done") || normalized.contains("success") || normalized.contains("ready")
+    || normalized.contains("complete") || normalized.contains("ended")
+  {
+    return .green
+  }
+  if normalized.contains("live") || normalized.contains("run") || normalized.contains("active")
+    || normalized.contains("progress") || normalized.contains("stream")
+  {
+    return .accentColor
+  }
+  return .secondary
+}
+
+func statusSymbol(_ state: String) -> String {
+  let normalized = state.lowercased()
+
+  if normalized.contains("error") || normalized.contains("fail") {
+    return "xmark.octagon.fill"
+  }
+  if normalized.contains("approve") || normalized.contains("queue") || normalized.contains("wait")
+    || normalized.contains("backlog") || normalized.contains("pending")
+  {
+    return "clock.badge.exclamationmark.fill"
+  }
+  if normalized.contains("done") || normalized.contains("success") || normalized.contains("ready")
+    || normalized.contains("complete") || normalized.contains("ended")
+  {
+    return "checkmark.circle.fill"
+  }
+  if normalized.contains("live") || normalized.contains("run") || normalized.contains("active")
+    || normalized.contains("progress") || normalized.contains("stream")
+  {
+    return "bolt.horizontal.circle.fill"
+  }
+  return "circle.fill"
+}
+
+extension ShapeStyle where Self == Material {
+  fileprivate static var operatorPanelMaterial: Material { .regularMaterial }
+  fileprivate static var operatorInsetMaterial: Material { .thinMaterial }
+}
+
+extension View {
+  func operatorPanel(_ theme: OperatorTheme) -> some View {
+    self
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(theme.panelPadding)
+      .background(
+        .operatorPanelMaterial, in: RoundedRectangle(cornerRadius: theme.panelCornerRadius)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: theme.panelCornerRadius)
+          .strokeBorder(theme.panelStroke, lineWidth: 1)
+      )
+  }
+
+  func operatorInset(_ theme: OperatorTheme) -> some View {
+    self
+      .background(
+        .operatorInsetMaterial, in: RoundedRectangle(cornerRadius: theme.itemCornerRadius)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: theme.itemCornerRadius)
+          .strokeBorder(theme.insetStroke, lineWidth: 1)
+      )
+  }
+
+  func operatorSelectionBackground(_ theme: OperatorTheme, isSelected: Bool) -> some View {
+    self
+      .background(
+        isSelected ? theme.selectedFill : Color.clear,
+        in: RoundedRectangle(cornerRadius: theme.itemCornerRadius)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: theme.itemCornerRadius)
+          .strokeBorder(isSelected ? theme.selectedStroke : .clear, lineWidth: 1)
+      )
+  }
+}

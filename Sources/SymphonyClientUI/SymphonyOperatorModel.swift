@@ -6,6 +6,7 @@ import SymphonyShared
 public final class SymphonyOperatorModel: ObservableObject {
   @Published public var host: String
   @Published public var portText: String
+  @Published public var issueSearchText: String
   @Published public var health: HealthResponse?
   @Published public var issues: [IssueSummary]
   @Published public var selectedIssueID: IssueID?
@@ -13,6 +14,8 @@ public final class SymphonyOperatorModel: ObservableObject {
   @Published public var selectedRunID: RunID?
   @Published public var runDetail: RunDetail?
   @Published public var logEvents: [AgentRawEvent]
+  @Published public var selectedDetailTab: OperatorDetailTab
+  @Published public var selectedLogFilter: OperatorLogFilter
   @Published public var connectionError: String?
   @Published public var isConnecting: Bool
   @Published public var isRefreshing: Bool
@@ -28,6 +31,7 @@ public final class SymphonyOperatorModel: ObservableObject {
   ) {
     let resolvedEndpoint = initialEndpoint ?? (try! ServerEndpoint())
     self.client = client ?? URLSessionSymphonyAPIClient()
+    self.issueSearchText = ""
     self.health = nil
     self.issues = []
     self.selectedIssueID = nil
@@ -35,6 +39,8 @@ public final class SymphonyOperatorModel: ObservableObject {
     self.selectedRunID = nil
     self.runDetail = nil
     self.logEvents = []
+    self.selectedDetailTab = .overview
+    self.selectedLogFilter = .all
     self.connectionError = nil
     self.isConnecting = false
     self.isRefreshing = false
@@ -56,6 +62,41 @@ public final class SymphonyOperatorModel: ObservableObject {
 
   public var visibleLogEvents: [AgentRawEvent] {
     logEvents.filter(Self.isRelevantLogEvent)
+  }
+
+  public var filteredIssues: [IssueSummary] {
+    let trimmedQuery = issueSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedQuery.isEmpty else {
+      return issues
+    }
+
+    let normalizedQuery = trimmedQuery.lowercased()
+    var filtered = issues.filter { issue in
+      let providerMatches: Bool
+      if let currentProvider = issue.currentProvider {
+        providerMatches = currentProvider.lowercased().contains(normalizedQuery)
+      } else {
+        providerMatches = false
+      }
+      return issue.identifier.rawValue.lowercased().contains(normalizedQuery)
+        || issue.title.lowercased().contains(normalizedQuery)
+        || issue.state.lowercased().contains(normalizedQuery)
+        || issue.issueState.lowercased().contains(normalizedQuery)
+        || providerMatches
+    }
+
+    if let selectedIssueID,
+      let selected = issues.first(where: { $0.issueID == selectedIssueID }),
+      !filtered.contains(where: { $0.issueID == selectedIssueID })
+    {
+      filtered.insert(selected, at: 0)
+    }
+
+    return filtered
+  }
+
+  public var filteredVisibleLogEvents: [AgentRawEvent] {
+    visibleLogEvents.filter(selectedLogFilter.matches(_:))
   }
 
   public func connect() async {
@@ -107,6 +148,8 @@ public final class SymphonyOperatorModel: ObservableObject {
 
   public func selectIssue(_ summary: IssueSummary) async {
     selectedIssueID = summary.issueID
+    selectedDetailTab = .overview
+    selectedLogFilter = .all
     guard let endpoint = serverEndpoint else {
       connectionError = SymphonyClientError.invalidEndpoint.localizedDescription
       return

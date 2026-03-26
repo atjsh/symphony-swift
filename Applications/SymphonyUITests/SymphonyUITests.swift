@@ -1,5 +1,6 @@
 import XCTest
 
+@MainActor
 final class SymphonyUITests: XCTestCase {
 
   private var app: XCUIApplication!
@@ -10,114 +11,76 @@ final class SymphonyUITests: XCTestCase {
     app.launchArguments = ["--ui-testing"]
   }
 
-  // MARK: - Connection Card
-
-  func testConnectionCardShowsDefaultFields() throws {
+  func testLaunchShowsSidebarSearchAndIssueList() throws {
     app.launch()
-    let connectionCard = app.otherElements["connection-card"]
-    XCTAssertTrue(connectionCard.waitForExistence(timeout: 5))
-    XCTAssertTrue(app.textFields["connection-host"].exists)
-    XCTAssertTrue(app.textFields["connection-port"].exists)
-    XCTAssertTrue(app.buttons["connect-button"].exists)
+
+    XCTAssertTrue(app.textFields["sidebar-search"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.descendants(matching: .any)["issue-list"].waitForExistence(timeout: 10))
   }
 
-  func testConnectLoadsIssues() throws {
+  func testServerEditorOpensFromToolbar() throws {
     app.launch()
-    let connectButton = app.buttons["connect-button"]
-    XCTAssertTrue(connectButton.waitForExistence(timeout: 5))
-    connectButton.tap()
 
-    let issuesSection = app.otherElements["issues-section"]
-    XCTAssertTrue(issuesSection.waitForExistence(timeout: 10))
-    let issueRow = app.buttons["issue-row-issue-1"]
+    let serverButton = app.descendants(matching: .any)["server-editor-button"]
+    XCTAssertTrue(serverButton.waitForExistence(timeout: 10))
+    serverButton.tap()
+
+    XCTAssertTrue(
+      app.descendants(matching: .any)["server-editor-sheet"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["server-editor-host"].exists)
+    XCTAssertTrue(app.textFields["server-editor-port"].exists)
+    XCTAssertTrue(app.buttons["server-editor-connect-button"].exists)
+  }
+
+  func testSearchSelectIssueAndShowOverview() throws {
+    app.launch()
+
+    let issueRow = app.descendants(matching: .any)["issue-row-issue-1"]
+    XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
+
+    let searchField = app.textFields["sidebar-search"]
+    XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+    searchField.tap()
+    searchField.typeText("feature")
+
     XCTAssertTrue(issueRow.waitForExistence(timeout: 5))
+    issueRow.tap()
+
+    XCTAssertTrue(app.descendants(matching: .any)["detail-summary"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["detail-tab-overview"].waitForExistence(timeout: 5))
   }
 
-  // MARK: - Issue Navigation
-
-  func testSelectIssueShowsDetail() throws {
+  func testSwitchBetweenDetailTabs() throws {
     app.launch()
-    app.buttons["connect-button"].tap()
 
-    let issueRow = app.buttons["issue-row-issue-1"]
+    let issueRow = app.descendants(matching: .any)["issue-row-issue-1"]
     XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
     issueRow.tap()
 
-    let issueDetail = app.otherElements["issue-detail-section"]
-    XCTAssertTrue(issueDetail.waitForExistence(timeout: 5))
+    let sessionsTab = app.buttons["detail-tab-sessions"]
+    XCTAssertTrue(sessionsTab.waitForExistence(timeout: 5))
+    sessionsTab.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["recent-sessions"].waitForExistence(timeout: 5))
+
+    let logsTab = app.buttons["detail-tab-logs"]
+    XCTAssertTrue(logsTab.waitForExistence(timeout: 5))
+    logsTab.tap()
+    XCTAssertTrue(app.buttons["log-filter-tools"].waitForExistence(timeout: 5))
   }
 
-  func testIssueDetailShowsURL() throws {
+  func testApplyLogFilterShowsScopedResults() throws {
     app.launch()
-    app.buttons["connect-button"].tap()
 
-    let issueRow = app.buttons["issue-row-issue-1"]
+    let issueRow = app.descendants(matching: .any)["issue-row-issue-1"]
     XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
     issueRow.tap()
 
-    let urlLink = app.links["issue-url-link"]
-    let exists = urlLink.waitForExistence(timeout: 5)
-    // URL link may or may not render depending on platform; assert it exists when the detail is visible
-    if exists {
-      XCTAssertTrue(urlLink.isHittable || urlLink.exists)
-    }
-  }
+    app.buttons["detail-tab-logs"].tap()
 
-  // MARK: - Run Detail
+    let toolsFilter = app.buttons["log-filter-tools"]
+    XCTAssertTrue(toolsFilter.waitForExistence(timeout: 5))
+    toolsFilter.tap()
 
-  func testNavigateToRunDetail() throws {
-    app.launch()
-    app.buttons["connect-button"].tap()
-
-    let issueRow = app.buttons["issue-row-issue-1"]
-    XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
-    issueRow.tap()
-
-    let latestRunButton = app.buttons["latest-run-button"]
-    XCTAssertTrue(latestRunButton.waitForExistence(timeout: 5))
-    latestRunButton.tap()
-
-    let runDetailSection = app.otherElements["run-detail-section"]
-    XCTAssertTrue(runDetailSection.waitForExistence(timeout: 5))
-  }
-
-  func testRunDetailShowsTokenUsage() throws {
-    app.launch()
-    app.buttons["connect-button"].tap()
-
-    let issueRow = app.buttons["issue-row-issue-1"]
-    XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
-    issueRow.tap()
-
-    app.buttons["latest-run-button"].tap()
-
-    let tokenUsage = app.otherElements["token-usage"]
-    XCTAssertTrue(tokenUsage.waitForExistence(timeout: 5))
-  }
-
-  // MARK: - Logs
-
-  func testRunDetailShowsLogs() throws {
-    app.launch()
-    app.buttons["connect-button"].tap()
-
-    let issueRow = app.buttons["issue-row-issue-1"]
-    XCTAssertTrue(issueRow.waitForExistence(timeout: 10))
-    issueRow.tap()
-
-    app.buttons["latest-run-button"].tap()
-
-    let logsSection = app.otherElements["logs-section"]
-    XCTAssertTrue(logsSection.waitForExistence(timeout: 5))
-  }
-
-  // MARK: - Refresh
-
-  func testRefreshButtonExists() throws {
-    app.launch()
-    app.buttons["connect-button"].tap()
-
-    let refreshButton = app.buttons["refresh-button"]
-    XCTAssertTrue(refreshButton.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any)["log-event-2"].waitForExistence(timeout: 5))
   }
 }

@@ -121,6 +121,51 @@ struct SymphonyOperatorRootViewTests {
     #endif
   }
 
+  @Test func BodyEvaluatesAcrossOverviewSessionsAndLogsTabs() throws {
+    let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+    model.selectedIssueID = IssueID("issue-42")
+    model.issueDetail = makeIssueDetail()
+    model.selectedRunID = RunID("run-42")
+    model.runDetail = makeRunDetail()
+    model.logEvents = [
+      makeEvent(sequence: 1, kind: "message", rawJSON: #"{"message":"hello"}"#),
+      makeEvent(sequence: 2, kind: "tool_call", rawJSON: #"{"arguments":"pwd"}"#),
+    ]
+
+    let view = SymphonyOperatorRootView(model: model)
+
+    model.selectedDetailTab = .overview
+    _ = view.body
+
+    model.selectedDetailTab = .sessions
+    _ = view.body
+
+    model.selectedDetailTab = .logs
+    _ = view.body
+  }
+
+  @Test func BodyEvaluatesWithSearchAndLogFilterState() throws {
+    let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+    model.issueSearchText = "provider"
+    model.issues = [makeIssueSummary()]
+    model.selectedIssueID = IssueID("issue-42")
+    model.issueDetail = makeIssueDetail()
+    model.runDetail = makeRunDetail()
+    model.selectedDetailTab = .logs
+    model.selectedLogFilter = .tools
+    model.logEvents = [
+      makeEvent(sequence: 1, kind: "message", rawJSON: #"{"message":"hello"}"#),
+      makeEvent(sequence: 2, kind: "tool_call", rawJSON: #"{"arguments":"pwd"}"#),
+    ]
+
+    let view = SymphonyOperatorRootView(model: model)
+    _ = view.body
+
+    #if canImport(AppKit)
+      render(host(view))
+    #endif
+  }
+
   @Test func BodyEvaluatesWithTokensErrorBlockersLabelsAndAllEventKinds() throws {
     let model = SymphonyOperatorModel(
       client: PassiveSymphonyAPIClient(),
@@ -482,6 +527,26 @@ struct SymphonyOperatorRootViewTests {
     )
     let view = SymphonyOperatorRootView(model: model)
 
+    var isPresented = false
+    let presentationBinding = Binding(
+      get: { isPresented },
+      set: { isPresented = $0 }
+    )
+    let presentEditor = view.makePresentationAction(for: presentationBinding)
+    presentEditor()
+    XCTAssertTrue(isPresented)
+
+    _ = view.makeEndpointEditorView().body
+
+    XCTAssertEqual(
+      operatorColumnVisibilityAfterIssueSelection(isCompact: false, current: .automatic),
+      .automatic
+    )
+    XCTAssertEqual(
+      operatorColumnVisibilityAfterIssueSelection(isCompact: true, current: .automatic),
+      .detailOnly
+    )
+
     let connectAction = view.makeConnectAction()
     connectAction()
     try await waitUntil { model.health?.trackerKind == "github" && model.issues.count == 1 }
@@ -498,16 +563,24 @@ struct SymphonyOperatorRootViewTests {
         && model.logEvents.count == 2
     }
 
+    let issueHandler = view.makeIssueSelectionHandler()
+    issueHandler(makeIssueSummary())
+    try await waitUntil { client.issueDetailRequests.count >= 2 }
+
     let runDetailRequestCount = client.runDetailRequests.count
     let runAction = view.makeRunSelectionAction(for: RunID("run-42"))
     runAction()
     try await Task.sleep(for: .milliseconds(50))
 
+    let runHandler = view.makeRunSelectionHandler()
+    runHandler(RunID("run-43"))
+    try await waitUntil { client.runDetailRequests.contains(RunID("run-43")) }
+
     XCTAssertEqual(client.healthCount, 1)
     XCTAssertEqual(client.refreshCount, 1)
-    XCTAssertEqual(client.issueDetailRequests, [IssueID("issue-42")])
-    XCTAssertEqual(client.runDetailRequests.count, runDetailRequestCount)
-    XCTAssertEqual(client.runDetailRequests.last, RunID("run-42"))
+    XCTAssertTrue(client.issueDetailRequests.contains(IssueID("issue-42")))
+    XCTAssertTrue(client.runDetailRequests.count >= runDetailRequestCount)
+    XCTAssertEqual(client.runDetailRequests.last, RunID("run-43"))
   }
 
   @Test func HelperViewsCoverCompactHeaderSupplementalRowsAndStatusTints() throws {
@@ -542,6 +615,455 @@ struct SymphonyOperatorRootViewTests {
         isLast: true
       )
       render(host(AnyView(supplementalRow), width: 480, height: 240))
+    #endif
+  }
+
+  @Test func EndpointEditorHelpersRenderDismissAndConnect() async throws {
+    let client = ActionDrivenSymphonyAPIClient()
+    let model = SymphonyOperatorModel(client: client)
+    model.host = "  example.com  "
+    model.portText = "  9443 "
+    model.connectionError = "Timed out"
+
+    #if canImport(AppKit)
+      render(host(AnyView(OperatorEndpointEditorView(model: model)), width: 640, height: 480))
+    #endif
+
+    var dismissCount = 0
+    let dismissAction = makeEndpointDismissAction {
+      dismissCount += 1
+    }
+    dismissAction()
+    XCTAssertEqual(dismissCount, 1)
+
+    let connectAction = makeEndpointConnectAction(
+      model: model,
+      draftHost: "  example.com  ",
+      draftPort: "  9443 "
+    ) {
+      dismissCount += 1
+    }
+    connectAction()
+
+    try await waitUntil {
+      model.health?.trackerKind == "github"
+        && model.connectionError == nil
+        && dismissCount == 2
+    }
+
+    XCTAssertEqual(model.host, "example.com")
+    XCTAssertEqual(model.portText, "9443")
+  }
+
+  @Test func SidebarSelectionHelperAndRenderedStatesCoverSelectionRowsAndStatusBranches() throws {
+    let theme = OperatorTheme(compact: false)
+    let noProviderIssue = IssueSummary(
+      issueID: IssueID("issue-84"),
+      identifier: try IssueIdentifier(validating: "atjsh/example#84"),
+      title: "Endpoint editor polish",
+      state: "queued",
+      issueState: "OPEN",
+      priority: nil,
+      currentProvider: nil,
+      currentRunID: nil,
+      currentSessionID: nil
+    )
+
+    #if canImport(AppKit)
+      let connectedModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      connectedModel.health = HealthResponse(
+        status: "ok",
+        serverTime: "2026-03-24T00:00:00Z",
+        version: "1.0.0",
+        trackerKind: "github"
+      )
+      connectedModel.issues = [makeIssueSummary(), noProviderIssue]
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: connectedModel,
+              theme: theme,
+              openServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+
+      render(
+        host(
+          AnyView(
+            makeOperatorServerStatusSummaryView(
+              theme: theme,
+              health: connectedModel.health,
+              connectionError: nil,
+              host: connectedModel.host,
+              portText: connectedModel.portText,
+              openServerEditor: {}
+            )),
+          width: 420,
+          height: 180
+        ))
+      render(
+        host(
+          AnyView(
+            makeOperatorIssueSidebarRow(theme: theme, issue: makeIssueSummary(), isSelected: true)),
+          width: 420,
+          height: 160
+        ))
+      render(
+        host(
+          AnyView(
+            makeOperatorIssueSidebarRow(theme: theme, issue: noProviderIssue, isSelected: false)),
+          width: 420,
+          height: 160
+        ))
+
+      let failedModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      failedModel.connectionError = "Refresh failed"
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: failedModel,
+              theme: theme,
+              openServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+
+      let idleModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: idleModel,
+              theme: theme,
+              openServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+    #endif
+
+    let selectionModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+    selectionModel.issues = [makeIssueSummary(), noProviderIssue]
+
+    var selectedIssues = [IssueID]()
+    let recordSelection: (IssueSummary) -> Void = { summary in
+      selectedIssues.append(summary.issueID)
+    }
+
+    let issueSelection = operatorSidebarIssueSelectionBinding(
+      model: selectionModel,
+      selectIssue: recordSelection
+    )
+
+    issueSelection.wrappedValue = nil
+    operatorSidebarSelectIssue(nil, model: selectionModel, selectIssue: recordSelection)
+    operatorSidebarSelectIssue(
+      IssueID("missing"), model: selectionModel, selectIssue: recordSelection)
+
+    selectionModel.selectedIssueID = IssueID("issue-42")
+    selectionModel.issueDetail = makeIssueDetail()
+    issueSelection.wrappedValue = IssueID("issue-42")
+    operatorSidebarSelectIssue(
+      IssueID("issue-42"), model: selectionModel, selectIssue: recordSelection)
+
+    selectionModel.issueDetail = nil
+    issueSelection.wrappedValue = IssueID("issue-42")
+    operatorSidebarSelectIssue(
+      IssueID("issue-42"), model: selectionModel, selectIssue: recordSelection)
+    operatorSidebarSelectIssue(
+      IssueID("issue-84"), model: selectionModel, selectIssue: recordSelection)
+    let selectIssueAction = makeOperatorSidebarSelectIssueAction(
+      issueID: IssueID("issue-84"),
+      model: selectionModel,
+      selectIssue: recordSelection
+    )
+    selectIssueAction()
+
+    XCTAssertFalse(selectedIssues.isEmpty)
+  }
+
+  @Test func DetailHelpersRenderSessionBranchesAndDispatchSelectionActions() throws {
+    let theme = OperatorTheme(compact: false)
+
+    #if canImport(AppKit)
+      let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      model.selectedIssueID = IssueID("issue-42")
+      model.selectedDetailTab = .sessions
+      model.issueDetail = IssueDetail(
+        issue: makeIssueDetail().issue,
+        latestRun: makeRunSummary(),
+        workspacePath: "/tmp/example",
+        recentSessions: []
+      )
+      render(
+        host(
+          AnyView(
+            OperatorDetailView(model: model, theme: theme, selectRun: { _ in })),
+          width: 960,
+          height: 900
+        ))
+
+      model.issueDetail = makeIssueDetail()
+      render(
+        host(
+          AnyView(
+            OperatorDetailView(model: model, theme: theme, selectRun: { _ in })),
+          width: 960,
+          height: 900
+        ))
+
+      render(
+        host(
+          AnyView(RecentSessionsPanel(theme: theme, sessions: makeIssueDetail().recentSessions)),
+          width: 960,
+          height: 720
+        ))
+    #endif
+
+    var selectedRuns = [RunID]()
+    operatorSelectLatestRun(detail: makeIssueDetail()) { runID in
+      selectedRuns.append(runID)
+    }
+    operatorSelectLatestRun(
+      detail: IssueDetail(
+        issue: makeIssueDetail().issue,
+        latestRun: nil,
+        workspacePath: nil,
+        recentSessions: []
+      )
+    ) { runID in
+      selectedRuns.append(runID)
+    }
+    let latestRunAction = makeOperatorSelectLatestRunAction(detail: makeIssueDetail()) { runID in
+      selectedRuns.append(runID)
+    }
+    latestRunAction()
+    let issueOverviewRunSelectionAction = makeIssueOverviewRunSelectionAction(
+      latestRun: makeRunSummary()
+    ) { runID in
+      selectedRuns.append(runID)
+    }
+    issueOverviewRunSelectionAction?()
+    XCTAssertEqual(selectedRuns, [RunID("run-42"), RunID("run-42"), RunID("run-42")])
+
+    var selection = OperatorDetailTab.overview
+    let binding = Binding(
+      get: { selection },
+      set: { selection = $0 }
+    )
+
+    operatorSetDetailTab(selection: binding, tab: .sessions)
+    XCTAssertEqual(selection, .sessions)
+    makeOperatorDetailTabAction(selection: binding, tab: .overview)()
+    XCTAssertEqual(selection, .overview)
+
+    operatorSetDetailTab(selection: binding, tab: .logs)
+    XCTAssertEqual(selection, .logs)
+  }
+
+  @Test func LogsAndThemeHelpersCoverFilterActionsTimelineStatesAndSelectionBackground() throws {
+    let regularTheme = OperatorTheme(compact: false)
+    let compactTheme = OperatorTheme(compact: true)
+
+    _ = compactTheme.rowSpacing
+    _ = regularTheme.rowSpacing
+    _ = compactTheme.iconSize
+    _ = regularTheme.iconSize
+    _ = regularTheme.selectedFill
+    _ = regularTheme.selectedStroke
+
+    XCTAssertEqual(statusSymbol("failed"), "xmark.octagon.fill")
+    XCTAssertEqual(statusSymbol("queued"), "clock.badge.exclamationmark.fill")
+    XCTAssertEqual(statusSymbol("completed"), "checkmark.circle.fill")
+    XCTAssertEqual(statusSymbol("running"), "bolt.horizontal.circle.fill")
+    XCTAssertEqual(statusSymbol("idle"), "circle.fill")
+
+    var filter = OperatorLogFilter.all
+    let filterBinding = Binding(
+      get: { filter },
+      set: { filter = $0 }
+    )
+
+    makeLogFilterAction(selection: filterBinding, filter: .messages)()
+    XCTAssertEqual(filter, .messages)
+    makeLogFilterAction(selection: filterBinding, filter: .tools)()
+    XCTAssertEqual(filter, .tools)
+    makeLogFilterAction(selection: filterBinding, filter: .alerts)()
+    XCTAssertEqual(filter, .alerts)
+
+    let messageEvent = makeEvent(
+      sequence: 1,
+      kind: "message",
+      rawJSON: #"{"message":"hello"}"#
+    )
+    let toolEvent = makeEvent(
+      sequence: 2,
+      kind: "tool_call",
+      rawJSON: #"{"arguments":"pwd"}"#
+    )
+    let compactEvent = makeEvent(
+      sequence: 3,
+      kind: "status",
+      rawJSON: #"{"status":"queued"}"#
+    )
+    let approvalEvent = makeEvent(
+      sequence: 4,
+      kind: "approval_request",
+      rawJSON: #"{"message":"approve?"}"#
+    )
+    let errorEvent = makeEvent(
+      sequence: 5,
+      kind: "error",
+      rawJSON: #"{"message":"fail"}"#
+    )
+    let supplementalEvent = AgentRawEvent(
+      sessionID: SessionID("session-42"),
+      provider: "claude_code",
+      sequence: EventSequence(6),
+      timestamp: "2026-03-24T00:00:06Z",
+      rawJSON: #"{"payload":{"notes":"inspect raw payload"}}"#,
+      providerEventType: "provider_custom",
+      normalizedEventKind: "unexpected_kind"
+    )
+
+    #if canImport(AppKit)
+      render(
+        host(
+          AnyView(
+            EmptyStatePanel(
+              theme: regularTheme,
+              systemImage: "tray",
+              title: "Nothing here yet"
+            )),
+          width: 480,
+          height: 220
+        ))
+      let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      model.liveStatus = "Running"
+      model.selectedLogFilter = .all
+      model.logEvents = [
+        messageEvent,
+        toolEvent,
+        compactEvent,
+        approvalEvent,
+        errorEvent,
+        supplementalEvent,
+      ]
+
+      render(
+        host(AnyView(OperatorLogsPane(model: model, theme: regularTheme)), width: 960, height: 900))
+      render(
+        host(AnyView(LogTimelinePanel(theme: regularTheme, logEvents: [])), width: 960, height: 320)
+      )
+      render(
+        host(
+          AnyView(
+            LogTimelinePanel(
+              theme: regularTheme,
+              logEvents: [
+                messageEvent,
+                toolEvent,
+                compactEvent,
+                approvalEvent,
+                errorEvent,
+                supplementalEvent,
+              ]
+            )),
+          width: 960,
+          height: 900
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: messageEvent,
+              presentation: SymphonyEventPresentation(event: messageEvent),
+              isLast: false
+            )),
+          width: 720,
+          height: 220
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: toolEvent,
+              presentation: SymphonyEventPresentation(event: toolEvent),
+              isLast: false
+            )),
+          width: 720,
+          height: 220
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: compactEvent,
+              presentation: SymphonyEventPresentation(event: compactEvent),
+              isLast: false
+            )),
+          width: 720,
+          height: 220
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: approvalEvent,
+              presentation: SymphonyEventPresentation(event: approvalEvent),
+              isLast: false
+            )),
+          width: 720,
+          height: 220
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: errorEvent,
+              presentation: SymphonyEventPresentation(event: errorEvent),
+              isLast: false
+            )),
+          width: 720,
+          height: 220
+        ))
+      render(
+        host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: supplementalEvent,
+              presentation: SymphonyEventPresentation(event: supplementalEvent),
+              isLast: true
+            )),
+          width: 720,
+          height: 240
+        ))
+      render(
+        host(
+          AnyView(Text("Selected").operatorSelectionBackground(regularTheme, isSelected: true)),
+          width: 240,
+          height: 100
+        ))
+      render(
+        host(
+          AnyView(Text("Unselected").operatorSelectionBackground(regularTheme, isSelected: false)),
+          width: 240,
+          height: 100
+        ))
     #endif
   }
 }

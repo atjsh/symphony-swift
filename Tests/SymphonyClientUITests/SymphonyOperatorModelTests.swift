@@ -7,6 +7,16 @@ import Testing
 @MainActor
 @Suite("SymphonyOperatorModel")
 struct SymphonyOperatorModelTests {
+  @Test func DefaultInitializerUsesOverviewTabAllLogFilterAndEmptySearch() {
+    let model = SymphonyOperatorModel()
+
+    XCTAssertEqual(model.issueSearchText, "")
+    XCTAssertEqual(model.selectedDetailTab, .overview)
+    XCTAssertEqual(model.selectedLogFilter, .all)
+    XCTAssertTrue(model.filteredIssues.isEmpty)
+    XCTAssertTrue(model.filteredVisibleLogEvents.isEmpty)
+  }
+
   @Test func DefaultInitializerUsesDefaultEndpointAndIdleState() {
     let model = SymphonyOperatorModel()
 
@@ -18,6 +28,87 @@ struct SymphonyOperatorModelTests {
     XCTAssertFalse(model.isConnecting)
     XCTAssertFalse(model.isRefreshing)
     XCTAssertEqual(model.liveStatus, "Idle")
+  }
+
+  @Test func FilteredIssuesApplySearchAndKeepSelectedIssueVisible() throws {
+    let model = SymphonyOperatorModel(client: MockSymphonyAPIClient())
+    let selected = makeIssueSummary()
+    let other = IssueSummary(
+      issueID: IssueID("issue-84"),
+      identifier: try IssueIdentifier(validating: "atjsh/example#84"),
+      title: "Endpoint editor polish",
+      state: "queued",
+      issueState: "OPEN",
+      priority: 2,
+      currentProvider: "codex",
+      currentRunID: RunID("run-84"),
+      currentSessionID: SessionID("session-84")
+    )
+    let unassigned = IssueSummary(
+      issueID: IssueID("issue-85"),
+      identifier: try IssueIdentifier(validating: "atjsh/example#85"),
+      title: "Unassigned search coverage",
+      state: "queued",
+      issueState: "OPEN",
+      priority: nil,
+      currentProvider: nil,
+      currentRunID: nil,
+      currentSessionID: nil
+    )
+    model.issues = [selected, other, unassigned]
+    model.selectedIssueID = selected.issueID
+
+    model.issueSearchText = "endpoint"
+
+    XCTAssertEqual(model.filteredIssues.map(\.issueID.rawValue), ["issue-42", "issue-84"])
+
+    model.issueSearchText = "unassigned"
+
+    XCTAssertEqual(model.filteredIssues.map(\.issueID.rawValue), ["issue-42", "issue-85"])
+  }
+
+  @Test func FilteredVisibleLogEventsApplySelectedLogFilter() {
+    let model = SymphonyOperatorModel(client: MockSymphonyAPIClient())
+
+    model.testingMergeLogEvents([
+      makeEvent(sequence: 1, kind: "message"),
+      makeEvent(sequence: 2, kind: "tool_call"),
+      makeEvent(sequence: 3, kind: "tool_result"),
+      makeEvent(sequence: 4, kind: "approval_request"),
+      makeEvent(sequence: 5, kind: "error"),
+    ])
+
+    model.selectedLogFilter = .messages
+    XCTAssertEqual(model.filteredVisibleLogEvents.map(\.sequence.rawValue), [1])
+
+    model.selectedLogFilter = .tools
+    XCTAssertEqual(model.filteredVisibleLogEvents.map(\.sequence.rawValue), [2, 3])
+
+    model.selectedLogFilter = .alerts
+    XCTAssertEqual(model.filteredVisibleLogEvents.map(\.sequence.rawValue), [4, 5])
+  }
+
+  @Test func SelectingIssueResetsDetailTabAndLogFilterToOverviewAndAll() async throws {
+    let client = MockSymphonyAPIClient()
+    let issueSummary = makeIssueSummary()
+    client.issueDetailResponse = makeIssueDetail()
+    client.runDetailResponse = makeRunDetail()
+    client.logsResponse = LogEntriesResponse(
+      sessionID: SessionID("session-42"),
+      provider: "claude_code",
+      items: [],
+      nextCursor: nil,
+      hasMore: false
+    )
+
+    let model = SymphonyOperatorModel(client: client)
+    model.selectedDetailTab = .logs
+    model.selectedLogFilter = .alerts
+
+    await model.selectIssue(issueSummary)
+
+    XCTAssertEqual(model.selectedDetailTab, .overview)
+    XCTAssertEqual(model.selectedLogFilter, .all)
   }
 
   @Test func ConnectLoadsHealthAndIssuesFromConfiguredEndpoint() async throws {

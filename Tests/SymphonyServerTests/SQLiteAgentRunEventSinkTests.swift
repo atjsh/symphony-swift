@@ -171,6 +171,44 @@ struct SQLiteAgentRunEventSinkTests {
     #expect(snapshot.time == "2026-03-26T01:33:00Z")
   }
 
+  @Test func completionUsesZeroCountSnapshotWhenEventCountStateWasCleared() throws {
+    let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
+      "agent-run-sink-cleared-count-completion.sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let sink = SQLiteAgentRunEventSink(store: store)
+
+    let issue = try makeAgentRunSinkIssue(id: "I_4b", number: 41)
+    let context = try makeAgentRunSinkContext(
+      issueID: issue.id, number: issue.number, runID: "R_4b")
+    let startInfo = AgentRunStartInfo(
+      context: context,
+      issue: issue,
+      provider: ProviderName.codex.rawValue,
+      sessionID: SessionID("session-4b"),
+      workspacePath: "/tmp/symphony/o_r_4b"
+    )
+
+    sink.runDidStart(startInfo)
+    sink.testingClearEventCount(for: context.runID)
+    sink.runDidComplete(
+      AgentRunResult(
+        context: context,
+        sessionID: startInfo.sessionID,
+        finalState: .succeeded,
+        eventCount: 0,
+        error: nil
+      ))
+
+    let runDetail = try #require(try store.runDetail(id: context.runID))
+    #expect(runDetail.turnCount == 0)
+    #expect(runDetail.logs.eventCount == 0)
+
+    let session = try #require(try store.session(sessionID: startInfo.sessionID))
+    #expect(session.turnCount == 0)
+    #expect(session.lastEventType == nil)
+    #expect(session.lastEventAt == nil)
+  }
+
   @Test func providerSnapshotHelpersCoverDefaultMergeAndNestedExtractionPaths() throws {
     let databaseURL = try makeAgentRunSinkTemporaryDirectory().appendingPathComponent(
       "agent-run-sink-provider-helpers.sqlite3")

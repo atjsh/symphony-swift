@@ -1,3 +1,4 @@
+import Foundation
 import SymphonyShared
 import XCTest
 
@@ -171,30 +172,32 @@ final class BootstrapSupportTests: XCTestCase {
     exitAction()
   }
 
-  func testBuiltSymphonyAppStartsAndExitsWhenRequested() throws {
-    let executable = try XCTUnwrap(Bundle.main.executableURL)
-    XCTAssertTrue(FileManager.default.isExecutableFile(atPath: executable.path))
+  #if os(macOS)
+    func testBuiltSymphonyAppStartsAndExitsWhenRequested() throws {
+      let executable = try XCTUnwrap(Bundle.main.executableURL)
+      XCTAssertTrue(FileManager.default.isExecutableFile(atPath: executable.path))
 
-    let process = Process()
-    let output = Pipe()
-    var environment = ProcessInfo.processInfo.environment
-    environment[BootstrapKeepAlivePolicy.exitAfterStartupKey] = "1"
-    environment[BootstrapEnvironment.serverSchemeKey] = "https"
-    environment[BootstrapEnvironment.serverHostKey] = "app.example.com"
-    environment[BootstrapEnvironment.serverPortKey] = "9443"
-    process.executableURL = executable
-    process.environment = environment
-    process.standardOutput = output
-    process.standardError = output
-    try process.run()
-    process.waitUntilExit()
+      let process = Process()
+      let output = Pipe()
+      var environment = ProcessInfo.processInfo.environment
+      environment[BootstrapKeepAlivePolicy.exitAfterStartupKey] = "1"
+      environment[BootstrapEnvironment.serverSchemeKey] = "https"
+      environment[BootstrapEnvironment.serverHostKey] = "app.example.com"
+      environment[BootstrapEnvironment.serverPortKey] = "9443"
+      process.executableURL = executable
+      process.environment = environment
+      process.standardOutput = output
+      process.standardError = output
+      try process.run()
+      process.waitUntilExit()
 
-    let transcript = String(
-      decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    XCTAssertEqual(process.terminationStatus, 0)
-    XCTAssertTrue(transcript.contains("[Symphony] starting"))
-    XCTAssertTrue(transcript.contains("[Symphony] endpoint=https://app.example.com:9443"))
-  }
+      let transcript = String(
+        decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+      XCTAssertEqual(process.terminationStatus, 0)
+      XCTAssertTrue(transcript.contains("[Symphony] starting"))
+      XCTAssertTrue(transcript.contains("[Symphony] endpoint=https://app.example.com:9443"))
+    }
+  #endif
 
   @MainActor
   func testContentViewAndAppBodiesCanBeEvaluated() {
