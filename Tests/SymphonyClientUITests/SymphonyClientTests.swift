@@ -14,6 +14,13 @@ final class SymphonyClientTests: XCTestCase {
       "The server returned an invalid response.")
     XCTAssertEqual(
       SymphonyClientError.server(statusCode: 503).errorDescription, "The server returned HTTP 503.")
+    XCTAssertEqual(
+      SymphonyClientError.serverEnvelope(
+        statusCode: 404,
+        code: "issue_not_found",
+        message: "Issue issue-42 was not found."
+      ).errorDescription,
+      "Issue issue-42 was not found.")
   }
 
   func testRequestMethodsUseExpectedPathsMethodsAndQueryItems() async throws {
@@ -122,6 +129,37 @@ final class SymphonyClientTests: XCTestCase {
         endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443))
     ) { error in
       XCTAssertEqual(error as? SymphonyClientError, .server(statusCode: 503))
+    }
+
+    let serverEnvelopeSession = TestHTTPSession()
+    serverEnvelopeSession.dataResponses = [
+      errorResponse(
+        ErrorEnvelope(
+          error: ErrorPayload(
+            code: "issue_not_found",
+            message: "Issue issue-42 was not found."
+          )
+        ),
+        path: "/api/v1/issues/issue-42",
+        statusCode: 404
+      )
+    ]
+    let serverEnvelopeClient = URLSessionSymphonyAPIClient(session: serverEnvelopeSession)
+    await XCTAssertThrowsErrorAsync(
+      try await serverEnvelopeClient.issueDetail(
+        endpoint: try ServerEndpoint(scheme: "https", host: "example.com", port: 9443),
+        issueID: IssueID("issue-42")
+      )
+    ) { error in
+      XCTAssertEqual(
+        error as? SymphonyClientError,
+        .serverEnvelope(
+          statusCode: 404,
+          code: "issue_not_found",
+          message: "Issue issue-42 was not found."
+        )
+      )
+      XCTAssertEqual(error.localizedDescription, "Issue issue-42 was not found.")
     }
   }
 
@@ -329,6 +367,18 @@ private func httpResponse<T: Encodable>(_ value: T, path: String) -> (Data, URLR
     try! JSONEncoder().encode(value),
     HTTPURLResponse(
       url: url, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+  )
+}
+
+private func errorResponse<T: Encodable>(_ value: T, path: String, statusCode: Int)
+  -> (Data, URLResponse)
+{
+  let url = URL(string: "https://example.com:9443\(path)")!
+  return (
+    try! JSONEncoder().encode(value),
+    HTTPURLResponse(
+      url: url, statusCode: statusCode, httpVersion: nil,
       headerFields: ["Content-Type": "application/json"])!
   )
 }

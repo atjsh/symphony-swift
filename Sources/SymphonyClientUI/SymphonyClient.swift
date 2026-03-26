@@ -51,6 +51,7 @@ public enum SymphonyClientError: LocalizedError, Equatable {
   case invalidEndpoint
   case invalidResponse
   case server(statusCode: Int)
+  case serverEnvelope(statusCode: Int, code: String, message: String)
 
   public var errorDescription: String? {
     switch self {
@@ -60,6 +61,8 @@ public enum SymphonyClientError: LocalizedError, Equatable {
       return "The server returned an invalid response."
     case .server(let statusCode):
       return "The server returned HTTP \(statusCode)."
+    case .serverEnvelope(_, _, let message):
+      return message
     }
   }
 }
@@ -162,6 +165,13 @@ public final class URLSessionSymphonyAPIClient: SymphonyAPIClientProtocol, @unch
       throw SymphonyClientError.invalidResponse
     }
     guard (200...299).contains(httpResponse.statusCode) else {
+      if let envelope = try? decoder.decode(ErrorEnvelope.self, from: data) {
+        throw SymphonyClientError.serverEnvelope(
+          statusCode: httpResponse.statusCode,
+          code: envelope.error.code,
+          message: envelope.error.message
+        )
+      }
       throw SymphonyClientError.server(statusCode: httpResponse.statusCode)
     }
     return try decoder.decode(T.self, from: data)

@@ -157,6 +157,60 @@ final class SymphonyOperatorModelTests: XCTestCase {
     XCTAssertEqual(model.selectedIssueID?.rawValue, "issue-42")
   }
 
+  func testRefreshReusesLastDeliveredCursorForSelectedRun() async throws {
+    let client = MockSymphonyAPIClient()
+    let issueSummary = makeIssueSummary()
+    let firstCursor = EventCursor(
+      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(2))
+    let secondCursor = EventCursor(
+      sessionID: SessionID("session-42"), lastDeliveredSequence: EventSequence(3))
+    let firstEvent = makeEvent(sequence: 1, kind: "message")
+    let secondEvent = makeEvent(sequence: 2, kind: "tool_call")
+    let thirdEvent = makeEvent(sequence: 3, kind: "tool_result")
+    let fourthEvent = makeEvent(sequence: 4, kind: "status")
+
+    client.healthResponse = HealthResponse(
+      status: "ok", serverTime: "2026-03-24T12:00:00Z", version: "1.0.0", trackerKind: "github")
+    client.issuesResponse = IssuesResponse(items: [issueSummary])
+    client.issueDetailResponse = makeIssueDetail()
+    client.runDetailResponse = makeRunDetail()
+    client.logsResponse = LogEntriesResponse(
+      sessionID: SessionID("session-42"),
+      provider: "claude_code",
+      items: [firstEvent, secondEvent],
+      nextCursor: firstCursor,
+      hasMore: false
+    )
+
+    let model = SymphonyOperatorModel(client: client)
+    await model.connect()
+    await model.selectIssue(issueSummary)
+    try await waitUntil {
+      model.logEvents.map(\.sequence.rawValue) == [1, 2] && model.liveStatus == "Ended"
+    }
+
+    client.logsResponse = LogEntriesResponse(
+      sessionID: SessionID("session-42"),
+      provider: "claude_code",
+      items: [thirdEvent],
+      nextCursor: secondCursor,
+      hasMore: false
+    )
+    client.liveEvents = [fourthEvent]
+
+    await model.refresh()
+    try await waitUntil {
+      model.logEvents.map(\.sequence.rawValue) == [1, 2, 3, 4] && model.liveStatus == "Ended"
+    }
+
+    XCTAssertEqual(client.logRequests.count, 2)
+    XCTAssertNil(client.logRequests[0].cursor)
+    XCTAssertEqual(client.logRequests[1].cursor, firstCursor)
+    XCTAssertEqual(client.streamRequests.count, 2)
+    XCTAssertEqual(client.streamRequests[0].cursor, firstCursor)
+    XCTAssertEqual(client.streamRequests[1].cursor, secondCursor)
+  }
+
   func testRefreshStartedBeforeSelectionDoesNotRerequestIssueDetail() async throws {
     let client = MockSymphonyAPIClient()
     let issueSummary = makeIssueSummary()
@@ -221,6 +275,24 @@ final class SymphonyOperatorModelTests: XCTestCase {
     client.refreshError = TestModelFailure.failed("refresh")
     await model.refresh()
     XCTAssertEqual(model.connectionError, "refresh")
+  }
+
+  func testConnectSurfacesServerEnvelopeMessage() async throws {
+    let client = MockSymphonyAPIClient()
+    client.healthError = SymphonyClientError.serverEnvelope(
+      statusCode: 404,
+      code: "issue_not_found",
+      message: "Issue issue-42 was not found."
+    )
+
+    let model = SymphonyOperatorModel(
+      client: client,
+      initialEndpoint: try ServerEndpoint(host: "localhost", port: 8080)
+    )
+
+    await model.connect()
+
+    XCTAssertEqual(model.connectionError, "Issue issue-42 was not found.")
   }
 
   func testConnectAndRefreshFailuresClearStateAndRespectInvalidEndpoints() async throws {
@@ -722,6 +794,7 @@ private final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
   private(set) var issueDetailRequests = [IssueID]()
   private(set) var runDetailRequests = [RunID]()
   private(set) var logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
+  private(set) var streamRequests = [(sessionID: SessionID, cursor: EventCursor?)]()
   private(set) var streamStartCount = 0
   private(set) var streamTerminationCount = 0
   private var refreshContinuation: CheckedContinuation<Void, Never>?
@@ -837,6 +910,7 @@ private final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
   func logStream(endpoint: ServerEndpoint, sessionID: SessionID, cursor: EventCursor?) throws
     -> AsyncThrowingStream<AgentRawEvent, Error>
   {
+    streamRequests.append((sessionID, cursor))
     streamStartCount += 1
     return AsyncThrowingStream(AgentRawEvent.self) { continuation in
       continuation.onTermination = { [weak self] _ in

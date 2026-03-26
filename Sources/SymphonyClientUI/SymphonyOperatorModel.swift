@@ -126,6 +126,9 @@ public final class SymphonyOperatorModel: ObservableObject {
   }
 
   public func selectRun(_ runID: RunID) async {
+    let previousRunID = selectedRunID
+    let previousSessionID = runDetail?.sessionID
+    let previousCursor = logCursor
     selectedRunID = runID
     guard let endpoint = serverEndpoint else {
       connectionError = SymphonyClientError.invalidEndpoint.localizedDescription
@@ -142,11 +145,17 @@ public final class SymphonyOperatorModel: ObservableObject {
         return
       }
 
+      let historicalCursor =
+        previousRunID == runID && previousSessionID == sessionID ? previousCursor : nil
       let page = try await client.logs(
-        endpoint: endpoint, sessionID: sessionID, cursor: nil, limit: 100)
-      logEvents = page.items
-      logCursor = page.nextCursor
-      startLiveStream(endpoint: endpoint, sessionID: sessionID, cursor: page.nextCursor)
+        endpoint: endpoint, sessionID: sessionID, cursor: historicalCursor, limit: 100)
+      if historicalCursor == nil {
+        logEvents = page.items
+      } else {
+        mergeLogEvents(page.items)
+      }
+      logCursor = page.nextCursor ?? historicalCursor
+      startLiveStream(endpoint: endpoint, sessionID: sessionID, cursor: logCursor)
     } catch {
       connectionError = error.localizedDescription
     }
@@ -192,12 +201,15 @@ public final class SymphonyOperatorModel: ObservableObject {
   }
 
   private func appendLogEvent(_ event: AgentRawEvent) {
-    if logEvents.contains(where: { $0.sequence == event.sequence }) {
-      return
-    }
-    logEvents.append(event)
-    logEvents.sort { $0.sequence < $1.sequence }
+    mergeLogEvents([event])
     logCursor = EventCursor(sessionID: event.sessionID, lastDeliveredSequence: event.sequence)
+  }
+
+  private func mergeLogEvents(_ events: [AgentRawEvent]) {
+    for event in events where !logEvents.contains(where: { $0.sequence == event.sequence }) {
+      logEvents.append(event)
+    }
+    logEvents.sort { $0.sequence < $1.sequence }
   }
 }
 
