@@ -41,6 +41,9 @@ struct OperatorDetailView: View {
       }
     }
     .navigationTitle(model.issueDetail?.issue.identifier.rawValue ?? "Inspector")
+    .operatorDetailTitleDisplayPreference(
+      operatorDetailNavigationTitleDisplayPreference(isCompact: theme.compact)
+    )
   }
 
   @ViewBuilder
@@ -102,39 +105,18 @@ private struct OperatorDetailSummaryView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text(detail.issue.identifier.rawValue)
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
+      if operatorSummaryActionPlacement(isCompact: theme.compact) == .trailing {
+        HStack(alignment: .top, spacing: 12) {
+          summaryTextBlock
 
-          Text(detail.issue.title)
-            .font(.title2)
-            .bold()
-            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 16)
 
-          HStack(spacing: 6) {
-            StatePill(
-              theme: theme, text: formatState(detail.issue.state),
-              tint: statusTint(detail.issue.state))
-            QuietBadge(theme: theme, text: detail.issue.issueState)
-            if let priority = detail.issue.priority {
-              PriorityBadge(theme: theme, priority: priority)
-            }
-            StatePill(theme: theme, text: model.liveStatus, tint: statusTint(model.liveStatus))
-          }
+          latestRunButton
         }
-
-        Spacer(minLength: 16)
-
-        if detail.latestRun != nil {
-          Button(
-            "Latest Run",
-            systemImage: "play.rectangle.on.rectangle",
-            action: makeOperatorSelectLatestRunAction(detail: detail, selectRun: selectRun)
-          )
-          .buttonStyle(.glass)
-          .accessibilityIdentifier("latest-run-button")
+      } else {
+        VStack(alignment: .leading, spacing: theme.blockSpacing) {
+          summaryTextBlock
+          latestRunButton
         }
       }
 
@@ -146,6 +128,47 @@ private struct OperatorDetailSummaryView: View {
     }
     .operatorPanel(theme)
   }
+
+  private var summaryTextBlock: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(detail.issue.identifier.rawValue)
+        .font(.caption.monospaced())
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+
+      Text(detail.issue.title)
+        .font(theme.summaryTitleFont)
+        .fixedSize(horizontal: false, vertical: true)
+
+      OperatorFlowLayout(spacing: 6, rowSpacing: 6) {
+        StatePill(
+          theme: theme,
+          text: formatState(detail.issue.state),
+          tint: statusTint(detail.issue.state)
+        )
+        QuietBadge(theme: theme, text: detail.issue.issueState)
+        if let priority = detail.issue.priority {
+          PriorityBadge(theme: theme, priority: priority)
+        }
+        StatePill(theme: theme, text: model.liveStatus, tint: statusTint(model.liveStatus))
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var latestRunButton: some View {
+    if detail.latestRun != nil {
+      Button(
+        "Latest Run",
+        systemImage: "play.rectangle.on.rectangle",
+        action: makeOperatorSelectLatestRunAction(detail: detail, selectRun: selectRun)
+      )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
+      .buttonStyle(.glass)
+      .accessibilityIdentifier("latest-run-button")
+    }
+  }
 }
 
 private struct OperatorDetailTabBar: View {
@@ -153,11 +176,20 @@ private struct OperatorDetailTabBar: View {
   @Binding var selection: OperatorDetailTab
 
   var body: some View {
-    GlassEffectContainer(spacing: 10) {
-      HStack(spacing: 10) {
+    if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
+      GlassEffectContainer(spacing: theme.controlSpacing) {
         ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
           tabButton(for: tab)
         }
+      }
+    } else {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: theme.controlSpacing) {
+          ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
+            tabButton(for: tab)
+          }
+        }
+        .padding(.vertical, 2)
       }
     }
   }
@@ -170,6 +202,8 @@ private struct OperatorDetailTabBar: View {
         systemImage: tab.systemImage,
         action: makeOperatorDetailTabAction(selection: $selection, tab: tab)
       )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .buttonStyle(.glassProminent)
       .accessibilityIdentifier("detail-tab-\(tab.rawValue)")
     } else {
@@ -178,6 +212,8 @@ private struct OperatorDetailTabBar: View {
         systemImage: tab.systemImage,
         action: makeOperatorDetailTabAction(selection: $selection, tab: tab)
       )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .buttonStyle(.glass)
       .accessibilityIdentifier("detail-tab-\(tab.rawValue)")
     }
@@ -240,29 +276,32 @@ struct IssueOverviewPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
-      SectionHeader(title: "Issue Overview")
+      SectionHeader(theme: theme, title: "Issue Overview")
 
       if !detail.issue.labels.isEmpty {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 6) {
-            ForEach(detail.issue.labels, id: \.self) { label in
-              QuietBadge(theme: theme, text: label)
-            }
+        OperatorFlowLayout(spacing: 6, rowSpacing: 6) {
+          ForEach(detail.issue.labels, id: \.self) { label in
+            QuietBadge(theme: theme, text: label)
           }
         }
       }
 
       VStack(alignment: .leading, spacing: 10) {
         if let createdAt = detail.issue.createdAt {
-          DetailLine(label: "Created", value: formatTimestamp(createdAt))
+          DetailLine(compact: compact, label: "Created", value: formatTimestamp(createdAt))
         }
 
         if let updatedAt = detail.issue.updatedAt {
-          DetailLine(label: "Updated", value: formatTimestamp(updatedAt))
+          DetailLine(compact: compact, label: "Updated", value: formatTimestamp(updatedAt))
         }
 
         if let workspacePath = detail.workspacePath {
-          DetailLine(label: "Workspace", value: workspacePath, monospaced: true)
+          DetailLine(
+            compact: compact,
+            label: "Workspace",
+            value: workspacePath,
+            monospaced: true
+          )
         }
       }
 
@@ -274,7 +313,7 @@ struct IssueOverviewPanel: View {
             .foregroundStyle(.secondary)
 
           ForEach(detail.issue.blockedBy, id: \.issueID.rawValue) { blocker in
-            HStack(spacing: 8) {
+            OperatorFlowLayout(spacing: 8, rowSpacing: 6) {
               Text(blocker.identifier.rawValue)
                 .font(.caption.monospaced())
               StatePill(
@@ -294,39 +333,60 @@ struct RecentSessionsPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
-      SectionHeader(title: "Recent Sessions")
+      SectionHeader(theme: theme, title: "Recent Sessions")
 
       ForEach(sessions, id: \.sessionID.rawValue) { session in
         VStack(alignment: .leading, spacing: 8) {
-          HStack(spacing: 8) {
-            ProviderBadge(theme: theme, label: session.provider)
-            Text(formatState(session.status))
-              .font(.subheadline)
-              .bold()
+          if theme.compact {
+            VStack(alignment: .leading, spacing: 6) {
+              ProviderBadge(theme: theme, label: session.provider)
+              HStack(spacing: 8) {
+                Text(formatState(session.status))
+                  .font(.subheadline)
+                  .bold()
+                Spacer()
+                Text("\(session.turnCount) turns")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            }
+          } else {
+            HStack(spacing: 8) {
+              ProviderBadge(theme: theme, label: session.provider)
+              Text(formatState(session.status))
+                .font(.subheadline)
+                .bold()
 
-            Spacer()
+              Spacer()
 
-            Text("\(session.turnCount) turns")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+              Text("\(session.turnCount) turns")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
           }
 
-          DetailLine(label: "Session", value: session.sessionID.rawValue, monospaced: true)
+          DetailLine(
+            compact: theme.compact, label: "Session", value: session.sessionID.rawValue,
+            monospaced: true)
 
           if let providerSessionID = session.providerSessionID {
-            DetailLine(label: "Provider session", value: providerSessionID, monospaced: true)
+            DetailLine(
+              compact: theme.compact, label: "Provider session", value: providerSessionID,
+              monospaced: true)
           }
 
           if let providerThreadID = session.providerThreadID {
-            DetailLine(label: "Thread", value: providerThreadID, monospaced: true)
+            DetailLine(
+              compact: theme.compact, label: "Thread", value: providerThreadID, monospaced: true)
           }
 
           if let providerTurnID = session.providerTurnID {
-            DetailLine(label: "Turn", value: providerTurnID, monospaced: true)
+            DetailLine(
+              compact: theme.compact, label: "Turn", value: providerTurnID, monospaced: true)
           }
 
           if let providerRunID = session.providerRunID {
-            DetailLine(label: "Run", value: providerRunID, monospaced: true)
+            DetailLine(compact: theme.compact, label: "Run", value: providerRunID, monospaced: true)
           }
 
           if recentSessionHasVisibleTokenUsage(session.tokenUsage) {
@@ -357,23 +417,38 @@ struct RunOverviewPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
-      SectionHeader(title: "Run Overview")
+      SectionHeader(theme: theme, title: "Run Overview")
 
-      HStack(alignment: .top, spacing: 12) {
+      if theme.compact {
         VStack(alignment: .leading, spacing: 8) {
           Text(runDetail.runID.rawValue)
             .font(.headline.monospaced())
 
-          HStack(spacing: 6) {
+          OperatorFlowLayout(spacing: 6, rowSpacing: 6) {
             StatePill(
               theme: theme, text: formatState(runDetail.status), tint: statusTint(runDetail.status))
             QuietBadge(theme: theme, text: "Attempt \(runDetail.attempt)")
+            ProviderBadge(theme: theme, label: runDetail.provider)
           }
         }
+      } else {
+        HStack(alignment: .top, spacing: 12) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text(runDetail.runID.rawValue)
+              .font(.headline.monospaced())
 
-        Spacer(minLength: 12)
+            OperatorFlowLayout(spacing: 6, rowSpacing: 6) {
+              StatePill(
+                theme: theme, text: formatState(runDetail.status),
+                tint: statusTint(runDetail.status))
+              QuietBadge(theme: theme, text: "Attempt \(runDetail.attempt)")
+            }
+          }
 
-        ProviderBadge(theme: theme, label: runDetail.provider)
+          Spacer(minLength: 12)
+
+          ProviderBadge(theme: theme, label: runDetail.provider)
+        }
       }
 
       TokenUsageStrip(theme: theme, tokens: runDetail.tokens)
@@ -389,20 +464,23 @@ struct RunOverviewPanel: View {
 
       VStack(alignment: .leading, spacing: 10) {
         if let providerSessionID = runDetail.providerSessionID {
-          DetailLine(label: "Provider session", value: providerSessionID, monospaced: true)
+          DetailLine(
+            compact: theme.compact, label: "Provider session", value: providerSessionID,
+            monospaced: true)
         }
 
         if let providerRunID = runDetail.providerRunID {
-          DetailLine(label: "Provider run", value: providerRunID, monospaced: true)
+          DetailLine(
+            compact: theme.compact, label: "Provider run", value: providerRunID, monospaced: true)
         }
 
         if let lastAgentEventType = runDetail.lastAgentEventType {
-          DetailLine(label: "Last event", value: lastAgentEventType)
+          DetailLine(compact: theme.compact, label: "Last event", value: lastAgentEventType)
             .accessibilityIdentifier("run-last-event-type")
         }
 
         if let endedAt = runDetail.endedAt {
-          DetailLine(label: "Ended", value: formatTimestamp(endedAt))
+          DetailLine(compact: theme.compact, label: "Ended", value: formatTimestamp(endedAt))
             .accessibilityIdentifier("run-ended-at")
         }
       }
@@ -438,5 +516,23 @@ struct RunOverviewPanel: View {
       }
     }
     .operatorPanel(theme)
+  }
+}
+
+extension View {
+  @ViewBuilder
+  fileprivate func operatorDetailTitleDisplayPreference(
+    _ preference: OperatorDetailNavigationTitleDisplayPreference
+  ) -> some View {
+    #if os(iOS)
+      switch preference {
+      case .automatic:
+        navigationBarTitleDisplayMode(.automatic)
+      case .inline:
+        navigationBarTitleDisplayMode(.inline)
+      }
+    #else
+      self
+    #endif
   }
 }

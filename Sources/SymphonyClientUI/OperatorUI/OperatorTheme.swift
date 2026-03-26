@@ -8,12 +8,15 @@ struct OperatorTheme {
   var pagePadding: CGFloat { compact ? 12 : 18 }
   var sectionSpacing: CGFloat { compact ? 12 : 16 }
   var blockSpacing: CGFloat { compact ? 10 : 12 }
+  var controlSpacing: CGFloat { compact ? 8 : 10 }
   var panelPadding: CGFloat { compact ? 12 : 16 }
   var itemPadding: CGFloat { compact ? 10 : 12 }
   var rowSpacing: CGFloat { compact ? 8 : 10 }
   var panelCornerRadius: CGFloat { compact ? 14 : 18 }
   var itemCornerRadius: CGFloat { compact ? 10 : 14 }
   var iconSize: CGFloat { compact ? 18 : 20 }
+  var summaryTitleFont: Font { compact ? .title3.weight(.semibold) : .title2.weight(.bold) }
+  var sectionTitleFont: Font { compact ? .title3.weight(.semibold) : .headline.weight(.bold) }
 
   var bodyText: Color { .primary }
   var quietText: Color { .secondary }
@@ -29,6 +32,44 @@ struct OperatorTheme {
   var selectedStroke: Color { .accentColor.opacity(0.28) }
   var panelStroke: Color { .secondary.opacity(0.18) }
   var insetStroke: Color { .secondary.opacity(0.12) }
+}
+
+enum OperatorSummaryActionPlacement: Equatable {
+  case trailing
+  case stacked
+}
+
+enum OperatorChoiceControlPresentation: Equatable {
+  case glassBar
+  case scrolling
+}
+
+enum OperatorIssueRowMetadataPlacement: Equatable {
+  case trailing
+  case stacked
+}
+
+enum OperatorDetailNavigationTitleDisplayPreference: Equatable {
+  case automatic
+  case inline
+}
+
+func operatorSummaryActionPlacement(isCompact: Bool) -> OperatorSummaryActionPlacement {
+  isCompact ? .stacked : .trailing
+}
+
+func operatorChoiceControlPresentation(isCompact: Bool) -> OperatorChoiceControlPresentation {
+  isCompact ? .scrolling : .glassBar
+}
+
+func operatorIssueRowMetadataPlacement(isCompact: Bool) -> OperatorIssueRowMetadataPlacement {
+  isCompact ? .stacked : .trailing
+}
+
+func operatorDetailNavigationTitleDisplayPreference(isCompact: Bool)
+  -> OperatorDetailNavigationTitleDisplayPreference
+{
+  isCompact ? .inline : .automatic
 }
 
 func formatTimestamp(_ isoString: String) -> String {

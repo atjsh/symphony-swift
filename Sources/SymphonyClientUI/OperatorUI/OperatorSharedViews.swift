@@ -2,6 +2,98 @@ import Foundation
 import SwiftUI
 import SymphonyShared
 
+struct OperatorFlowLayout: Layout {
+  var spacing: CGFloat
+  var rowSpacing: CGFloat
+
+  init(spacing: CGFloat = 8, rowSpacing: CGFloat? = nil) {
+    self.spacing = spacing
+    self.rowSpacing = rowSpacing ?? spacing
+  }
+
+  struct Cache {
+    var sizes: [CGSize]
+  }
+
+  func makeCache(subviews: Subviews) -> Cache {
+    Cache(sizes: subviews.map { $0.sizeThatFits(.unspecified) })
+  }
+
+  func updateCache(_ cache: inout Cache, subviews: Subviews) {
+    cache.sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+  }
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout Cache
+  ) -> CGSize {
+    let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+    let rows = makeRows(maxWidth: maxWidth, sizes: cache.sizes)
+    let width = rows.map(\.width).max() ?? 0
+    let height =
+      rows.reduce(0) { partialResult, row in
+        partialResult + row.height
+      } + rowSpacing * CGFloat(max(rows.count - 1, 0))
+    return CGSize(width: proposal.width ?? width, height: height)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout Cache
+  ) {
+    let rows = makeRows(maxWidth: bounds.width, sizes: cache.sizes)
+    var y = bounds.minY
+
+    for row in rows {
+      var x = bounds.minX
+      for index in row.indices {
+        let size = cache.sizes[index]
+        subviews[index].place(
+          at: CGPoint(x: x, y: y),
+          proposal: ProposedViewSize(width: size.width, height: size.height)
+        )
+        x += size.width + spacing
+      }
+      y += row.height + rowSpacing
+    }
+  }
+
+  private func makeRows(maxWidth: CGFloat, sizes: [CGSize]) -> [OperatorFlowLayoutRow] {
+    guard sizes.isEmpty == false else {
+      return []
+    }
+
+    var rows = [OperatorFlowLayoutRow]()
+    var currentRow = OperatorFlowLayoutRow()
+
+    for (index, size) in sizes.enumerated() {
+      let proposedWidth =
+        currentRow.indices.isEmpty ? size.width : currentRow.width + spacing + size.width
+      if proposedWidth > maxWidth, currentRow.indices.isEmpty == false {
+        rows.append(currentRow)
+        currentRow = OperatorFlowLayoutRow()
+      }
+
+      currentRow.indices.append(index)
+      currentRow.width =
+        currentRow.indices.count == 1 ? size.width : currentRow.width + spacing + size.width
+      currentRow.height = max(currentRow.height, size.height)
+    }
+
+    rows.append(currentRow)
+    return rows
+  }
+}
+
+private struct OperatorFlowLayoutRow {
+  var indices = [Int]()
+  var width: CGFloat = 0
+  var height: CGFloat = 0
+}
+
 private struct DetailLineValueSelectionModifier: ViewModifier {
   let enabled: Bool
 
@@ -16,33 +108,57 @@ private struct DetailLineValueSelectionModifier: ViewModifier {
 }
 
 struct SectionHeader: View {
+  let theme: OperatorTheme
   let title: String
 
   var body: some View {
     Text(title)
-      .font(.headline)
-      .bold()
+      .font(theme.sectionTitleFont)
+      .foregroundStyle(.primary)
   }
 }
 
 struct DetailLine: View {
+  let compact: Bool
   let label: String
   let value: String
   var monospaced: Bool = false
 
+  init(compact: Bool = false, label: String, value: String, monospaced: Bool = false) {
+    self.compact = compact
+    self.label = label
+    self.value = value
+    self.monospaced = monospaced
+  }
+
   var body: some View {
-    LabeledContent {
-      Text(value)
-        .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .modifier(DetailLineValueSelectionModifier(enabled: monospaced))
-    } label: {
-      Text(label)
-        .font(.caption)
-        .bold()
-        .foregroundStyle(.secondary)
+    if compact {
+      VStack(alignment: .leading, spacing: 3) {
+        detailLabel
+        detailValue
+      }
+    } else {
+      LabeledContent {
+        detailValue
+      } label: {
+        detailLabel
+      }
     }
+  }
+
+  private var detailLabel: some View {
+    Text(label)
+      .font(.caption)
+      .bold()
+      .foregroundStyle(.secondary)
+  }
+
+  private var detailValue: some View {
+    Text(value)
+      .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+      .modifier(DetailLineValueSelectionModifier(enabled: monospaced))
   }
 }
 
@@ -102,6 +218,8 @@ struct StatePill: View {
   var body: some View {
     Label(text, systemImage: statusSymbol(text))
       .font(.caption)
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(tint.opacity(0.12), in: Capsule())
@@ -120,6 +238,8 @@ struct QuietBadge: View {
   var body: some View {
     Text(text)
       .font(.caption)
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(theme.badgeFill, in: Capsule())
@@ -138,6 +258,8 @@ struct PriorityBadge: View {
   var body: some View {
     Label("P\(priority)", systemImage: "flag.fill")
       .font(.caption)
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(theme.warningTint.opacity(0.12), in: Capsule())
@@ -180,11 +302,14 @@ struct MetricChip: View {
       Text(label)
         .font(.caption)
         .foregroundStyle(.secondary)
+        .lineLimit(1)
       Text(value)
         .font(.subheadline)
         .bold()
         .monospacedDigit()
+        .lineLimit(1)
     }
+    .fixedSize(horizontal: true, vertical: false)
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
     .background(theme.badgeFill, in: RoundedRectangle(cornerRadius: 10))
@@ -200,7 +325,7 @@ struct MetricsStrip: View {
   let metrics: [(String, String)]
 
   var body: some View {
-    HStack(spacing: 8) {
+    OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
       ForEach(metrics, id: \.0) { metric in
         MetricChip(theme: theme, label: metric.0, value: metric.1)
       }
@@ -213,7 +338,7 @@ struct TokenUsageStrip: View {
   let tokens: TokenUsage
 
   var body: some View {
-    HStack(spacing: 8) {
+    OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
       if let input = tokens.inputTokens {
         MetricChip(theme: theme, label: "Input", value: input.formatted())
       }

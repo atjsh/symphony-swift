@@ -11,6 +11,32 @@ struct OperatorSidebarView: View {
     operatorSidebarIssueSelectionBinding(model: model, selectIssue: selectIssue)
   }
 
+  private var issueList: some View {
+    List(selection: issueSelection) {
+      Section("Issues") {
+        ForEach(model.filteredIssues, id: \.issueID.rawValue) { issue in
+          Button(
+            action: makeOperatorSidebarSelectIssueAction(
+              issueID: issue.issueID,
+              model: model,
+              selectIssue: selectIssue
+            )
+          ) {
+            IssueSidebarRow(
+              theme: theme,
+              issue: issue,
+              isSelected: issue.issueID == model.selectedIssueID
+            )
+          }
+          .buttonStyle(.plain)
+          .tag(Optional(issue.issueID))
+          .accessibilityIdentifier("issue-row-\(issue.issueID.rawValue)")
+        }
+      }
+    }
+    .accessibilityIdentifier("issue-list")
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: theme.sectionSpacing) {
       TextField("Filter Issues", text: $model.issueSearchText)
@@ -26,30 +52,14 @@ struct OperatorSidebarView: View {
         openServerEditor: openServerEditor
       )
 
-      List(selection: issueSelection) {
-        Section("Issues") {
-          ForEach(model.filteredIssues, id: \.issueID.rawValue) { issue in
-            Button(
-              action: makeOperatorSidebarSelectIssueAction(
-                issueID: issue.issueID,
-                model: model,
-                selectIssue: selectIssue
-              )
-            ) {
-              IssueSidebarRow(
-                theme: theme,
-                issue: issue,
-                isSelected: issue.issueID == model.selectedIssueID
-              )
-            }
-            .buttonStyle(.plain)
-            .tag(Optional(issue.issueID))
-            .accessibilityIdentifier("issue-row-\(issue.issueID.rawValue)")
-          }
-        }
+      if theme.compact {
+        issueList
+          .listStyle(.plain)
+          .scrollContentBackground(.hidden)
+      } else {
+        issueList
+          .listStyle(.sidebar)
       }
-      .listStyle(.sidebar)
-      .accessibilityIdentifier("issue-list")
     }
     .padding(theme.pagePadding)
     .navigationTitle("Symphony")
@@ -192,24 +202,38 @@ private struct IssueSidebarRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(issue.identifier.rawValue)
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
+      if operatorIssueRowMetadataPlacement(isCompact: theme.compact) == .trailing {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(issue.identifier.rawValue)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
 
-        Spacer(minLength: 12)
+          Spacer(minLength: 12)
 
-        if let provider = issue.currentProvider {
-          ProviderBadge(theme: theme, label: provider)
+          if let provider = issue.currentProvider {
+            ProviderBadge(theme: theme, label: provider)
+          }
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(issue.identifier.rawValue)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+
+          if let provider = issue.currentProvider {
+            ProviderBadge(theme: theme, label: provider)
+          }
         }
       }
 
       Text(issue.title)
         .font(.body)
-        .lineLimit(2)
+        .lineLimit(theme.compact ? 3 : 2)
+        .fixedSize(horizontal: false, vertical: true)
 
-      HStack(spacing: 6) {
+      OperatorFlowLayout(spacing: 6, rowSpacing: 6) {
         StatePill(theme: theme, text: formatState(issue.state), tint: statusTint(issue.state))
         QuietBadge(theme: theme, text: issue.issueState)
         if let priority = issue.priority {

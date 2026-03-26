@@ -7,11 +7,19 @@ struct OperatorLogsPane: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.sectionSpacing) {
-      HStack(alignment: .center, spacing: 12) {
-        SectionHeader(title: "Live Run Logs")
-        Spacer()
-        StatePill(theme: theme, text: model.liveStatus, tint: statusTint(model.liveStatus))
-          .accessibilityIdentifier("live-status")
+      if theme.compact {
+        VStack(alignment: .leading, spacing: 8) {
+          SectionHeader(theme: theme, title: "Live Run Logs")
+          StatePill(theme: theme, text: model.liveStatus, tint: statusTint(model.liveStatus))
+            .accessibilityIdentifier("live-status")
+        }
+      } else {
+        HStack(alignment: .center, spacing: 12) {
+          SectionHeader(theme: theme, title: "Live Run Logs")
+          Spacer()
+          StatePill(theme: theme, text: model.liveStatus, tint: statusTint(model.liveStatus))
+            .accessibilityIdentifier("live-status")
+        }
       }
 
       OperatorLogFilterBar(theme: theme, selection: $model.selectedLogFilter)
@@ -27,11 +35,20 @@ private struct OperatorLogFilterBar: View {
   @Binding var selection: OperatorLogFilter
 
   var body: some View {
-    GlassEffectContainer(spacing: 10) {
-      HStack(spacing: 10) {
+    if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
+      GlassEffectContainer(spacing: theme.controlSpacing) {
         ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
           filterButton(for: filter)
         }
+      }
+    } else {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: theme.controlSpacing) {
+          ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
+            filterButton(for: filter)
+          }
+        }
+        .padding(.vertical, 2)
       }
     }
   }
@@ -44,6 +61,8 @@ private struct OperatorLogFilterBar: View {
         systemImage: filter.systemImage,
         action: makeLogFilterAction(selection: $selection, filter: filter)
       )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .buttonStyle(.glassProminent)
       .accessibilityIdentifier("log-filter-\(filter.rawValue)")
     } else {
@@ -52,6 +71,8 @@ private struct OperatorLogFilterBar: View {
         systemImage: filter.systemImage,
         action: makeLogFilterAction(selection: $selection, filter: filter)
       )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .buttonStyle(.glass)
       .accessibilityIdentifier("log-filter-\(filter.rawValue)")
     }
@@ -169,15 +190,30 @@ struct LogEventRow: View {
   }
 
   private var compactContent: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
-      EventTag(theme: theme, text: presentation.title, tint: markerTint)
-      Text(presentation.detail)
-        .font(.subheadline)
-      Spacer(minLength: 8)
-      Text(presentation.metadata)
-        .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.trailing)
+    Group {
+      if theme.compact {
+        VStack(alignment: .leading, spacing: 8) {
+          EventTag(theme: theme, text: presentation.title, tint: markerTint)
+          Text(presentation.detail)
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
+          Text(presentation.metadata)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      } else {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+          EventTag(theme: theme, text: presentation.title, tint: markerTint)
+          Text(presentation.detail)
+            .font(.subheadline)
+          Spacer(minLength: 8)
+          Text(presentation.metadata)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.trailing)
+        }
+      }
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
@@ -268,12 +304,22 @@ private struct EventMetaLine: View {
   var tint: Color = .secondary
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
-      EventTag(theme: theme, text: title, tint: tint)
-      Text(metadata)
-        .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+    if theme.compact {
+      VStack(alignment: .leading, spacing: 4) {
+        EventTag(theme: theme, text: title, tint: tint)
+        Text(metadata)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    } else {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        EventTag(theme: theme, text: title, tint: tint)
+        Text(metadata)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
   }
 }
@@ -287,6 +333,8 @@ private struct EventTag: View {
     Text(text)
       .font(.caption)
       .bold()
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 8)
       .padding(.vertical, 4)
       .background(theme.badgeFill, in: Capsule())

@@ -323,6 +323,47 @@ struct SymphonyOperatorRootViewTests {
     XCTAssertTrue(recentSessionHasVisibleTokenUsage(try TokenUsage(outputTokens: 2)))
     XCTAssertTrue(recentSessionHasVisibleTokenUsage(try TokenUsage(totalTokens: 3)))
     XCTAssertFalse(recentSessionHasVisibleTokenUsage(try TokenUsage()))
+
+    #if canImport(AppKit)
+      let theme = OperatorTheme(compact: true)
+      let intrinsicMetricsHost = NSHostingView(
+        rootView: AnyView(
+          MetricsStrip(
+            theme: theme,
+            metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
+          )
+        )
+      )
+      #expect(intrinsicMetricsHost.fittingSize.width > 0)
+
+      let intrinsicEmptyFlowHost = NSHostingView(
+        rootView: AnyView(
+          OperatorFlowLayout(spacing: 8) {}
+        )
+      )
+      #expect(intrinsicEmptyFlowHost.fittingSize.height >= 0)
+
+      render(
+        host(
+          AnyView(
+            VStack(alignment: .leading, spacing: 12) {
+              OperatorFlowLayout(spacing: 8) {}
+              MetricsStrip(
+                theme: theme,
+                metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
+              )
+              TokenUsageStrip(
+                theme: theme,
+                tokens: try! TokenUsage(inputTokens: 1_200, outputTokens: 950, totalTokens: 2_150)
+              )
+              TokenUsageStrip(theme: theme, tokens: try! TokenUsage())
+            }
+          ),
+          width: 320,
+          height: 320
+        )
+      )
+    #endif
   }
 
   @Test func HostedViewLayoutsAcrossEmptyAndLoadedBranches() throws {
@@ -615,6 +656,124 @@ struct SymphonyOperatorRootViewTests {
         isLast: true
       )
       render(host(AnyView(supplementalRow), width: 480, height: 240))
+
+      let compactSessions = RecentSessionsPanel(
+        theme: OperatorTheme(compact: true),
+        sessions: makeIssueDetail().recentSessions
+      )
+      render(host(AnyView(compactSessions), width: 320, height: 420))
+    #endif
+  }
+
+  @Test func CompactLayoutPoliciesPreferStackingInlineTitlesAndScrollableControls() {
+    #expect(operatorSummaryActionPlacement(isCompact: true) == .stacked)
+    #expect(operatorSummaryActionPlacement(isCompact: false) == .trailing)
+    #expect(operatorChoiceControlPresentation(isCompact: true) == .scrolling)
+    #expect(operatorChoiceControlPresentation(isCompact: false) == .glassBar)
+    #expect(operatorIssueRowMetadataPlacement(isCompact: true) == .stacked)
+    #expect(operatorIssueRowMetadataPlacement(isCompact: false) == .trailing)
+    #expect(operatorDetailNavigationTitleDisplayPreference(isCompact: true) == .inline)
+    #expect(operatorDetailNavigationTitleDisplayPreference(isCompact: false) == .automatic)
+  }
+
+  @Test func CompactPanelsRenderLongTextAndManyBadgesWithoutLayoutRegressions() throws {
+    let longIssue = IssueDetail(
+      issue: SymphonyShared.Issue(
+        id: IssueID("issue-long"),
+        identifier: try! IssueIdentifier(
+          validating: "atjsh/example-with-a-very-long-repository-name#108"),
+        repository: "atjsh/example-with-a-very-long-repository-name",
+        number: 108,
+        title:
+          "Investigate an extremely long issue title that should still remain readable on compact devices",
+        description:
+          "A deliberately long description used to verify that the compact summary view wraps content intentionally instead of squeezing badges into vertical capsules.",
+        priority: 1,
+        state: "in_progress",
+        issueState: "OPEN",
+        projectItemID: "item-108",
+        url: "https://example.com/issues/108",
+        labels: ["feature", "ui", "very-long-label-to-test-wrapping", "investigation"],
+        blockedBy: [],
+        createdAt: "2026-03-24T00:00:00Z",
+        updatedAt: "2026-03-24T01:00:00Z"
+      ),
+      latestRun: RunSummary(
+        runID: RunID("run-long"),
+        issueID: IssueID("issue-long"),
+        issueIdentifier: try! IssueIdentifier(
+          validating: "atjsh/example-with-a-very-long-repository-name#108"),
+        attempt: 7,
+        status: "streaming_turn",
+        provider: "claude_code_enterprise_with_an_unusually_long_provider_name",
+        providerSessionID: "provider-session-long",
+        providerRunID: "provider-run-long",
+        startedAt: "2026-03-24T00:00:00Z",
+        endedAt: nil,
+        workspacePath:
+          "/tmp/symphony/this/is/a/very/long/workspace/path/used/to/check/compact/rendering",
+        sessionID: SessionID("session-long"),
+        lastError: nil
+      ),
+      workspacePath:
+        "/tmp/symphony/this/is/a/very/long/workspace/path/used/to/check/compact/rendering",
+      recentSessions: [makeIssueDetail().recentSessions[0]]
+    )
+
+    #if canImport(AppKit)
+      let compactTheme = OperatorTheme(compact: true)
+      let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      model.selectedIssueID = longIssue.issue.id
+      model.issueDetail = longIssue
+      model.runDetail = RunDetail(
+        runID: RunID("run-long"),
+        issueID: longIssue.issue.id,
+        issueIdentifier: longIssue.issue.identifier,
+        attempt: 7,
+        status: "running",
+        provider: "claude_code_enterprise_with_an_unusually_long_provider_name",
+        providerSessionID: "provider-session-long",
+        providerRunID: "provider-run-long",
+        startedAt: "2026-03-24T00:00:00Z",
+        endedAt: nil,
+        workspacePath: longIssue.workspacePath ?? "/tmp/symphony/long-workspace",
+        sessionID: SessionID("session-long"),
+        lastError: nil,
+        issue: longIssue.issue,
+        turnCount: 32,
+        lastAgentEventType: "message",
+        lastAgentMessage: "Long content should still remain readable.",
+        tokens: try! TokenUsage(inputTokens: 1200, outputTokens: 950, totalTokens: 2150),
+        logs: RunLogStats(eventCount: 44, latestSequence: EventSequence(44))
+      )
+      model.logEvents = [
+        makeEvent(sequence: 1, kind: "message", rawJSON: #"{"message":"hello"}"#),
+        makeEvent(sequence: 2, kind: "tool_call", rawJSON: #"{"arguments":"pwd"}"#),
+      ]
+
+      render(
+        host(
+          AnyView(
+            OperatorDetailView(model: model, theme: compactTheme, selectRun: { _ in })
+          ),
+          width: 320,
+          height: 900
+        )
+      )
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: model,
+              theme: compactTheme,
+              openServerEditor: {},
+              selectIssue: { _ in }
+            )
+          ),
+          width: 320,
+          height: 720
+        )
+      )
     #endif
   }
 
@@ -657,6 +816,7 @@ struct SymphonyOperatorRootViewTests {
 
   @Test func SidebarSelectionHelperAndRenderedStatesCoverSelectionRowsAndStatusBranches() throws {
     let theme = OperatorTheme(compact: false)
+    let compactTheme = OperatorTheme(compact: true)
     let noProviderIssue = IssueSummary(
       issueID: IssueID("issue-84"),
       identifier: try IssueIdentifier(validating: "atjsh/example#84"),
@@ -718,6 +878,17 @@ struct SymphonyOperatorRootViewTests {
             makeOperatorIssueSidebarRow(theme: theme, issue: noProviderIssue, isSelected: false)),
           width: 420,
           height: 160
+        ))
+      render(
+        host(
+          AnyView(
+            makeOperatorIssueSidebarRow(
+              theme: compactTheme,
+              issue: makeIssueSummary(),
+              isSelected: false
+            )),
+          width: 320,
+          height: 220
         ))
 
       let failedModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
@@ -960,6 +1131,8 @@ struct SymphonyOperatorRootViewTests {
 
       render(
         host(AnyView(OperatorLogsPane(model: model, theme: regularTheme)), width: 960, height: 900))
+      render(
+        host(AnyView(OperatorLogsPane(model: model, theme: compactTheme)), width: 320, height: 900))
       render(
         host(AnyView(LogTimelinePanel(theme: regularTheme, logEvents: [])), width: 960, height: 320)
       )
