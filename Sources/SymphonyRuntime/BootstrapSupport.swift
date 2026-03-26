@@ -244,7 +244,7 @@ public struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConverti
 
   public static let defaultEndpoint = BootstrapServerEndpoint(
     scheme: "http",
-    host: "localhost",
+    host: "127.0.0.1",
     port: 8080
   )
 

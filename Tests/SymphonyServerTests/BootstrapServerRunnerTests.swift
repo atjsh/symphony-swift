@@ -517,7 +517,9 @@ import Testing
     )
 
     #expect(didKeepAlive)
-    #expect(lines.contains("[DefaultHookServer] endpoint=http://localhost:8080"))
+    #expect(lines.contains("[DefaultHookServer] endpoint=http://127.0.0.1:8080"))
+    #expect(
+      BootstrapEnvironment.effectiveServerEndpoint(environment: [:]).host == "127.0.0.1")
     #expect(
       BootstrapEnvironment.effectiveServerEndpoint(environment: [
         BootstrapEnvironment.serverPortKey: "abc"
@@ -554,7 +556,8 @@ import Testing
 
     let normalized = BootstrapServerEndpoint(scheme: " ", host: " ", port: 0)
     #expect(normalized == .defaultEndpoint)
-    #expect(normalized.description == "http://localhost:8080")
+    #expect(normalized.description == "http://127.0.0.1:8080")
+    #expect(BootstrapServerEndpoint.defaultEndpoint.host == "127.0.0.1")
 
     let fallbackEndpoint = BootstrapServerEndpoint(scheme: "http", host: "bad host", port: 8080)
     #expect(fallbackEndpoint.url == nil)
