@@ -320,6 +320,29 @@ import Testing
     try decodeBody(ErrorEnvelope.self, from: patchRefresh).error.code == "method_not_allowed")
 }
 
+@Test func apiRouterEmitsStructuredErrorLogs() async throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-logs.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    _ = try api.respond(
+      to: SymphonyAPIRequest(
+        method: "GET",
+        path: "/api/v1/issues/missing?authorization=Bearer%20ghp_api_secret"
+      ))
+  }
+
+  let errorLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "http_api_error_response"
+        && $0.json["path"] as? String == "/api/v1/issues/missing"
+    })
+  #expect(errorLog.json["status_code"] as? String == "404")
+  #expect(errorLog.json["path"] as? String == "/api/v1/issues/missing")
+  #expect(!errorLog.line.contains("ghp_api_secret"))
+}
+
 @Test func sqliteDiagnosticsCoverPrivateFailureBranches() throws {
   let databaseURL = try makeTemporaryDirectory().appendingPathComponent("diagnostics.sqlite3")
   let store = try SQLiteServerStateStore(databaseURL: databaseURL)

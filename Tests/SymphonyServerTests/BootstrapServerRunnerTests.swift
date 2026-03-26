@@ -273,6 +273,30 @@ import Testing
   #expect(loadedWorkflow?.config.polling.intervalMS == 50)
 }
 
+@Test func bootstrapServerRunnerEmitsStructuredStartupAndShutdownLogs() async throws {
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    try BootstrapServerRunner.run(
+      componentName: "StructuredBootstrap",
+      environment: [
+        BootstrapEnvironment.serverPortKey: "8089"
+      ],
+      output: { _ in },
+      keepAlive: {},
+      startServer: false
+    )
+  }
+
+  let matchingLogs = logs.filter { $0.json["component"] as? String == "StructuredBootstrap" }
+  let events = matchingLogs.map { $0.json["event"] as? String }
+  #expect(events.contains("bootstrap_starting"))
+  #expect(events.contains("bootstrap_stopping"))
+
+  let startingLog = try #require(
+    matchingLogs.first { $0.json["event"] as? String == "bootstrap_starting" })
+  #expect(startingLog.json["component"] as? String == "StructuredBootstrap")
+  #expect(startingLog.json["endpoint"] as? String == "http://127.0.0.1:8089")
+}
+
 @Test func bootstrapServerRunnerReloadsInjectedOrchestratorWhenWorkflowChanges() async throws {
   let root = try makeTemporaryDirectory()
   let databaseURL = root.appendingPathComponent("bootstrap-orchestrator-reload.sqlite3")

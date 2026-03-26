@@ -227,6 +227,59 @@ struct OrchestratorEngineTests {
     #expect(engine.config.tracker.activeStates == initialWorkflow.config.tracker.activeStates)
   }
 
+  @Test func engineReloadWorkflowFailureEmitsStructuredLog() async throws {
+    let observer = CollectingEngineObserver()
+    let trackerFactoryCallCount = Mutex(0)
+    let initialWorkflow = makeWorkflow(
+      pollingIntervalMS: 50,
+      activeStates: ["In Progress"],
+      promptTemplate: "Initial prompt"
+    )
+    let engine = OrchestratorEngine(
+      config: initialWorkflow.config,
+      trackerFactory: { _ in
+        let callCount = trackerFactoryCallCount.withLock {
+          $0 += 1
+          return $0
+        }
+        if callCount == 1 {
+          return StubTracker()
+        }
+        throw OrchestratorEngineError.trackerCreationFailed(
+          "reload failure with token=ghp_reload_secret")
+      },
+      promptTemplate: initialWorkflow.promptTemplate,
+      observer: observer
+    )
+
+    let (_, logs) = try await withCapturedRuntimeLogs {
+      try engine.start()
+      defer { engine.stop() }
+
+      let didStart = try await waitUntil {
+        engine.state == .running
+      }
+      #expect(didStart)
+
+      engine.reloadWorkflow(
+        makeWorkflow(
+          pollingIntervalMS: 75,
+          activeStates: ["Queued"],
+          promptTemplate: "Broken prompt"
+        ))
+
+      let didReportReloadError = try await waitUntil {
+        observer.errors.contains { $0.context == "reload" }
+      }
+      #expect(didReportReloadError)
+    }
+
+    let reloadLog = try #require(
+      logs.first { $0.json["event"] as? String == "workflow_reload_failed" })
+    #expect((reloadLog.json["error"] as? String)?.contains("[REDACTED]") == true)
+    #expect(!reloadLog.line.contains("ghp_reload_secret"))
+  }
+
   @Test func engineStartupCleanupRemovesTerminalWorkspaces() async throws {
     let observer = CollectingEngineObserver()
     let config = makeConfig(pollingIntervalMS: 50, terminalStates: ["Done"])

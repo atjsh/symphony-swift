@@ -111,6 +111,127 @@ import Testing
   } catch {}
 }
 
+@Test func inProcessServerLogsRejectedWebSocketUpgradeWithoutSessionIdentifier() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    let serverTask = try await launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let task = URLSession(configuration: .ephemeral).webSocketTask(
+      with: try #require(
+        URL(string: "ws://\(fixture.endpoint.host):\(fixture.endpoint.port)/api/v1/logs/stream"))
+    )
+    task.resume()
+    defer { task.cancel(with: .goingAway, reason: nil) }
+
+    do {
+      _ = try await receiveWebSocketMessage(from: task)
+      Issue.record("Expected websocket upgrade without a session_id to fail.")
+    } catch {}
+  }
+
+  let rejectionLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "websocket_upgrade_rejected"
+        && $0.json["error"] as? String == "Missing session identifier."
+    })
+  #expect(rejectionLog.json["path"] as? String == "/api/v1/logs/stream")
+}
+
+@Test func inProcessServerLogsRejectedWebSocketUpgradeForMissingSessions() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    let serverTask = try await launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let task = URLSession(configuration: .ephemeral).webSocketTask(
+      with: try #require(
+        URL(
+          string:
+            "ws://\(fixture.endpoint.host):\(fixture.endpoint.port)/api/v1/logs/stream?session_id=missing-session"
+        ))
+    )
+    task.resume()
+    defer { task.cancel(with: .goingAway, reason: nil) }
+
+    do {
+      _ = try await receiveWebSocketMessage(from: task)
+      Issue.record("Expected websocket upgrade to fail for missing sessions.")
+    } catch {}
+  }
+
+  let rejectionLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "websocket_upgrade_rejected"
+        && $0.json["session_id"] as? String == "missing-session"
+    })
+  #expect(rejectionLog.json["session_id"] as? String == "missing-session")
+}
+
+@Test func inProcessServerLogsRejectedWebSocketUpgradeWhenStoreLookupThrows() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
+  fixture.store.diagnostics.closeDatabase()
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    let serverTask = try await launchInProcessServer(fixture: fixture)
+    defer { serverTask.cancel() }
+
+    let task = URLSession(configuration: .ephemeral).webSocketTask(
+      with: try #require(
+        URL(
+          string:
+            "ws://\(fixture.endpoint.host):\(fixture.endpoint.port)/api/v1/logs/stream?session_id=\(fixture.session.sessionID.rawValue)"
+        ))
+    )
+    task.resume()
+    defer { task.cancel(with: .goingAway, reason: nil) }
+
+    do {
+      _ = try await receiveWebSocketMessage(from: task)
+      Issue.record("Expected websocket upgrade to fail when the session lookup throws.")
+    } catch {}
+  }
+
+  let rejectionLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "websocket_upgrade_rejected"
+        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
+        && (($0.json["error"] as? String)?.contains("SQLite database is closed") == true)
+    })
+  #expect(rejectionLog.json["path"] as? String == "/api/v1/logs/stream")
+}
+
+@Test func streamLogEventsLogsAndRethrowsWriterFailures() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: true)
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    do {
+      try await SymphonyHTTPServer.streamLogEvents(
+        store: fixture.store,
+        liveLogHub: fixture.liveLogHub,
+        sessionID: fixture.session.sessionID,
+        path: "/api/v1/logs/stream",
+        initialCursor: nil
+      ) { _ in
+        throw SymphonyRuntimeError.encoding("writer failed")
+      }
+      Issue.record("Expected streamLogEvents to rethrow writer failures.")
+    } catch let error as SymphonyRuntimeError {
+      #expect(error == .encoding("writer failed"))
+    }
+  }
+
+  let streamFailureLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "websocket_stream_failed"
+        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
+    })
+  #expect(streamFailureLog.json["path"] as? String == "/api/v1/logs/stream")
+  #expect((streamFailureLog.json["error"] as? String)?.contains("writer failed") == true)
+}
+
 @Test func inProcessServerWebSocketLoopExitsWhenServerIsCancelled() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: false, observeWrites: true)
   let serverTask = try await launchInProcessServer(fixture: fixture)
@@ -306,6 +427,29 @@ import Testing
 
   #expect(yielded == [fixture.firstEvent, fixture.secondEvent])
   #expect(advancedSequence == fixture.secondEvent.sequence)
+}
+
+@Test func polledEventForwarderLogsStoreFailuresAndPreservesSequence() async throws {
+  let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: false)
+  fixture.store.diagnostics.closeDatabase()
+
+  let (sequence, logs) = try await withCapturedRuntimeLogs {
+    SymphonyHTTPServer.forwardPolledEvents(
+      store: fixture.store,
+      sessionID: fixture.session.sessionID,
+      lastPolledSequence: EventSequence(7)
+    ) { _ in
+      Issue.record("Expected no events to be yielded when polling throws.")
+    }
+  }
+
+  #expect(sequence == EventSequence(7))
+  let pollFailureLog = try #require(
+    logs.first {
+      $0.json["event"] as? String == "websocket_poll_failed"
+        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
+    })
+  #expect((pollFailureLog.json["error"] as? String)?.contains("SQLite database is closed") == true)
 }
 
 @Test func liveLogHubPublishesToSubscribersAndRemovesTerminatedStreams() async throws {

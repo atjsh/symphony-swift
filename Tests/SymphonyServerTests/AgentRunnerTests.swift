@@ -369,6 +369,34 @@ struct AgentRunnerLifecycleTests {
     #expect(launcher.invocations.isEmpty)
   }
 
+  @Test func workspaceFailureEmitsRedactedStructuredFailureLog() async throws {
+    let wsManager = StubWorkspaceManager()
+    wsManager.setEnsureError(
+      WorkspaceError.workspaceCreationFailed("Authorization: Bearer ghp_workspace_secret"))
+
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let (result, logs) = try await withCapturedRuntimeLogs {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    #expect(result.finalState == .failed)
+    let failureLog = try #require(logs.first { $0.json["event"] as? String == "agent_run_failed" })
+    #expect(failureLog.json["issue_id"] as? String == ctx.issueID.rawValue)
+    #expect(failureLog.json["issue_identifier"] as? String == ctx.issueIdentifier.rawValue)
+    #expect(failureLog.json["run_id"] as? String == ctx.runID.rawValue)
+    #expect(failureLog.json["provider"] as? String == ProviderName.codex.rawValue)
+    #expect((failureLog.json["error"] as? String)?.contains("[REDACTED]") == true)
+    #expect(!failureLog.line.contains("ghp_workspace_secret"))
+  }
+
   @Test func promptRenderFailureReturnsEarlyWithFailed() async throws {
     let wsManager = StubWorkspaceManager()
     let launcher = StubProcessLauncher()

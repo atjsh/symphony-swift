@@ -152,14 +152,33 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     promptTemplate: String
   ) async -> AgentRunResult {
     let sessionID = SessionID(UUID().uuidString)
+    let provider = config.agent.defaultProvider.rawValue
+    let logContext = RuntimeLogContext(
+      issueID: context.issueID.rawValue,
+      issueIdentifier: context.issueIdentifier.rawValue,
+      runID: context.runID.rawValue,
+      sessionID: sessionID.rawValue,
+      provider: provider
+    )
 
     // Step 1: Prepare workspace
     eventSink.runDidTransition(context, to: .preparingWorkspace)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(base: logContext, state: .preparingWorkspace)
+    )
     let workspacePath: String
     do {
       let key = issue.identifier.workspaceKey
       workspacePath = try workspaceManager.ensureWorkspace(for: key, hooks: config.hooks)
     } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "agent_run_failed",
+        context: transitionContext(base: logContext, state: .preparingWorkspace),
+        error: "Workspace preparation failed: \(error)"
+      )
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Workspace preparation failed: \(error)")
@@ -169,11 +188,22 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
     // Step 2: Build prompt
     eventSink.runDidTransition(context, to: .buildingPrompt)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(base: logContext, state: .buildingPrompt)
+    )
     let prompt: String
     do {
       prompt = try PromptRenderer.render(
         template: promptTemplate, issue: issue, attempt: context.attempt)
     } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "agent_run_failed",
+        context: transitionContext(base: logContext, state: .buildingPrompt),
+        error: "Prompt render failed: \(error)"
+      )
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Prompt render failed: \(error)")
@@ -183,6 +213,11 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
     // Step 3: Launch agent process
     eventSink.runDidTransition(context, to: .launchingAgentProcess)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(base: logContext, state: .launchingAgentProcess)
+    )
     let adapter = ProviderAdapterFactory.makeAdapter(
       for: config.agent.defaultProvider,
       config: config.providers,
@@ -195,6 +230,11 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
     // Step 4: Initialize session
     eventSink.runDidTransition(context, to: .initializingSession)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(base: logContext, state: .initializingSession)
+    )
     let eventStream: AsyncThrowingStream<AgentRawEvent, Error>
     do {
       eventStream = try await adapter.startSession(
@@ -205,6 +245,12 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
       )
     } catch {
       removeActiveRun(for: context.runID)
+      RuntimeLogger.log(
+        level: .error,
+        event: "agent_run_failed",
+        context: transitionContext(base: logContext, state: .initializingSession),
+        error: "Session start failed: \(error)"
+      )
       let result = AgentRunResult(
         context: context, sessionID: sessionID, finalState: .failed,
         eventCount: 0, error: "Session start failed: \(error)")
@@ -220,9 +266,37 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
         sessionID: sessionID,
         workspacePath: workspacePath
       ))
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_started",
+      context: RuntimeLogContext(
+        issueID: context.issueID.rawValue,
+        issueIdentifier: context.issueIdentifier.rawValue,
+        runID: context.runID.rawValue,
+        sessionID: sessionID.rawValue,
+        provider: adapter.providerName.rawValue,
+        metadata: [
+          "workspace_path": workspacePath
+        ]
+      )
+    )
 
     // Step 5: Stream events with stall detection
     eventSink.runDidTransition(context, to: .streamingTurn)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(
+        base: RuntimeLogContext(
+          issueID: logContext.issueID,
+          issueIdentifier: logContext.issueIdentifier,
+          runID: logContext.runID,
+          sessionID: logContext.sessionID,
+          provider: adapter.providerName.rawValue
+        ),
+        state: .streamingTurn
+      )
+    )
     var eventCount = 0
     var streamError: String?
 
@@ -278,11 +352,41 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
     }
 
     eventSink.runDidTransition(context, to: .finishing)
+    RuntimeLogger.log(
+      level: .info,
+      event: "agent_run_transition",
+      context: transitionContext(
+        base: RuntimeLogContext(
+          issueID: logContext.issueID,
+          issueIdentifier: logContext.issueIdentifier,
+          runID: logContext.runID,
+          sessionID: logContext.sessionID,
+          provider: adapter.providerName.rawValue
+        ),
+        state: .finishing
+      )
+    )
     removeActiveRun(for: context.runID)
     let result = AgentRunResult(
       context: context, sessionID: sessionID, finalState: finalState,
       eventCount: eventCount, error: streamError)
     eventSink.runDidComplete(result)
+    RuntimeLogger.log(
+      level: finalState == .succeeded ? .info : .error,
+      event: finalState == .succeeded ? "agent_run_completed" : "agent_run_failed",
+      context: RuntimeLogContext(
+        issueID: context.issueID.rawValue,
+        issueIdentifier: context.issueIdentifier.rawValue,
+        runID: context.runID.rawValue,
+        sessionID: sessionID.rawValue,
+        provider: adapter.providerName.rawValue,
+        metadata: [
+          "event_count": String(eventCount),
+          "final_state": finalState.rawValue,
+        ]
+      ),
+      error: streamError
+    )
     return result
   }
 
@@ -297,6 +401,22 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
   public var activeRunCount: Int {
     lock.withLock { _activeRuns.count }
+  }
+
+  private func transitionContext(base: RuntimeLogContext, state: RunLifecycleState)
+    -> RuntimeLogContext
+  {
+    var metadata = base.metadata
+    metadata["state"] = state.rawValue
+    return RuntimeLogContext(
+      issueID: base.issueID,
+      issueIdentifier: base.issueIdentifier,
+      runID: base.runID,
+      sessionID: base.sessionID,
+      provider: base.provider,
+      providerSessionID: base.providerSessionID,
+      metadata: metadata
+    )
   }
 }
 

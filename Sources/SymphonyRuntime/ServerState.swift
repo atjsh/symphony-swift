@@ -703,7 +703,11 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
     switch path {
     case "/api/v1/health":
       guard method == "GET" else {
-        return try methodNotAllowed(message: "This endpoint only supports GET.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports GET.",
+          path: path,
+          method: method
+        )
       }
       return try ok(
         HealthResponse(
@@ -714,12 +718,20 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
         ))
     case "/api/v1/issues":
       guard method == "GET" else {
-        return try methodNotAllowed(message: "This endpoint only supports GET.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports GET.",
+          path: path,
+          method: method
+        )
       }
       return try ok(IssuesResponse(items: store.issues()))
     case "/api/v1/refresh":
       guard method == "POST" else {
-        return try methodNotAllowed(message: "This endpoint only supports POST.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports POST.",
+          path: path,
+          method: method
+        )
       }
       refresh()
       return try response(
@@ -730,31 +742,53 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
 
     if path.hasPrefix("/api/v1/issues/") {
       guard method == "GET" else {
-        return try methodNotAllowed(message: "This endpoint only supports GET.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports GET.",
+          path: path,
+          method: method
+        )
       }
       let issueID = String(path.dropFirst("/api/v1/issues/".count))
       guard let detail = try store.issueDetail(id: IssueID(issueID)) else {
         return try error(
-          statusCode: 404, code: "issue_not_found", message: "Issue \(issueID) was not found.")
+          statusCode: 404,
+          code: "issue_not_found",
+          message: "Issue \(issueID) was not found.",
+          path: path,
+          method: method
+        )
       }
       return try ok(detail)
     }
 
     if path.hasPrefix("/api/v1/runs/") {
       guard method == "GET" else {
-        return try methodNotAllowed(message: "This endpoint only supports GET.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports GET.",
+          path: path,
+          method: method
+        )
       }
       let runID = String(path.dropFirst("/api/v1/runs/".count))
       guard let detail = try store.runDetail(id: RunID(runID)) else {
         return try error(
-          statusCode: 404, code: "run_not_found", message: "Run \(runID) was not found.")
+          statusCode: 404,
+          code: "run_not_found",
+          message: "Run \(runID) was not found.",
+          path: path,
+          method: method
+        )
       }
       return try ok(detail)
     }
 
     if path.hasPrefix("/api/v1/logs/") {
       guard method == "GET" else {
-        return try methodNotAllowed(message: "This endpoint only supports GET.")
+        return try methodNotAllowed(
+          message: "This endpoint only supports GET.",
+          path: path,
+          method: method
+        )
       }
       let sessionID = SessionID(String(path.dropFirst("/api/v1/logs/".count)))
       let queryItems = components.queryItems ?? []
@@ -764,8 +798,12 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
       let limit = limitValue.flatMap(Int.init) ?? 50
       guard let logs = try store.logs(sessionID: sessionID, cursor: cursor, limit: limit) else {
         return try error(
-          statusCode: 404, code: "session_not_found",
-          message: "Session \(sessionID.rawValue) was not found.")
+          statusCode: 404,
+          code: "session_not_found",
+          message: "Session \(sessionID.rawValue) was not found.",
+          path: path,
+          method: method
+        )
       }
       return try ok(logs)
     }
@@ -774,25 +812,60 @@ public final class SymphonyHTTPAPI: @unchecked Sendable {
       || path.hasPrefix("/api/v1/logs")
     {
       return try error(
-        statusCode: 405, code: "method_not_allowed",
-        message: "This endpoint does not support \(method).")
+        statusCode: 405,
+        code: "method_not_allowed",
+        message: "This endpoint does not support \(method).",
+        path: path,
+        method: method
+      )
     }
 
     return try error(
-      statusCode: 404, code: "not_found", message: "The requested endpoint does not exist.")
+      statusCode: 404,
+      code: "not_found",
+      message: "The requested endpoint does not exist.",
+      path: path,
+      method: method
+    )
   }
 
   private func ok<T: Encodable>(_ value: T) throws -> SymphonyHTTPResponse {
     try response(statusCode: 200, value: value)
   }
 
-  private func methodNotAllowed(message: String) throws -> SymphonyHTTPResponse {
-    try error(statusCode: 405, code: "method_not_allowed", message: message)
+  private func methodNotAllowed(message: String, path: String, method: String) throws
+    -> SymphonyHTTPResponse
+  {
+    try error(
+      statusCode: 405,
+      code: "method_not_allowed",
+      message: message,
+      path: path,
+      method: method
+    )
   }
 
-  private func error(statusCode: Int, code: String, message: String) throws -> SymphonyHTTPResponse
-  {
-    try response(
+  private func error(
+    statusCode: Int,
+    code: String,
+    message: String,
+    path: String,
+    method: String
+  ) throws -> SymphonyHTTPResponse {
+    RuntimeLogger.log(
+      level: statusCode >= 500 ? .error : .warning,
+      event: "http_api_error_response",
+      context: RuntimeLogContext(
+        metadata: [
+          "status_code": String(statusCode),
+          "code": code,
+          "path": path,
+          "method": method,
+        ]
+      ),
+      error: message
+    )
+    return try response(
       statusCode: statusCode,
       value: ErrorEnvelope(error: ErrorPayload(code: code, message: message)))
   }

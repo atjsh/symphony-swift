@@ -69,7 +69,13 @@ public final class WorkspaceManager: WorkspaceManaging, @unchecked Sendable {
           name: "before_remove", script: beforeRemove, workspacePath: path,
           timeoutMS: hooks.timeoutMS)
       } catch {
-        // before_remove failure is logged and ignored (Section 9.3)
+        RuntimeLogger.log(
+          level: .warning,
+          event: "workspace_hook_failure_ignored",
+          context: hookContext(name: "before_remove", workspacePath: path),
+          error: String(describing: error),
+          sensitiveValues: [beforeRemove]
+        )
       }
     }
 
@@ -101,13 +107,52 @@ public final class WorkspaceManager: WorkspaceManaging, @unchecked Sendable {
         name: "after_run", script: afterRun, workspacePath: workspacePath,
         timeoutMS: hooks.timeoutMS)
     } catch {
-      // after_run failure is logged and ignored (Section 9.3)
+      RuntimeLogger.log(
+        level: .warning,
+        event: "workspace_hook_failure_ignored",
+        context: hookContext(name: "after_run", workspacePath: workspacePath),
+        error: String(describing: error),
+        sensitiveValues: [afterRun]
+      )
     }
   }
 
   private func runHook(name: String, script: String, workspacePath: String, timeoutMS: Int) throws {
-    try hookRunner.run(
-      name: name, script: script, workspacePath: workspacePath, timeoutMS: timeoutMS)
+    let context = hookContext(name: name, workspacePath: workspacePath)
+    RuntimeLogger.log(
+      level: .info,
+      event: "workspace_hook_started",
+      context: context,
+      sensitiveValues: [script]
+    )
+    do {
+      try hookRunner.run(
+        name: name, script: script, workspacePath: workspacePath, timeoutMS: timeoutMS)
+      RuntimeLogger.log(
+        level: .info,
+        event: "workspace_hook_succeeded",
+        context: context,
+        sensitiveValues: [script]
+      )
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "workspace_hook_failed",
+        context: context,
+        error: String(describing: error),
+        sensitiveValues: [script]
+      )
+      throw error
+    }
+  }
+
+  private func hookContext(name: String, workspacePath: String) -> RuntimeLogContext {
+    RuntimeLogContext(
+      metadata: [
+        "hook": name,
+        "workspace_path": workspacePath,
+      ]
+    )
   }
 }
 
@@ -134,7 +179,6 @@ public final class ProcessHookRunner: HookRunning, Sendable {
 
     let deadline = DispatchTime.now() + .milliseconds(timeoutMS)
     let semaphore = DispatchSemaphore(value: 0)
-    let terminationQueue = DispatchQueue(label: "symphony.hook.\(name)")
     process.terminationHandler = { _ in
       semaphore.signal()
     }

@@ -487,6 +487,17 @@ public enum BootstrapServerRunner {
     )
 
     state.startupLogLines.forEach(output)
+    RuntimeLogger.log(
+      level: .info,
+      event: "bootstrap_starting",
+      context: RuntimeLogContext(
+        metadata: [
+          "component": componentName,
+          "endpoint": state.endpoint.displayString,
+          "pid": String(processIdentifier),
+        ]
+      )
+    )
 
     var serverTask: Task<Void, Error>?
     var orchestratorEngine: (any BootstrapEngineRunning)?
@@ -554,6 +565,8 @@ public enum BootstrapServerRunner {
     }
 
     return PreparedBootstrapRuntime(
+      componentName: componentName,
+      endpoint: state.endpoint.displayString,
       keepAlive: keepAlive,
       orchestratorEngine: orchestratorEngine,
       workflowReloader: workflowReloader,
@@ -563,6 +576,16 @@ public enum BootstrapServerRunner {
   }
 
   private static func cleanupRuntime(_ runtime: PreparedBootstrapRuntime) {
+    RuntimeLogger.log(
+      level: .info,
+      event: "bootstrap_stopping",
+      context: RuntimeLogContext(
+        metadata: [
+          "component": runtime.componentName,
+          "endpoint": runtime.endpoint,
+        ]
+      )
+    )
     runtime.workflowReloader?.stopWatching()
     runtime.orchestratorEngine?.stop()
     runtime.serverTask?.cancel()
@@ -612,6 +635,8 @@ public enum BootstrapServerRunner {
 }
 
 private struct PreparedBootstrapRuntime {
+  let componentName: String
+  let endpoint: String
   let keepAlive: () -> Void
   let orchestratorEngine: (any BootstrapEngineRunning)?
   let workflowReloader: WorkflowReloader?

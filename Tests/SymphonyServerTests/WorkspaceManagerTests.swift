@@ -240,6 +240,111 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   manager.runAfterRunHook(workspacePath: root, hooks: hooks)
 }
 
+@Test func workspaceManagerBeforeRunHookFailureEmitsStructuredLogs() async throws {
+  let hookRunner = StubHookRunner()
+  hookRunner.setBehavior { name in
+    if name == "before_run" {
+      throw WorkspaceError.hookFailed(hook: name, exitCode: 1)
+    }
+  }
+  let (root, cleanup) = try makeTempRoot()
+  defer { cleanup() }
+
+  let manager = WorkspaceManager(root: root, hookRunner: hookRunner)
+  let hooks = HooksConfig(beforeRun: "Authorization: Bearer ghp_before_run_secret")
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    do {
+      try manager.runBeforeRunHook(workspacePath: root, hooks: hooks)
+      Issue.record("Expected before_run failure to be surfaced.")
+    } catch let error as WorkspaceError {
+      #expect(error == .hookFailed(hook: "before_run", exitCode: 1))
+    }
+  }
+
+  let matchingLogs = logs.filter {
+    $0.json["hook"] as? String == "before_run"
+      && $0.json["workspace_path"] as? String == root
+  }
+  #expect(
+    matchingLogs.map { $0.json["event"] as? String } == [
+      "workspace_hook_started",
+      "workspace_hook_failed",
+    ])
+  let startedLog = try #require(matchingLogs.first)
+  let failedLog = try #require(matchingLogs.last)
+  #expect(startedLog.json["hook"] as? String == "before_run")
+  #expect(failedLog.json["hook"] as? String == "before_run")
+  #expect((failedLog.json["error"] as? String)?.contains("hookFailed") == true)
+  #expect(!startedLog.line.contains("ghp_before_run_secret"))
+}
+
+@Test func workspaceManagerAfterRunIgnoredFailureEmitsStructuredLogs() async throws {
+  let hookRunner = StubHookRunner()
+  hookRunner.setBehavior { name in
+    if name == "after_run" {
+      throw WorkspaceError.hookFailed(hook: name, exitCode: 1)
+    }
+  }
+  let (root, cleanup) = try makeTempRoot()
+  defer { cleanup() }
+
+  let manager = WorkspaceManager(root: root, hookRunner: hookRunner)
+  let hooks = HooksConfig(afterRun: "echo fail")
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    manager.runAfterRunHook(workspacePath: root, hooks: hooks)
+  }
+
+  let matchingLogs = logs.filter {
+    $0.json["hook"] as? String == "after_run"
+      && $0.json["workspace_path"] as? String == root
+  }
+  #expect(
+    matchingLogs.map { $0.json["event"] as? String } == [
+      "workspace_hook_started",
+      "workspace_hook_failed",
+      "workspace_hook_failure_ignored",
+    ])
+  let ignoredLog = try #require(matchingLogs.last)
+  #expect(ignoredLog.json["hook"] as? String == "after_run")
+}
+
+@Test func workspaceManagerBeforeRunHookTimeoutEmitsStructuredLogs() async throws {
+  let hookRunner = StubHookRunner()
+  hookRunner.setBehavior { name in
+    if name == "before_run" {
+      throw WorkspaceError.hookTimedOut(hook: name, timeoutMS: 100)
+    }
+  }
+  let (root, cleanup) = try makeTempRoot()
+  defer { cleanup() }
+
+  let manager = WorkspaceManager(root: root, hookRunner: hookRunner)
+  let hooks = HooksConfig(beforeRun: "sleep 60", timeoutMS: 100)
+
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    do {
+      try manager.runBeforeRunHook(workspacePath: root, hooks: hooks)
+      Issue.record("Expected before_run timeout to be surfaced.")
+    } catch let error as WorkspaceError {
+      #expect(error == .hookTimedOut(hook: "before_run", timeoutMS: 100))
+    }
+  }
+
+  let matchingLogs = logs.filter {
+    $0.json["hook"] as? String == "before_run"
+      && $0.json["workspace_path"] as? String == root
+  }
+  #expect(
+    matchingLogs.map { $0.json["event"] as? String } == [
+      "workspace_hook_started",
+      "workspace_hook_failed",
+    ])
+  let failedLog = try #require(matchingLogs.last)
+  #expect((failedLog.json["error"] as? String)?.contains("hookTimedOut") == true)
+}
+
 @Test func workspaceManagerAfterRunHookNotConfigured() throws {
   let hookRunner = StubHookRunner()
   let (root, cleanup) = try makeTempRoot()
@@ -314,11 +419,9 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   // Create a file where the workspace directory should be, so directory creation fails
   let blockingPath = root + "/blocker"
   FileManager.default.createFile(atPath: blockingPath, contents: nil)
-  let manager = WorkspaceManager(root: root)
   // The key sanitized to "blocker_nested" and we create a file at root/blocker,
   // then try to create root/blocker/nested — directory creation will fail because blocker is a file.
   // Actually, let's use the blocking file directly.
-  let key = WorkspaceKey("blocker")
   // Since the file exists, ensureWorkspace is idempotent (file exists check passes).
   // We need the key to map to a path that conflicts.
   // Better approach: make the root read-only

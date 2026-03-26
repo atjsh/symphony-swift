@@ -185,6 +185,16 @@ public final class OrchestratorEngine: @unchecked Sendable {
       try reconfigureRuntime(for: workflow)
     } catch {
       lock.withLock { _workflow = previousWorkflow }
+      RuntimeLogger.log(
+        level: .error,
+        event: "workflow_reload_failed",
+        context: RuntimeLogContext(
+          metadata: [
+            "polling_interval_ms": String(workflow.config.polling.intervalMS)
+          ]
+        ),
+        error: String(describing: error)
+      )
       let observer = self.observer
       Task {
         await observer.engineError(error, context: "reload")
@@ -492,6 +502,16 @@ public final class WorkflowReloader: @unchecked Sendable {
         onChange(definition)
       }
     } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "workflow_reload_failed",
+        context: RuntimeLogContext(
+          metadata: [
+            "workflow_path": workflowPath
+          ]
+        ),
+        error: String(describing: error)
+      )
       // Invalid reloads must not crash; keep last known good config
     }
   }
