@@ -59,10 +59,14 @@ This specification targets the following default stack:
 
 - Swift 6.2
 - SwiftUI for the client
-- Swift Testing for unit, integration, and UI-adjacent logic tests
+- Swift Testing for unit, integration, and seeded non-UI app logic tests
+- XCTest plus XCUIAutomation for Xcode-backed UI automation, screenshot
+  capture, and accessibility audits
 - one root `Package.swift` for shared, server, and harness targets
 - the checked-in `Symphony.xcworkspace` and `SymphonyApps.xcodeproj` as the app
   source of truth
+- checked-in Xcode Test Plans as the primary matrix-definition method for seeded
+  app validation on Xcode hosts
 - SQLite as the required durable store for server metadata and event indexing
 - Hummingbird as the default server framework
 - HummingbirdWebSocket as the default WebSocket transport companion
@@ -1216,6 +1220,7 @@ Implementation-facing identities:
 - app target and scheme: `SymphonySwiftUIApp`
 - default app test bundle: `SymphonySwiftUIAppTests`
 - explicit-only UI test bundle: `SymphonySwiftUIAppUITests`
+- checked-in Xcode Test Plans define the required seeded UI validation matrix
 - display name: `Symphony`
 
 ### 14.2 Connection Flow
@@ -1328,11 +1333,27 @@ Because no auth exists in v1:
 - default loopback binding is required
 - non-loopback exposure must be treated as an operator override for trusted environments only
 
-## 17. Swift Testing Matrix
+## 17. Testing Strategy and Validation Matrix
 
 This section defines the minimum validation matrix for conformant implementations.
 
-### 17.1 Workflow and Config
+### 17.1 Framework Boundaries
+
+- Swift Testing is the default for unit tests, integration tests, and seeded
+  app-logic tests that do not require XCTest-only APIs.
+- `Applications/SymphonySwiftUIAppTests` is Swift Testing only and must not
+  import XCTest.
+- `Applications/SymphonySwiftUIAppUITests` is XCTest plus XCUIAutomation only
+  and owns seeded UI navigation, screenshot capture, and accessibility audits.
+- XCUIAutomation is used through XCTest UI tests, not as a standalone peer
+  framework.
+- Checked-in Xcode Test Plans are the primary method for defining the default
+  seeded UI validation matrix and other stable app-validation variants on
+  Xcode hosts.
+
+### 17.2 Shared, Server, and Harness Logic
+
+#### 17.2.1 Workflow and Config
 
 - `WORKFLOW.md` load success and failure paths
 - YAML front matter parsing
@@ -1342,7 +1363,7 @@ This section defines the minimum validation matrix for conformant implementation
 - `~` path expansion
 - strict prompt render behavior
 
-### 17.2 GitHub Orchestration
+#### 17.2.2 GitHub Orchestration
 
 - candidate fetch and normalization
 - repository allowlist behavior
@@ -1351,7 +1372,7 @@ This section defines the minimum validation matrix for conformant implementation
 - reconciliation updates
 - continuation retry and failure backoff
 
-### 17.3 Workspace and Provider Launch
+#### 17.2.3 Workspace and Provider Launch
 
 - deterministic workspace paths
 - root containment enforcement
@@ -1361,7 +1382,7 @@ This section defines the minimum validation matrix for conformant implementation
 - per-provider capability downgrade handling
 - timeout and malformed-event handling
 
-### 17.4 SQLite Durability
+#### 17.2.4 SQLite Durability
 
 - schema creation and migration bootstrap
 - persisted issue/run/session writes
@@ -1369,7 +1390,7 @@ This section defines the minimum validation matrix for conformant implementation
 - event sequence monotonicity
 - restart recovery of historical state
 
-### 17.5 API Contracts
+#### 17.2.5 API and Streaming Contracts
 
 - health serialization
 - issue/run detail serialization
@@ -1378,16 +1399,14 @@ This section defines the minimum validation matrix for conformant implementation
 - historical replay ordering
 - provider field exposure on run/session/event payloads
 - refresh trigger semantics
-
-### 17.6 WebSocket Streaming
-
 - backlog-from-cursor delivery
 - transition from backlog to live tail
 - sequence ordering under live updates
 - reconnect using last cursor
 
-### 17.7 Symphony Client Rendering
+### 17.3 Seeded App Logic and Rendering
 
+- seeded launch fixture loading and deterministic app-state bootstrapping
 - localhost default connection values
 - manual remote host/domain entry
 - issue list loading
@@ -1403,17 +1422,70 @@ This section defines the minimum validation matrix for conformant implementation
   - `error`
   - `unknown`
 - unknown event raw JSON fallback
+- stable accessibility identifiers for primary controls, tabs, lists, filters,
+  and capture checkpoints
+- tests must not depend on restored navigation state, live backend timing, or
+  coordinate taps
 
-### 17.8 Acceptance Scenarios
+### 17.4 Xcode Test Plan Policy
 
-- server restart preserves logs and run history
-- client reconnect replays missed events from a cursor
-- provider-managed tool activity is persisted and rendered when structured events are available
-- unknown raw provider event types do not break persistence or rendering
-- trusted localhost connection works without extra setup
-- remote trusted-network connection works when host/domain and port are entered manually
+- checked-in `.xctestplan` files are required for default Xcode-host app
+  validation
+- default `validate` on Xcode hosts runs the required Xcode Test Plan set
+  across the approved iPhone and iPad destinations
+- test-plan configurations define stable launch-time variants such as
+  appearance, locale or region, launch arguments, launch environment, and
+  seeded fixture mode whenever those variants are safely expressible
+- SymphonyHarness owns headless `xcodebuild` execution, approved-destination
+  scheduling, simulator serialization, and shared run-root layout for those
+  plans
+- variants that are not safely expressible in a plan may be completed by the
+  XCUI scenario after launch while still running under the selected test-plan
+  configuration
 
-### 17.9 SymphonyHarness
+### 17.5 Screenshot Matrix Rules
+
+- the full seeded screenshot matrix is part of default `validate` on Xcode
+  hosts
+- portrait and landscape must both be covered by the default matrix
+- if a variant is expressible through Xcode Test Plans, prefer the plan
+- if a variant is inherently runtime-driven, the plan still selects the run
+  configuration and the XCUI scenario performs the runtime step before capture
+- UI tests capture screenshots programmatically and attach them to the test run
+- attachment naming is controlled in test code at the checkpoint level
+- direct filesystem paths are not part of the normative capture contract
+- named checkpoints such as `root`, `overview`, `sessions`, and `logs` are
+  required
+- explicit waits after navigation, appearance changes, and orientation changes
+  are required
+
+### 17.6 Accessibility Audit Rules
+
+- accessibility support is a first-class validation gate comparable in
+  seriousness to the repository's coverage policy
+- default `validate` on Xcode hosts runs a separate required seeded
+  accessibility-audit suite in the same validation path as the screenshot
+  matrix
+- `SymphonySwiftUIAppUITests` must include dedicated tests that call
+  `try app.performAccessibilityAudit(for:_:)` after navigating required seeded
+  checkpoints and flows
+- audit suppressions must be explicit, reviewed, and narrowly scoped
+- screenshot-matrix failures and accessibility-audit failures must be reported
+  as separate failure classes
+
+### 17.7 Xcode Artifact Rules
+
+- `-resultBundlePath` is required for Xcode-backed validation
+- `result.xcresult` is the canonical saved artifact for Xcode-backed runs
+- `summary.txt` remains the canonical human-readable harness status surface
+- `index.json` remains the canonical machine-readable harness status surface
+- exported screenshots, recordings, and UI-tree files are optional
+  post-processing derivatives and are not required for conformant default
+  validation on Xcode hosts
+- Xcode-less hosts must report explicit unsupported or skipped app-validation
+  outcomes rather than silently omitting app validation
+
+### 17.8 SymphonyHarness
 
 - command rename from `symphony-build` to `harness`
 - `build` accepts only canonical production subjects and rejects explicit test
@@ -1437,7 +1509,25 @@ This section defines the minimum validation matrix for conformant implementation
   deterministically
 - `100%` first-party source coverage enforcement under the renamed targets and
   paths
-- app scheme, bundle, and signing cleanup checks for `SymphonySwiftUIApp`
+- required invocation of the checked-in Xcode Test Plan set for default seeded
+  app validation on Xcode hosts
+- separate summary and index reporting for screenshot-matrix failures and
+  accessibility-audit failures
+- app scheme, bundle, signing, and Xcode Test Plan cleanup checks for
+  `SymphonySwiftUIApp`
+
+### 17.9 Acceptance Scenarios
+
+- server restart preserves logs and run history
+- client reconnect replays missed events from a cursor
+- provider-managed tool activity is persisted and rendered when structured events are available
+- unknown raw provider event types do not break persistence or rendering
+- seeded screenshot matrix runs headlessly through `xcodebuild` and the
+  required checked-in Xcode Test Plans
+- required accessibility audits pass through
+  `XCUIApplication.performAccessibilityAudit(for:_:)`
+- trusted localhost connection works without extra setup
+- remote trusted-network connection works when host/domain and port are entered manually
 
 ## 18. Definition of Done
 
@@ -1470,7 +1560,7 @@ Symphony is conformant when all of the following are true:
 - Generated summaries, diagnostics, artifacts, and contributor guidance use only
   the final names and do not surface legacy identifiers outside explicit
   migration-only assertions.
-- The Swift Testing matrix in Section 17 is satisfied.
+- The testing strategy and validation matrix in Section 17 is satisfied.
 
 ## 19. Implementation Notes
 
@@ -1587,6 +1677,8 @@ Repository rules:
 - `Sources/SymphonyClientUI` does not exist in the final state.
 - `Tests/SymphonyClientUITests` does not exist in the final state.
 - `Symphony.xcworkspace` and `SymphonyApps.xcodeproj` filenames remain stable.
+- One or more checked-in `.xctestplan` files exist as part of the app-owned
+  Xcode source of truth.
 - The app target, scheme, and test bundle names inside the Xcode project become:
   - `SymphonySwiftUIApp`
   - `SymphonySwiftUIAppTests`
@@ -1608,6 +1700,12 @@ Repository rules:
 - Former `SymphonyClientUI` production code belongs under
   `Applications/SymphonySwiftUIApp`, and its test coverage belongs under
   `Applications/SymphonySwiftUIAppTests`.
+- `Applications/SymphonySwiftUIAppTests` contains seeded non-UI app tests and
+  uses Swift Testing only.
+- `Applications/SymphonySwiftUIAppUITests` contains XCTest plus XCUIAutomation
+  tests only and owns seeded UI navigation, screenshot capture, and
+  accessibility audits.
+- Non-UI app tests must not import XCTest.
 - `SymphonyRuntime` is removed as a public target. Pure orchestration, policy,
   and state logic belongs in `SymphonyServerCore`; host/runtime integrations
   belong in `SymphonyServer`.
@@ -1702,8 +1800,9 @@ Subject rules:
   - `SymphonyHarness` -> `SymphonyHarnessTests`
   - `SymphonyHarnessCLI` -> `SymphonyHarnessCLITests`
   - `SymphonySwiftUIApp` -> `SymphonySwiftUIAppTests`
-- `SymphonySwiftUIAppUITests` is always explicit-only and destination-exclusive
-  unless separate simulator destinations are provisioned.
+- `SymphonySwiftUIAppUITests` is explicit-only for direct subject resolution
+  and destination-exclusive unless separate simulator destinations are
+  provisioned.
 
 #### 20.4.3 Default Subject Sets
 
@@ -1716,18 +1815,27 @@ Subject rules:
   - `SymphonyHarnessCLI`
   - `SymphonySwiftUIApp` when Xcode is available
 - `harness validate` with no subjects runs the same set plus repository-wide
-  validation policy for coverage, artifacts, and environment checks.
-- `SymphonySwiftUIAppUITests` is excluded from both default sets.
+  validation policy for coverage, artifacts, environment checks, and required
+  Xcode-host app validation.
+- `SymphonySwiftUIAppUITests` is excluded from default positional subject
+  expansion, but repository-wide `validate` on Xcode hosts must still invoke
+  the required checked-in Xcode Test Plan set for the full seeded screenshot
+  matrix and the parallel required accessibility-audit suite.
 
 #### 20.4.4 Scheduling and Execution Rules
 
 - Multiple subjects in one command run in parallel by default.
 - Subjects that require exclusive simulator or UI-test destinations must be
   auto-serialized by the scheduler.
+- On Xcode hosts, default app validation must run the required checked-in Xcode
+  Test Plan set across the approved iPhone and iPad destinations.
+- Harness owns headless `xcodebuild` execution, approved-destination
+  scheduling, simulator serialization, and shared run-root layout for those
+  plans.
 - Capability-aware behavior is required:
   - package, server, and harness subjects run on Xcode-less hosts
-  - app subjects report explicit unsupported or skipped outcomes when Xcode is
-    unavailable
+  - app subjects and required app-validation plans report explicit unsupported
+    or skipped outcomes when Xcode is unavailable
   - those capability-aware skips are not hard failures
 - `run SymphonySwiftUIApp` may inject endpoint overrides for
   `http://localhost:8080` without mutating checked-in defaults.
@@ -1939,25 +2047,30 @@ When applicable, a subject root must also expose:
 - `subjects/<subject>/coverage.txt`
 - `subjects/<subject>/coverage.json`
 - `subjects/<subject>/result.xcresult`
-- `subjects/<subject>/diagnostics/`
-- `subjects/<subject>/attachments/`
-- `subjects/<subject>/recording.mp4`
-- `subjects/<subject>/screen.png`
-- `subjects/<subject>/ui-tree.txt`
+- `subjects/<subject>/diagnostics/` when explicitly exported from the result
+  bundle
+- `subjects/<subject>/attachments/` when explicitly exported from the result
+  bundle
 
 Rules:
 
 - coverage outputs are required when coverage is enabled for the subject
-- optional exports must be represented as anomalies when absent
+- `result.xcresult` is the canonical saved artifact for successful Xcode-backed
+  runs
+- optional exports must be represented as anomalies when absent only when the
+  export was requested or required by policy
 - successful Xcode-backed subject runs must not report `missing_result_bundle`
-- subject summaries are the canonical human-readable truth source
-- subject indexes are the canonical machine-readable truth source
+- exported screenshots, recordings, and UI-tree files are optional
+  post-processing derivatives rather than required default validation outputs
+- subject summaries are the canonical human-readable harness truth source
+- subject indexes are the canonical machine-readable harness truth source
 
 #### 20.6.4 Export and Failure Semantics
 
 - Harness must still write shared and per-subject summaries or indexes before
   surfacing execution failure.
-- Missing optional exports must be recorded explicitly as anomalies.
+- Missing optional exports must be recorded explicitly as anomalies only when
+  export was requested or required by policy.
 - Xcode-backed app runs that fail because Xcode is unavailable must record an
   explicit unsupported outcome instead of a silent omission.
 - Coverage policy is enforced against first-party source files only.
@@ -1965,7 +2078,8 @@ Rules:
   source coverage under the canonical target names and paths, excluding tests,
   generated files, and dependency sources.
 - `validate` is the authoritative repository-wide gate for coverage, artifacts,
-  dependency isolation, and environment policy.
+  dependency isolation, environment policy, seeded screenshot-matrix
+  validation, and required accessibility-audit validation on Xcode hosts.
 
 ### 20.7 Operational Requirements
 
@@ -1977,6 +2091,7 @@ The repository must provide:
 - no additional `Package.swift` anywhere else in the repository
 - checked-in `Symphony.xcworkspace`
 - checked-in `SymphonyApps.xcodeproj`
+- one or more checked-in `.xctestplan` files for the app target family
 - a writable `.build/` directory under the repository root
 
 Authority split:
@@ -1987,6 +2102,8 @@ Authority split:
 - the checked-in Xcode workspace or project is authoritative for
   `SymphonySwiftUIApp`, `SymphonySwiftUIAppTests`, and
   `SymphonySwiftUIAppUITests`
+- checked-in Xcode Test Plans are authoritative for the default seeded app
+  validation matrix and other stable app-validation variants
 
 #### 20.7.2 Toolchain and Runtime Requirements
 
@@ -2004,11 +2121,13 @@ Conditionally required tools for app work:
 Runtime rules:
 
 - package, server, and harness work remains valid on hosts without Xcode
-- app build, test, and run flows are capability-aware and report explicit
-  unsupported or skipped outcomes on Xcode-less hosts
+- app build, test, run, and validate flows are capability-aware and report
+  explicit unsupported or skipped outcomes on Xcode-less hosts
 - successful package, server, and harness validation plus explicit app skips is
   a conformant contributor outcome on Xcode-less hosts
 - ambiguous simulator-name resolution must fail with a clear remediation message
+- Xcode-host validation must support headless execution of the required
+  checked-in Xcode Test Plan set with explicit result-bundle paths
 - `doctor` must report missing `just` or missing Xcode clearly and
   deterministically
 - the root package is the first-class SourceKit-LSP and VS Code integration
@@ -2032,14 +2151,43 @@ Rules:
 - when endpoint overrides are absent, the app defaults to
   `http://localhost:8080`
 
-#### 20.7.4 Signing and Project Rules
+#### 20.7.4 Deterministic Seeded UI Automation Contract
+
+- Default Xcode-host app validation is defined primarily through checked-in
+  Xcode Test Plans.
+- The required Xcode Test Plan set must cover the approved iPhone and iPad
+  destinations plus the stable validation variants selected by policy.
+- All default UI validation uses seeded launch fixtures configured through
+  launch arguments, launch environment, or other checked-in test-plan
+  configuration.
+- UI tests must not depend on restored navigation state, live backend timing,
+  or coordinate taps.
+- Stable accessibility identifiers are required for primary controls, tabs,
+  lists, filters, and named capture checkpoints.
+- Named checkpoints such as `root`, `overview`, `sessions`, and `logs` are
+  required.
+- XCUI scenarios own checkpoint navigation, explicit waits, runtime
+  screenshot capture, and any runtime-only variant step that cannot be safely
+  expressed by the plan.
+- UI tests capture screenshots programmatically and attach them to the test
+  result stream; direct filesystem paths are not part of the normative capture
+  contract.
+- `SymphonySwiftUIAppUITests` must include dedicated tests that call
+  `try app.performAccessibilityAudit(for:_:)` after navigating the required
+  seeded checkpoints and flows.
+- Accessibility-audit suppressions must be explicit, reviewed, and narrowly
+  scoped.
+- Screenshot-matrix failures and accessibility-audit failures are separate
+  required failure classes in harness summaries and indexes.
+
+#### 20.7.5 Signing and Project Rules
 
 - The Xcode project must not commit a fixed signing identity.
 - The Xcode project must not commit a fixed development team.
 - Local developer selection or CI-injected settings supply signing values when
   needed.
 
-#### 20.7.5 Dependency Materialization Rules
+#### 20.7.6 Dependency Materialization Rules
 
 - No shell package, XcodeGen input, or undocumented support script is part of the
   required dependency-materialization flow.

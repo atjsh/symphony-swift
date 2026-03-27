@@ -847,6 +847,27 @@ struct EngineOrchestratorDelegateTests {
     #expect(observer.completions.isEmpty)
   }
 
+  @Test func delegateSyncIssuesWithEmptySnapshotsLeavesStoreUnchanged() async throws {
+    let observer = CollectingEngineObserver()
+    let wsRoot = NSTemporaryDirectory() + "delegate_sync_empty_\(UUID().uuidString)"
+    let wsManager = WorkspaceManager(root: wsRoot)
+    let databaseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+      .appendingPathComponent("delegate_sync_empty_\(UUID().uuidString).sqlite3")
+    let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+    let delegate = EngineOrchestratorDelegate(
+      workspaceManager: wsManager,
+      observer: observer,
+      stateStore: store
+    )
+
+    await delegate.orchestratorDidSyncIssues([])
+
+    let issues = try store.issues()
+    #expect(issues.isEmpty)
+    #expect(observer.dispatches.isEmpty)
+    #expect(observer.completions.isEmpty)
+  }
+
   @Test func delegateRetryWithAgentRunnerExecutesRecordedAttempt() async throws {
     let observer = CollectingEngineObserver()
     let wsRoot = NSTemporaryDirectory() + "delegate_retry_\(UUID().uuidString)"
