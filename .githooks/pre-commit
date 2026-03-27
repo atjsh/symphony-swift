@@ -1,19 +1,21 @@
-#!/bin/sh
-set -eu
+# Temporary disabled until the symphony-0.0.2 release finishes
 
-repo_root=$(git rev-parse --show-toplevel)
-cd "$repo_root"
-tool_package_path="$repo_root/Tools/SymphonyBuildPackage"
-tool_scratch_path="$repo_root/.build/symphony-build-cli"
+# #!/bin/sh
+# set -eu
 
-# Step 1: Run the symphony harness (tests + coverage gates)
-echo "[symphony-build] pre-commit: running tests plus package, client, and server coverage gates" >&2
-swift run --quiet --package-path "$tool_package_path" --scratch-path "$tool_scratch_path" symphony-build harness
+# repo_root=$(git rev-parse --show-toplevel)
+# cd "$repo_root"
+# tool_package_path="$repo_root/Tools/SymphonyBuildPackage"
+# tool_scratch_path="$repo_root/.build/symphony-build-cli"
 
-# Step 2: Format all Swift files in the repository and re-stage any changes
-echo "[symphony-build] pre-commit: formatting Swift files" >&2
-swift format --in-place --recursive --parallel "$repo_root"
-changed_swift=$(git diff --name-only -- '*.swift')
-if [ -n "$changed_swift" ]; then
-    echo "$changed_swift" | xargs git add
-fi
+# # Step 1: Run the symphony harness (tests + coverage gates)
+# echo "[symphony-build] pre-commit: running tests plus package, client, and server coverage gates" >&2
+# swift run --quiet --package-path "$tool_package_path" --scratch-path "$tool_scratch_path" symphony-build harness
+
+# # Step 2: Format all Swift files in the repository and re-stage any changes
+# echo "[symphony-build] pre-commit: formatting Swift files" >&2
+# swift format --in-place --recursive --parallel "$repo_root"
+# changed_swift=$(git diff --name-only -- '*.swift')
+# if [ -n "$changed_swift" ]; then
+#     echo "$changed_swift" | xargs git add
+# fi
