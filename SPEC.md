@@ -4,8 +4,7 @@ Status: Draft v4
 
 Purpose: Define Symphony as a Swift-native issue orchestration system made up of
 `Symphony Server`, the `Symphony` SwiftUI app, and the repository-local
-`SymphonyHarness` developer tool. This revision adopts the single root package,
-subject-based workflow, and target layout described in `plan.md`.
+`SymphonyHarness` developer tool.
 
 ## 1. Product Definition
 
