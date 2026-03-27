@@ -489,12 +489,22 @@ Unknown provider blocks should be ignored for forward compatibility.
 Fields:
 
 - `command` (default `codex app-server`)
-- `approval_policy` (implementation-defined Codex value)
-- `thread_sandbox` (implementation-defined Codex value)
-- `turn_sandbox_policy` (implementation-defined Codex value)
+- `session_approval_policy` (implementation-defined Codex session approval value)
+- `session_sandbox`
+  (implementation-defined Codex `thread/start` sandbox value; symbolic or object-shaped)
+- `turn_approval_policy`
+  (implementation-defined Codex turn approval value; defaults to `session_approval_policy`)
+- `turn_sandbox_policy`
+  (implementation-defined Codex `turn/start` sandbox policy value; symbolic or object-shaped)
 - `turn_timeout_ms` (default `3600000`)
 - `read_timeout_ms` (default `5000`)
 - `stall_timeout_ms` (default `300000`)
+
+Migration note:
+
+- `approval_policy` is replaced by `session_approval_policy` and `turn_approval_policy`
+- `thread_sandbox` is replaced by `session_sandbox`
+- `turn_sandbox_policy` remains the canonical key, but it is no longer limited to string payloads
 
 ##### 6.3.6.2 `providers.claude_code`
 
@@ -755,10 +765,11 @@ The provider adapter inside `Symphony Server` must:
 
 1. start a provider-backed session for the run
 2. submit the rendered workflow prompt for the first turn
-3. submit continuation guidance for later turns
+3. submit continuation guidance for later turns, reusing provider-native live continuation when
+   available
 4. assign a stable Symphony `session_id`
 5. persist raw provider events in receive order
-6. detect terminal completion, failure, cancellation, timeout, or subprocess exit
+6. detect terminal completion state, timeout, or subprocess exit
 
 If a provider supports native continuation or resume semantics, the adapter should use them.
 Otherwise, the adapter may emulate continuation while preserving Symphony's run/session model.
@@ -770,13 +781,15 @@ Each provider adapter must document or expose these capability flags:
 - `supports_resume`
   - provider can resume a prior provider-backed session
 - `supports_interrupt`
-  - provider can cancel or interrupt in-flight work without killing the whole process
+  - provider can cancel or interrupt in-flight work through the provider protocol rather than only
+    by killing the whole process
 - `supports_usage_totals`
   - provider exposes absolute token or usage totals
 - `supports_rate_limits`
   - provider exposes rate-limit metadata suitable for persistence
 - `supports_explicit_approvals`
-  - provider exposes approval or permission events in a structured way
+  - provider exposes approval or permission flows in a structured way, including request or
+    notification forms when applicable
 - `supports_structured_tool_events`
   - provider emits machine-readable tool call and tool result events
 - `tool_execution_mode`
@@ -807,6 +820,13 @@ The server must extract and track:
 Missing provider metadata is represented as `null` or omission where the API already models the
 field as optional.
 
+Symphony-owned `session_id` remains the orchestration identity for one provider-backed session.
+Provider-native thread, turn, run, and session identifiers are tracked alongside it and do not
+replace it.
+
+Extraction rules may inspect equivalent nested payload shapes when a compatible provider version
+preserves the same logical identifiers, usage totals, or rate-limit metadata.
+
 ### 10.5 Tool Calls, Approvals, and Input
 
 Approval, sandbox, tool, and user-input handling are provider-specific, but must be documented.
@@ -821,6 +841,15 @@ Required behavior:
   deterministically without deadlocking the session.
 - A deployment must either resolve, expose, or fail user-input-required flows.
 
+Codex-specific expectations:
+
+- Codex approval and permission flows may arrive as server-initiated request or notification
+  interactions rather than as ordinary turn notifications.
+- Structured Codex approval and input handling may include command approvals, file-change
+  approvals, permission approvals, user-input-required flows, and unsupported dynamic tool calls.
+- A Codex integration must either answer those interactions according to deployment policy,
+  surface them to an operator, or fail deterministically without leaving the run stalled.
+
 ### 10.6 Capability Degradation Rules
 
 - Providers that do not expose absolute usage totals may leave usage fields null.
@@ -828,29 +857,76 @@ Required behavior:
 - Providers that do not expose structured approvals must still avoid indefinite hangs.
 - Providers that do not support resume are still conformant because restart-time session resumption
   is not required in v1.
+- Compatible provider versions may vary slightly in exact field names, notification names, request
+  names, or nesting as long as the same logical meaning is preserved.
+- Compatible Codex versions may expose usage totals, rate limits, approvals, and input-required
+  signals through nested payload shapes; adapters may inspect those equivalent shapes without
+  changing Symphony's canonical raw-event persistence model.
 
 ### 10.7 Codex Adapter
 
 Normative target:
 
-- `codex app-server` over stdio
+- the current official Codex `app-server` over stdio
+
+Reference:
+
+- <https://developers.openai.com/codex/app-server/>
+
+Compatibility profile:
+
+- The normative contract is startup ordering, logical field extraction, terminal-state handling,
+  and approval or input behavior.
+- Exact JSON field names, request names, notification names, and nested payload shapes may vary
+  slightly across compatible Codex `app-server` versions when they preserve the same meaning.
 
 Required adapter behavior:
 
-- speak the Codex app-server protocol and issue:
-  1. `initialize`
-  2. `initialized`
-  3. `thread/start`
-  4. `turn/start`
-- treat `turn/completed`, `turn/failed`, `turn/cancelled`, timeout, or subprocess exit as
-  terminal
-- treat Codex `thread_id` and `turn_id` as provider-specific identifiers
-- persist raw Codex app-server notifications and rollout events as provider events
+- speak the Codex app-server protocol as JSON-RPC-like, newline-delimited messages and issue:
+  1. `initialize` request
+  2. `initialized` notification
+  3. `thread/start` request
+  4. `turn/start` request
+- include `clientInfo` in `initialize`, plus capability payload when needed for the supported
+  Symphony feature set
+- issue `thread/start` with the workspace `cwd`, session approval policy, session sandbox payload,
+  and any supported startup-advertised Codex capabilities required by the targeted app-server
+  version
+- issue `turn/start` with:
+  - `threadId`
+  - one text `input` item containing the rendered workflow prompt for the first turn or
+    continuation guidance for a later turn
+  - workspace `cwd`
+  - `title = "<issue.identifier>: <issue.title>"`
+  - turn approval policy
+  - turn sandbox policy payload
+- parse protocol messages from stdout only, treat stderr as diagnostics only, and buffer partial
+  stdout lines until newline before attempting JSON parse
+- enforce request or response read timeout during startup and other synchronous Codex requests
+- treat Codex `thread_id` and `turn_id` as provider-specific identifiers and extract them from
+  compatible response or notification payload shapes
+- reuse the same live Codex `threadId` for continuation turns within one worker run by issuing
+  additional `turn/start` requests on that thread instead of creating a new thread
+- prefer protocol-native interrupt behavior such as `turn/interrupt` when the targeted Codex
+  version supports it; subprocess termination is fallback failure handling, not the definition of
+  interrupt support
+- persist raw Codex app-server notifications and other Codex-emitted event payloads as provider
+  events without lossy rewriting
+- treat `turn/completed` as the authoritative modern terminal notification and inspect the terminal
+  turn payload to determine whether the result is `completed`, `failed`, or `interrupted`
+- accept older compatible terminal variants such as `turn/failed` and `turn/cancelled` as
+  equivalent terminal outcomes for compatibility
+- treat timeout or subprocess exit before a terminal Codex turn result as failure
 
 Codex-specific notes:
 
 - the wire protocol is JSON-RPC-like but not strict JSON-RPC 2.0
 - Codex may require deployment-defined approval, sandbox, or tool participation
+- Codex approval, permission, and user-input-required interactions may arrive as server-initiated
+  requests rather than ordinary notifications
+- newer Codex item and turn update records may map into existing Symphony normalized event kinds
+  when sufficient structure is available, or remain raw-only while preserving canonical event
+  fidelity
 - `tool_execution_mode` is `mixed`
 
 ### 10.8 Claude Code CLI Adapter
@@ -879,20 +955,28 @@ Claude-specific notes:
 
 Normative target:
 
-- Copilot CLI ACP over stdio
+- GitHub Copilot CLI ACP server started with `copilot --acp`
+- supported server modes are `stdio` and `TCP`
+- `stdio` is inferred by default when `--acp` is provided; `--stdio` is optional for
+  disambiguation
+- `TCP` mode is selected with `--port <port>`
 
 Required adapter behavior:
 
-- initialize the ACP session and start a Copilot session using the provider's documented ACP flow
-- submit prompts through ACP session methods and treat ACP session updates as raw provider events
-- support terminal detection from ACP completion, cancellation, timeout, or subprocess exit
-- persist ACP updates without lossy normalization
+- speak ACP over the provider's documented transport; in `stdio` mode, use NDJSON over
+  stdin/stdout
+- follow the documented Copilot CLI flow:
+  1. `initialize`
+  2. `newSession`
+  3. `prompt`
+- provide client-side `requestPermission` and `sessionUpdate` handlers
+- create the session with `cwd` and `mcpServers`
+- treat the prompt result `stopReason` as the turn completion signal; GitHub's published
+  example expects `end_turn`
 
 Copilot-specific notes:
 
-- raw provider events are ACP notifications and updates
-- `tool_execution_mode` is `provider_managed` unless a future ACP integration externalizes tool
-  execution
+- GitHub recommends `stdio` for IDE integrations
 
 ## 11. Persistence and Restart Recovery
 
@@ -993,6 +1077,10 @@ Rendering expectations:
 - usage events should be shown as metadata, not normal chat content
 - approval requests should be rendered distinctly from normal messages
 - terminal status should be rendered as session summary state
+- Codex-specific note:
+  newer Codex item, turn, and approval records may map into these existing normalized kinds when
+  sufficient structure is available, or remain raw-only without requiring new first-class
+  normalized categories
 
 ### 12.3 Unknown Event Handling
 
@@ -1379,6 +1467,16 @@ This section defines the minimum validation matrix for conformant implementation
 - hook execution and timeout behavior
 - provider launch with workspace `cwd`
 - provider session startup and continuation behavior
+- Codex startup handshake ordering (`initialize`, `initialized`, `thread/start`, `turn/start`)
+- Codex nested thread and turn identifier extraction from both responses and notifications
+- same-thread Codex continuation turns and session identity preservation
+- Codex stdout/stderr separation and partial-line buffering for protocol parsing
+- Codex `turn/completed` terminal-status handling for `completed`, `failed`, and `interrupted`,
+  plus compatibility handling for older `turn/failed` and `turn/cancelled` outcomes
+- Codex approval, file-change, permission, unsupported-tool, and user-input-required flows
+  resolving or failing without indefinite stall
+- object-form Codex sandbox payload handling
+- usage and rate-limit extraction from nested compatible payload shapes
 - per-provider capability downgrade handling
 - timeout and malformed-event handling
 
@@ -1521,7 +1619,10 @@ This section defines the minimum validation matrix for conformant implementation
 - server restart preserves logs and run history
 - client reconnect replays missed events from a cursor
 - provider-managed tool activity is persisted and rendered when structured events are available
-- unknown raw provider event types do not break persistence or rendering
+- modern Codex approval and user-input paths do not deadlock a run
+- same-thread Codex continuation preserves session observability
+- unknown modern Codex item or event types do not break persistence or rendering and remain
+  available through raw fallback
 - seeded screenshot matrix runs headlessly through `xcodebuild` and the
   required checked-in Xcode Test Plans
 - required accessibility audits pass through
