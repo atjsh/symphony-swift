@@ -930,6 +930,17 @@ private struct ReconcileOnlyErrorTracker: TrackerAdapting {
   #expect(result[0].state == "Active")
 }
 
+@Test func stubTrackerSetIssuesByStatesOverridesStateFilteredResults() async throws {
+  let tracker = StubTracker()
+  let allIssue = try makeIssue(id: "all-1", number: 1, state: "Backlog")
+  let filteredIssue = try makeIssue(id: "filtered-1", number: 2, state: "Active")
+  tracker.setAllIssues([allIssue])
+  tracker.setIssuesByStates([filteredIssue])
+
+  let result = try await tracker.fetchIssuesByStates(["Active"])
+  #expect(result == [filteredIssue])
+}
+
 @Test func stubTrackerFetchAllIssues() async throws {
   let tracker = StubTracker()
   let issues = [

@@ -55,28 +55,64 @@ private struct OperatorLogFilterBar: View {
 
   @ViewBuilder
   private func filterButton(for filter: OperatorLogFilter) -> some View {
+    let palette = operatorLogFilterPalette()
     if selection == filter {
-      Button(
-        filter.title,
-        systemImage: filter.systemImage,
-        action: makeLogFilterAction(selection: $selection, filter: filter)
-      )
-      .lineLimit(1)
-      .fixedSize(horizontal: true, vertical: false)
-      .buttonStyle(.glassProminent)
+      Button(action: makeLogFilterAction(selection: $selection, filter: filter)) {
+        filterButtonLabel(for: filter)
+          .foregroundStyle(Color.white)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .frame(minHeight: 44)
+          .background(palette.selectedFill, in: Capsule())
+      }
+      .buttonStyle(.plain)
       .accessibilityIdentifier("log-filter-\(filter.rawValue)")
     } else {
-      Button(
-        filter.title,
-        systemImage: filter.systemImage,
-        action: makeLogFilterAction(selection: $selection, filter: filter)
-      )
-      .lineLimit(1)
-      .fixedSize(horizontal: true, vertical: false)
-      .buttonStyle(.glass)
+      Button(action: makeLogFilterAction(selection: $selection, filter: filter)) {
+        filterButtonLabel(for: filter)
+          .foregroundStyle(theme.bodyText)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .frame(minHeight: 44)
+          .background(palette.unselectedFill, in: Capsule())
+          .overlay(
+            Capsule()
+              .strokeBorder(palette.unselectedStroke, lineWidth: 1)
+          )
+      }
+      .buttonStyle(.plain)
       .accessibilityIdentifier("log-filter-\(filter.rawValue)")
     }
   }
+
+  @ViewBuilder
+  private func filterButtonLabel(for filter: OperatorLogFilter) -> some View {
+    if theme.compact {
+      Text(filter.title)
+        .font(.body.weight(.semibold))
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    } else {
+      Label(filter.title, systemImage: filter.systemImage)
+        .font(.body.weight(.semibold))
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+  }
+}
+
+struct OperatorLogFilterPalette {
+  let selectedFill: Color
+  let unselectedFill: Color
+  let unselectedStroke: Color
+}
+
+func operatorLogFilterPalette() -> OperatorLogFilterPalette {
+  OperatorLogFilterPalette(
+    selectedFill: Color(red: 0.0, green: 0.28, blue: 0.72),
+    unselectedFill: Color.primary.opacity(0.04),
+    unselectedStroke: Color.primary.opacity(0.14)
+  )
 }
 
 @MainActor
@@ -170,7 +206,11 @@ struct LogEventRow: View {
   private var messageContent: some View {
     VStack(alignment: .leading, spacing: 8) {
       EventMetaLine(theme: theme, title: presentation.title, metadata: presentation.metadata)
-      MarkdownMessageText(theme: theme, text: presentation.detail)
+      Text(presentation.detail)
+        .font(.body)
+        .foregroundStyle(theme.bodyText)
+        .fixedSize(horizontal: false, vertical: true)
+        .operatorDetailTextSelection(enabled: true)
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
@@ -183,7 +223,7 @@ struct LogEventRow: View {
         .font(.body.monospaced())
         .foregroundStyle(theme.bodyText)
         .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
+        .operatorDetailTextSelection(enabled: true)
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
@@ -250,7 +290,7 @@ struct LogEventRow: View {
         Text(event.rawJSON)
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
-          .textSelection(.enabled)
+          .operatorDetailTextSelection(enabled: true)
           .fixedSize(horizontal: false, vertical: true)
       }
     }
@@ -303,23 +343,20 @@ private struct EventMetaLine: View {
   let metadata: String
   var tint: Color = .secondary
 
+  private var metadataDisplayText: String {
+    metadata
+      .replacingOccurrences(of: "_", with: "_\u{200B}")
+      .replacingOccurrences(of: " • ", with: " •\u{200B} ")
+  }
+
   var body: some View {
-    if theme.compact {
-      VStack(alignment: .leading, spacing: 4) {
-        EventTag(theme: theme, text: title, tint: tint)
-        Text(metadata)
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    } else {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        EventTag(theme: theme, text: title, tint: tint)
-        Text(metadata)
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
+    VStack(alignment: .leading, spacing: 4) {
+      Text(verbatim: metadataDisplayText)
+        .font(.subheadline)
+        .foregroundStyle(Color.primary)
+        .multilineTextAlignment(.leading)
+        .accessibilityLabel(metadata)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }
@@ -331,17 +368,9 @@ private struct EventTag: View {
 
   var body: some View {
     Text(text)
-      .font(.caption)
-      .bold()
-      .lineLimit(1)
-      .fixedSize(horizontal: true, vertical: false)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(theme.badgeFill, in: Capsule())
-      .foregroundStyle(tint)
-      .overlay(
-        Capsule()
-          .strokeBorder(theme.badgeBorder, lineWidth: 1)
-      )
+      .font(.body.weight(.semibold))
+      .multilineTextAlignment(.leading)
+      .foregroundStyle(Color.primary)
+      .accessibilityHidden(true)
   }
 }

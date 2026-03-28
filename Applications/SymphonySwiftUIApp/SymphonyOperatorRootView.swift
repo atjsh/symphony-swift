@@ -5,13 +5,17 @@ import SymphonyShared
 public struct SymphonyOperatorRootView: View {
   @ObservedObject var model: SymphonyOperatorModel
   @State private var isEndpointEditorPresented = false
-  @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+  @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  private let compactOverride: Bool?
 
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
   private var isCompact: Bool {
+    if let compactOverride {
+      return compactOverride
+    }
     #if os(iOS)
       return horizontalSizeClass == .compact
     #else
@@ -25,6 +29,19 @@ public struct SymphonyOperatorRootView: View {
 
   public init(model: SymphonyOperatorModel) {
     self.model = model
+    self.compactOverride = nil
+  }
+
+  init(
+    model: SymphonyOperatorModel,
+    initialEndpointEditorPresentation: Bool = false,
+    initialColumnVisibility: NavigationSplitViewVisibility = .all,
+    compactOverride: Bool? = nil
+  ) {
+    self.model = model
+    self.compactOverride = compactOverride
+    _isEndpointEditorPresented = State(initialValue: initialEndpointEditorPresentation)
+    _columnVisibility = State(initialValue: initialColumnVisibility)
   }
 
   public var body: some View {
@@ -47,9 +64,7 @@ public struct SymphonyOperatorRootView: View {
       #if os(iOS)
         if isCompact, model.selectedIssueID != nil, columnVisibility == .detailOnly {
           ToolbarItem(placement: .topBarLeading) {
-            Button("Issues", systemImage: "sidebar.left") {
-              columnVisibility = .all
-            }
+            Button("Issues", systemImage: "sidebar.left", action: makeRevealIssuesSidebarAction())
           }
         }
       #endif
@@ -60,10 +75,25 @@ public struct SymphonyOperatorRootView: View {
           .accessibilityIdentifier("refresh-button")
       }
 
-      ToolbarItem(placement: .primaryAction) {
-        Button("Server", action: makePresentationAction(for: $isEndpointEditorPresented))
-        .accessibilityIdentifier("server-editor-button")
-      }
+      #if os(iOS)
+        ToolbarItem(placement: .topBarLeading) {
+          Button(
+            "Server",
+            systemImage: "slider.horizontal.3",
+            action: makePresentationAction(for: $isEndpointEditorPresented)
+          )
+          .accessibilityIdentifier("server-editor-button")
+        }
+      #else
+        ToolbarItem(placement: .primaryAction) {
+          Button(
+            "Server",
+            systemImage: "slider.horizontal.3",
+            action: makePresentationAction(for: $isEndpointEditorPresented)
+          )
+          .accessibilityIdentifier("server-editor-button")
+        }
+      #endif
     }
     .sheet(isPresented: $isEndpointEditorPresented, content: makeEndpointEditorView)
   }
@@ -81,6 +111,14 @@ extension SymphonyOperatorRootView {
 
   func makeRefreshAction() -> () -> Void {
     { triggerRefresh() }
+  }
+
+  func makeRevealIssuesSidebarAction() -> () -> Void {
+    makeRevealIssuesSidebarAction(for: $columnVisibility)
+  }
+
+  func makeRevealIssuesSidebarAction(for columnVisibility: Binding<NavigationSplitViewVisibility>) -> () -> Void {
+    { columnVisibility.wrappedValue = .all }
   }
 
   func triggerConnect() {

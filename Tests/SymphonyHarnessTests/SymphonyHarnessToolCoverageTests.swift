@@ -3,6 +3,26 @@ import Testing
 
 @testable import SymphonyHarness
 
+private struct DecodedSharedRunIndex: Decodable {
+  let anomalies: [ArtifactAnomaly]
+}
+
+private struct ThrowingDoctorService: DoctorServicing {
+  let error: Error
+
+  func makeReport(from request: DoctorCommandRequest) throws -> DiagnosticsReport {
+    _ = request
+    throw error
+  }
+
+  func render(report: DiagnosticsReport, json: Bool, quiet: Bool) throws -> String {
+    _ = report
+    _ = json
+    _ = quiet
+    return "unreachable"
+  }
+}
+
 @Test func buildToolCoversBuildTestAndCoverageSuccessAndFailurePaths() throws {
   try withTemporaryRepositoryFixture { repoRoot in
     let workspace = WorkspaceContext(
@@ -14,7 +34,7 @@ import Testing
     let coveragePath = repoRoot.appendingPathComponent(".build/server-coverage.json")
     try FileManager.default.createDirectory(
       at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try #"""
+    let coverageJSON = #"""
     {
       "data": [
         {
@@ -35,9 +55,8 @@ import Testing
         }
       ]
     }
-    """#
-    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
-    .write(to: coveragePath, atomically: true, encoding: .utf8)
+    """#.replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    try coverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
 
     let signals = SignalBox()
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
@@ -397,6 +416,369 @@ import Testing
   }
 }
 
+@Test func subjectExecutionBridgeWritesSubjectOwnedSwiftPMCoverageArtifacts() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/subject-owned-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/CoverageInspection.swift", "summary": { "lines": { "count": 12, "covered": 9 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 6, "covered": 3 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift", "summary": { "lines": { "count": 10, "covered": 8 } } },
+            { "filename": "__REPO__/Sources/harness/main.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyServer/ProviderAdapter.swift", "summary": { "lines": { "count": 30, "covered": 30 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let observedFilters = SignalBox()
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count == 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        observedFilters.append(arguments[3])
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let tool = makeCoverageTool(workspace: workspace, runner: runner, statusSink: { _ in })
+
+    let harnessSummary = try tool.test(
+      ExecutionRequest(command: .test, subjects: ["SymphonyHarness"], outputMode: .filtered)
+    )
+    let harnessCLISummary = try tool.test(
+      ExecutionRequest(command: .test, subjects: ["SymphonyHarnessCLI"], outputMode: .filtered)
+    )
+    let explicitHarnessCLISummary = try tool.test(
+      ExecutionRequest(
+        command: .test,
+        subjects: [],
+        explicitTestSubjects: ["SymphonyHarnessCLITests"],
+        outputMode: .filtered
+      )
+    )
+
+    #expect(observedFilters.values == [
+      "SymphonyHarnessTests",
+      "SymphonyHarnessCLITests",
+      "SymphonyHarnessCLITests",
+    ])
+
+    let harnessReport = try loadCoverageReport(
+      fromSharedSummaryPath: harnessSummary,
+      subject: "SymphonyHarness"
+    )
+    #expect(harnessReport.targets.map(\.name) == ["SymphonyHarness"])
+    #expect(
+      harnessReport.targets[0].files?.map(\.path) == [
+        "Sources/SymphonyHarness/CoverageInspection.swift",
+        "Sources/SymphonyHarness/SymphonyHarnessTool.swift",
+      ])
+    #expect(!harnessReport.targets.flatMap { $0.files ?? [] }.contains { $0.path.contains("ProviderAdapter.swift") })
+
+    let harnessCLIReport = try loadCoverageReport(
+      fromSharedSummaryPath: harnessCLISummary,
+      subject: "SymphonyHarnessCLI"
+    )
+    #expect(harnessCLIReport.targets.map(\.name) == ["SymphonyHarnessCLI"])
+    #expect(
+      harnessCLIReport.targets[0].files?.map(\.path) == [
+        "Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift",
+        "Sources/harness/main.swift",
+      ])
+    #expect(!harnessCLIReport.targets.flatMap { $0.files ?? [] }.contains { $0.path.contains("ProviderAdapter.swift") })
+
+    let explicitHarnessCLIReport = try loadCoverageReport(
+      fromSharedSummaryPath: explicitHarnessCLISummary,
+      subject: "SymphonyHarnessCLITests"
+    )
+    #expect(explicitHarnessCLIReport.targets.map(\.name) == ["SymphonyHarnessCLI"])
+    #expect(
+      explicitHarnessCLIReport.targets[0].files?.map(\.path) == [
+        "Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift",
+        "Sources/harness/main.swift",
+      ])
+  }
+}
+
+@Test func subjectExecutionBridgePropagatesConcurrentWorkerErrors() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/concurrent-worker-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
+      {
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      ),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(processRunner: runner),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.test(
+        ExecutionRequest(
+          command: .test,
+          subjects: ["SymphonyHarness", "SymphonySwiftUIApp"],
+          outputMode: .filtered
+        )
+      )
+      Issue.record("Expected concurrent subject execution to surface worker errors.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      #expect(error.message == "test failed for SymphonySwiftUIApp.")
+      #expect(error.summaryPath != nil)
+    }
+  }
+}
+
+@Test func subjectExecutionBridgeWritesSyntheticArtifactsForUnsupportedAndFailedSubjectRuns() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/subject-synthetic-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count >= 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: noXcodeCapabilities,
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: runner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in
+          CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+          )
+        },
+        toolchainCapabilitiesResolver: noXcodeCapabilities
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    let unsupportedSummaryPath = try tool.validate(
+      ExecutionRequest(
+        command: .validate,
+        subjects: ["SymphonySwiftUIApp"],
+        outputMode: .filtered
+      )
+    )
+    let unsupportedSummary = try JSONDecoder().decode(
+      SharedRunSummary.self,
+      from: Data(
+        contentsOf: URL(fileURLWithPath: unsupportedSummaryPath)
+          .deletingLastPathComponent()
+          .appendingPathComponent("summary.json")
+      )
+    )
+    let unsupportedResult = try #require(unsupportedSummary.subjectResults.first)
+    #expect([SubjectRunOutcome.unsupported, .skipped].contains(unsupportedResult.outcome))
+    let unsupportedIndex = try JSONDecoder().decode(
+      DecodedSharedRunIndex.self,
+      from: Data(contentsOf: unsupportedResult.artifactSet.indexPath)
+    )
+    #expect(unsupportedIndex.anomalies.contains {
+      ["unsupported_subject_execution", "skipped_subject_execution"].contains($0.code)
+    })
+    let unsupportedSubjectSummary = try String(
+      contentsOf: unsupportedResult.artifactSet.summaryPath,
+      encoding: .utf8
+    )
+    #expect(unsupportedSubjectSummary.contains("subject: SymphonySwiftUIApp"))
+    #expect(unsupportedSubjectSummary.contains("reason:"))
+
+    let failingRunner = RoutedProcessRunner { _, _, _, _, _ in
+      StubProcessRunner.success()
+    }
+    let failingTool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: failingRunner
+      ),
+      processRunner: failingRunner,
+      artifactManager: ArtifactManager(processRunner: failingRunner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: failingRunner),
+      commitHarness: CommitHarness(
+        processRunner: failingRunner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in
+          CoverageReport(
+            coveredLines: 4,
+            executableLines: 4,
+            lineCoverage: 1,
+            includeTestTargets: false,
+            excludedTargets: [],
+            targets: []
+          )
+        },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: failingRunner),
+      statusSink: { _ in }
+    )
+
+    let failedSummaryPath: URL
+    do {
+      _ = try failingTool.execute(
+        ExecutionRequest(
+          command: .validate,
+          subjects: ["SymphonySwiftUIApp"],
+          outputMode: .filtered
+        ),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected subject-scoped validate execution to fail without an available simulator.")
+      return
+    } catch let error as SymphonyHarnessCommandFailure {
+      failedSummaryPath = try #require(error.summaryPath)
+    }
+
+    let failedSummary = try JSONDecoder().decode(
+      SharedRunSummary.self,
+      from: Data(contentsOf: failedSummaryPath.deletingLastPathComponent().appendingPathComponent("summary.json"))
+    )
+    let failedResult = try #require(failedSummary.subjectResults.first)
+    #expect(failedResult.outcome == .failure)
+    let failedIndex = try JSONDecoder().decode(
+      DecodedSharedRunIndex.self,
+      from: Data(contentsOf: failedResult.artifactSet.indexPath)
+    )
+    #expect(failedIndex.anomalies.map(\.code).contains("subject_execution_failed"))
+    let failedSubjectSummary = try String(contentsOf: failedResult.artifactSet.summaryPath, encoding: .utf8)
+    #expect(failedSubjectSummary.contains("outcome: failure"))
+    #expect(failedSubjectSummary.contains("reason:"))
+  }
+}
+
 @Test func subjectExecutionBridgeBuildsMultiSubjectSharedRunRoot() throws {
   try withTemporaryRepositoryFixture { repoRoot in
     let workspace = WorkspaceContext(
@@ -452,6 +834,1262 @@ import Testing
     #expect(
       FileManager.default.fileExists(
         atPath: summaryRoot.appendingPathComponent("subjects/SymphonyHarnessCLI/summary.txt").path))
+  }
+}
+
+@Test func executeBridgeRoutesCommandsAndRejectsUnsupportedShapes() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/execute-routing-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } },
+            { "filename": "__REPO__/Sources/SymphonyServerCLI/main.swift", "summary": { "lines": { "count": 2, "covered": 2 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
+      {
+        return StubProcessRunner.success("harness tests")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+        return StubProcessRunner.success("server built")
+      }
+      if command == "swift", arguments == ["build", "--show-bin-path"] {
+        return StubProcessRunner.success(repoRoot.appendingPathComponent(".build/debug").path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      ),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(processRunner: runner),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    let testSummary = try tool.execute(
+      ExecutionRequest(command: .test, subjects: ["SymphonyHarness"], outputMode: .filtered),
+      currentDirectory: repoRoot
+    )
+    let runSummary = try tool.execute(
+      ExecutionRequest(command: .run, subjects: ["SymphonyServerCLI"], outputMode: .filtered),
+      currentDirectory: repoRoot
+    )
+    let validateSummary = try tool.execute(
+      ExecutionRequest(command: .validate, subjects: ["SymphonyHarness"], outputMode: .filtered),
+      currentDirectory: repoRoot
+    )
+
+    #expect(FileManager.default.fileExists(atPath: testSummary))
+    #expect(FileManager.default.fileExists(atPath: runSummary))
+    #expect(FileManager.default.fileExists(atPath: validateSummary))
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(command: .doctor, subjects: ["SymphonyHarness"], outputMode: .filtered),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected subject-scoped doctor execution to be rejected.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "subject_bridge_unavailable")
+      #expect(error.message.contains("SymphonyHarness"))
+    }
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(
+          command: .build,
+          subjects: [],
+          explicitTestSubjects: ["SymphonyHarnessTests"],
+          outputMode: .filtered
+        ),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected build requests with explicit test subjects to be rejected.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "subject_bridge_unavailable")
+      #expect(error.message.contains("SymphonyHarnessTests"))
+    }
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(
+          command: .run,
+          subjects: ["SymphonyServerCLI", "SymphonyServer"],
+          outputMode: .filtered
+        ),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected run requests with multiple subjects to be rejected.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "subject_bridge_unavailable")
+      #expect(error.message.contains("SymphonyServerCLI, SymphonyServer"))
+    }
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(command: .run, subjects: ["SymphonyHarness"], outputMode: .filtered),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected non-runnable subjects to be rejected for run requests.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "subject_bridge_unavailable")
+      #expect(error.message.contains("SymphonyHarness"))
+    }
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(command: .test, subjects: ["UnknownHarnessSubject"], outputMode: .filtered),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected unknown canonical subjects to be rejected.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "subject_bridge_unavailable")
+      #expect(error.message.contains("UnknownHarnessSubject"))
+    }
+  }
+}
+
+@Test func subjectExecutionBridgeSpecializedEntryPointsRejectDoctorRequests() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let runner = RoutedProcessRunner { _, _, _, _, _ in
+      Issue.record("Doctor guard should reject specialized entry points before subprocess execution.")
+      return StubProcessRunner.success()
+    }
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      ),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(processRunner: runner),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+    let doctorRequest = ExecutionRequest(
+      command: .doctor,
+      subjects: ["SymphonyHarness"],
+      outputMode: .filtered
+    )
+
+    for specializedEntryPoint in [
+      { try tool.build(doctorRequest) },
+      { try tool.test(doctorRequest) },
+      { try tool.run(doctorRequest) },
+      { try tool.validate(doctorRequest) },
+    ] {
+      do {
+        _ = try specializedEntryPoint()
+        Issue.record("Expected specialized entry points to reject doctor requests.")
+      } catch let error as SymphonyHarnessError {
+        #expect(error.code == "subject_bridge_unavailable")
+        #expect(error.message.contains("SymphonyHarness"))
+      }
+    }
+  }
+}
+
+@Test func validationPolicyHelpersCoverArtifactFailuresAndDefaultAppFallbacks() throws {
+  try withTemporaryDirectory { directory in
+    let artifactRoot = directory.appendingPathComponent("subject-artifacts", isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+    let summaryPath = artifactRoot.appendingPathComponent("summary.txt")
+    let indexPath = artifactRoot.appendingPathComponent("index.json")
+    let logPath = artifactRoot.appendingPathComponent("process-stdout-stderr.txt")
+    try "summary".write(to: summaryPath, atomically: true, encoding: .utf8)
+    try "{}".write(to: indexPath, atomically: true, encoding: .utf8)
+    try "log".write(to: logPath, atomically: true, encoding: .utf8)
+
+    let successResult = SubjectRunResult(
+      subject: "SymphonyHarness",
+      outcome: .success,
+      artifactSet: SubjectArtifactSet(
+        subject: "SymphonyHarness",
+        artifactRoot: artifactRoot,
+        summaryPath: summaryPath,
+        indexPath: indexPath,
+        coverageTextPath: nil,
+        coverageJSONPath: nil,
+        resultBundlePath: nil,
+        logPath: logPath,
+        anomalies: []
+      )
+    )
+    let missingArtifactResult = SubjectRunResult(
+      subject: "SymphonyHarness",
+      outcome: .success,
+      artifactSet: SubjectArtifactSet(
+        subject: "SymphonyHarness",
+        artifactRoot: artifactRoot,
+        summaryPath: artifactRoot.appendingPathComponent("missing-summary.txt"),
+        indexPath: indexPath,
+        coverageTextPath: nil,
+        coverageJSONPath: nil,
+        resultBundlePath: nil,
+        logPath: logPath,
+        anomalies: []
+      )
+    )
+
+    let artifactSuccess = SymphonyHarnessTool.artifactValidationPolicyOutcome(for: [successResult])
+    #expect(artifactSuccess.summaryLines == ["validation_policy_result artifacts: success"])
+    #expect(artifactSuccess.anomalies.isEmpty)
+    #expect(artifactSuccess.failureMessage == nil)
+
+    let artifactFailure = SymphonyHarnessTool.artifactValidationPolicyOutcome(for: [missingArtifactResult])
+    #expect(artifactFailure.summaryLines == ["validation_policy_result artifacts: failure"])
+    #expect(artifactFailure.anomalies.map(\.code) == ["artifact_policy_failed"])
+    #expect(artifactFailure.failureMessage == "validate failed for repository artifact policies.")
+
+    let appFallback = SymphonyHarnessTool.defaultAppValidationPolicyOutcome(
+      subjectResults: [successResult],
+      supportsSimulatorCommands: true,
+      buildStateRoot: directory
+    )
+    #expect(appFallback.summaryLines.contains("validation_policy_result xcodeTestPlans: failure"))
+    #expect(appFallback.summaryLines.contains("validation_policy_result accessibility: success"))
+    #expect(appFallback.anomalies.map(\.code) == ["xcode_test_plans_failed"])
+    #expect(appFallback.failureMessage == "validate failed for required app validation plans.")
+  }
+}
+
+@Test func validateExecutionBridgeCapturesPolicyExceptions() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/policy-coverage.json")
+    let coverageJSON = #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyShared/SharedApp.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyServerCore/Orchestrator.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyServer/ProviderAdapter.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyServerCLI/main.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/harness/main.swift", "summary": { "lines": { "count": 1, "covered": 1 } } }
+          ]
+        }
+      ]
+    }
+    """#.replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count >= 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        try FileManager.default.createDirectory(
+          at: coveragePath.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try coverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+
+    let failingDoctor = ThrowingDoctorService(
+      error: SymphonyHarnessError(code: "synthetic_doctor_failure", message: "doctor exploded")
+    )
+    let coverageCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: failingDoctor,
+      toolchainCapabilitiesResolver: coverageCapabilities,
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: runner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in
+          throw SymphonyHarnessError(
+            code: "synthetic_coverage_failure",
+            message: "coverage exploded"
+          )
+        },
+        toolchainCapabilitiesResolver: coverageCapabilities
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when policy checks throw and artifacts are removed.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(summaryText.contains("validation_policy_result environment: failure"))
+      #expect(summaryText.contains("validation_policy_result coverage: failure"))
+      #expect(summaryText.contains("environment_policy_failed"))
+      #expect(summaryText.contains("coverage_policy_failed"))
+    }
+  }
+}
+
+@Test func validateExecutionBridgeCapturesCoverageFailureWithoutEarlierEnvironmentFailure() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/policy-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count >= 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let capabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: capabilities,
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: runner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in
+          throw SymphonyHarnessError(
+            code: "synthetic_coverage_failure",
+            message: "coverage exploded"
+          )
+        },
+        toolchainCapabilitiesResolver: capabilities
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when coverage policy fails.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(summaryText.contains("validation_policy_result environment: success"))
+      #expect(summaryText.contains("validation_policy_result coverage: failure"))
+      #expect(summaryText.contains("coverage_policy_failed"))
+    }
+  }
+}
+
+@Test
+func validateExecutionBridgeCapturesBelowThresholdCoverageFailureFromCommitHarnessExecution()
+  throws
+{
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/policy-success-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count >= 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        return StubProcessRunner.success("swift coverage ok")
+      }
+      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+        return StubProcessRunner.success(coveragePath.path + "\n")
+      }
+      return StubProcessRunner.success()
+    }
+    let lowServerCoverage = CoverageReport(
+      coveredLines: 1,
+      executableLines: 2,
+      lineCoverage: 0.5,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: [
+        CoverageTargetReport(
+          name: "SymphonyServer",
+          buildProductPath: nil,
+          coveredLines: 1,
+          executableLines: 2,
+          lineCoverage: 0.5,
+          files: [
+            CoverageFileReport(
+              name: "BootstrapSupport.swift",
+              path: "Sources/SymphonyServer/BootstrapSupport.swift",
+              coveredLines: 1,
+              executableLines: 2,
+              lineCoverage: 0.5
+            )
+          ]
+        )
+      ]
+    )
+    let capabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: capabilities,
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: runner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in lowServerCoverage },
+        toolchainCapabilitiesResolver: capabilities
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record(
+        "Expected default validate to fail when commit harness coverage is below threshold."
+      )
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(error.message == "validate failed for repository coverage policies.")
+      #expect(summaryText.contains("validation_policy_result environment: success"))
+      #expect(summaryText.contains("validation_policy_result coverage: failure"))
+      #expect(summaryText.contains("coverage_policy_failed"))
+    }
+  }
+}
+
+@Test func validateExecutionBridgeFailsWhenNoCheckedInAppPlansExist() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/no-plans-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { _, _, _, _, _ in
+      StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(
+          devices: [
+            SimulatorDevice(
+              name: "iPhone 17",
+              udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+            SimulatorDevice(
+              name: "iPad Pro (M4)",
+              udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+          ]
+        ),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      ),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when no checked-in app plans exist.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryRoot = summaryPath.deletingLastPathComponent()
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(summaryText.contains("xcode_test_plans_failed"))
+      let sharedSummary = try JSONDecoder().decode(
+        SharedRunSummary.self,
+        from: Data(contentsOf: summaryRoot.appendingPathComponent("summary.json"))
+      )
+      let appResult = try #require(sharedSummary.subjectResults.first { $0.subject == "SymphonySwiftUIApp" })
+      #expect(appResult.outcome == .failure)
+      let appSummaryText = try String(contentsOf: appResult.artifactSet.summaryPath, encoding: .utf8)
+      #expect(appSummaryText.contains("outcome: failure"))
+      #expect(appSummaryText.contains("No checked-in .xctestplan files were found"))
+    }
+  }
+}
+
+@Test func validateExecutionBridgeFailsWhenAccessibilityCoveragePlanIsMissing() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppTests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIApp.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppTests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIAppTests.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/missing-accessibility-plan-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "xcodebuild", arguments.last == "test" {
+        if let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") {
+          let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
+          try FileManager.default.createDirectory(at: bundlePath, withIntermediateDirectories: true)
+        }
+        return StubProcessRunner.success("validated")
+      }
+      return StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(
+          devices: [
+            SimulatorDevice(
+              name: "iPhone 17",
+              udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+            SimulatorDevice(
+              name: "iPad Pro (M4)",
+              udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+          ]
+        ),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when no checked-in plan covers accessibility.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(summaryText.contains("validation_policy_result xcodeTestPlans: success"))
+      #expect(summaryText.contains("validation_policy_result accessibility: failure"))
+      #expect(summaryText.contains("missing_accessibility_validation_plan"))
+    }
+  }
+}
+
+@Test func validateExecutionBridgeFailsWhenAccessibilityValidationPlanExecutionFails() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppTests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIApp.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppTests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIAppTests.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppUITests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIAppUITests.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/accessibility-plan-failure-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "xcodebuild", arguments.last == "test" {
+        guard
+          let testPlanFlagIndex = arguments.firstIndex(of: "-testPlan"),
+          arguments.indices.contains(testPlanFlagIndex + 1)
+        else {
+          return StubProcessRunner.failure("missing test plan")
+        }
+        let testPlan = arguments[testPlanFlagIndex + 1]
+        if let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") {
+          let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
+          try FileManager.default.createDirectory(at: bundlePath, withIntermediateDirectories: true)
+        }
+        if testPlan == "SymphonySwiftUIAppUITests" {
+          return StubProcessRunner.failure("ui accessibility plan failed")
+        }
+        return StubProcessRunner.success("validated \(testPlan)")
+      }
+      return StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(
+          devices: [
+            SimulatorDevice(
+              name: "iPhone 17",
+              udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+            SimulatorDevice(
+              name: "iPad Pro (M4)",
+              udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+          ]
+        ),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when an accessibility plan execution fails.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let summaryText = try String(contentsOf: summaryPath, encoding: .utf8)
+      #expect(summaryText.contains("validation_policy_result xcodeTestPlans: failure"))
+      #expect(summaryText.contains("validation_policy_result accessibility: failure"))
+      #expect(summaryText.contains("accessibility_validation_plan_failed"))
+    }
+  }
+}
+
+@Test func validateExecutionBridgeWritesSyntheticFailureWhenDefaultAppValidationCannotResolveDestinations() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    try #"""
+    {
+      "testTargets": [
+        { "target": { "name": "SymphonySwiftUIAppUITests" } }
+      ]
+    }
+    """#.write(
+      to: testPlanRoot.appendingPathComponent("SymphonySwiftUIAppUITests.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let coveragePath = repoRoot.appendingPathComponent(".build/destination-failure-coverage.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { _, _, _, _, _ in
+      StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.validate(
+        ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+      )
+      Issue.record("Expected default validate to fail when approved validation destinations cannot be resolved.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let sharedSummary = try JSONDecoder().decode(
+        SharedRunSummary.self,
+        from: Data(contentsOf: summaryPath.deletingLastPathComponent().appendingPathComponent("summary.json"))
+      )
+      let appResult = try #require(sharedSummary.subjectResults.first { $0.subject == "SymphonySwiftUIApp" })
+      #expect(appResult.outcome == .failure)
+      let appSummaryText = try String(contentsOf: appResult.artifactSet.summaryPath, encoding: .utf8)
+      #expect(appSummaryText.contains("outcome: failure"))
+      #expect(appSummaryText.contains("reason:"))
+      let appIndex = try JSONDecoder().decode(
+        DecodedSharedRunIndex.self,
+        from: Data(contentsOf: appResult.artifactSet.indexPath)
+      )
+      #expect(appIndex.anomalies.map(\.code).contains("subject_execution_failed"))
+    }
+  }
+}
+
+@Test func subjectExecutionBridgePreservesRecordedArtifactsWhenCommandExecutionFails() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift", arguments == ["build", "--product", "SymphonyHarness"] {
+        return StubProcessRunner.failure("build failed")
+      }
+      return StubProcessRunner.success()
+    }
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"
+      ),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      ),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(processRunner: runner),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    do {
+      _ = try tool.execute(
+        ExecutionRequest(command: .build, subjects: ["SymphonyHarness"], outputMode: .filtered),
+        currentDirectory: repoRoot
+      )
+      Issue.record("Expected the subject-scoped build to fail.")
+    } catch let error as SymphonyHarnessCommandFailure {
+      let summaryPath = try #require(error.summaryPath)
+      let sharedSummary = try JSONDecoder().decode(
+        SharedRunSummary.self,
+        from: Data(contentsOf: summaryPath.deletingLastPathComponent().appendingPathComponent("summary.json"))
+      )
+      let result = try #require(sharedSummary.subjectResults.first)
+      #expect(result.outcome == .failure)
+      let subjectSummary = try String(contentsOf: result.artifactSet.summaryPath, encoding: .utf8)
+      #expect(subjectSummary.contains("exit_code: 1"))
+      #expect(subjectSummary.contains("stdout_stderr:"))
+      let index = try JSONDecoder().decode(
+        DecodedSharedRunIndex.self,
+        from: Data(contentsOf: result.artifactSet.indexPath)
+      )
+      #expect(index.anomalies.map(\.code).contains("not_applicable_result_bundle"))
+    }
+  }
+}
+
+@Test func workspaceDiscoveryAndDoctorServiceCoverManifestSchemeAndExecutableFallbackBranches() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Symphony.xcworkspace"), withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/xcshareddata/xcschemes"),
+      withIntermediateDirectories: true
+    )
+
+    do {
+      _ = try WorkspaceDiscovery(processRunner: StubProcessRunner()).discover(from: repoRoot)
+      Issue.record("Expected missing root manifests to fail discovery.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_root_package")
+    }
+
+    try "# root package".write(
+      to: repoRoot.appendingPathComponent("Package.swift"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/xcshareddata/xctestplans"),
+      withIntermediateDirectories: true
+    )
+    try "{}".write(
+      to: repoRoot.appendingPathComponent(
+        "SymphonyApps.xcodeproj/xcshareddata/xctestplans/SymphonySwiftUIAppUITests.xctestplan"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try """
+    <Scheme>
+      <TestAction>
+        <TestPlans>
+          <TestPlanReference reference = \"container:SymphonySwiftUIApp.xctestplan\"/>
+          <TestPlanReference reference = \"container:SymphonySwiftUIAppTests.xctestplan\"/>
+          <TestPlanReference reference = \"container:SymphonySwiftUIAppUITests.xctestplan\"/>
+        </TestPlans>
+      </TestAction>
+    </Scheme>
+    """.write(
+      to: repoRoot.appendingPathComponent(
+        "SymphonyApps.xcodeproj/xcshareddata/xcschemes/SymphonySwiftUIApp.xcscheme"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try """
+    <Scheme>
+      <TestAction>
+        <TestPlans>
+        </TestPlans>
+      </TestAction>
+    </Scheme>
+    """.write(
+      to: repoRoot.appendingPathComponent(
+        "SymphonyApps.xcodeproj/xcshareddata/xcschemes/SymphonySwiftUIAppUITests.xcscheme"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "which", arguments == ["just"] {
+        throw SymphonyHarnessError(code: "which_failed", message: "which just failed")
+      }
+      return StubProcessRunner.success()
+    }
+    let service = DoctorService(
+      workspaceDiscovery: StubWorkspaceDiscovery(
+        workspace: WorkspaceContext(
+          projectRoot: repoRoot,
+          buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+          xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+          xcodeProjectPath: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj")
+        )),
+      processRunner: runner,
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    )
+
+    let report = try service.makeReport(
+      from: DoctorCommandRequest(strict: false, json: false, quiet: false, currentDirectory: repoRoot)
+    )
+    #expect(report.issues.contains(where: { $0.code == "missing_just" }))
+    #expect(
+      report.issues.contains(where: {
+        $0.code == "missing_testplan_reference_symphonyswiftuiappuitests"
+      }))
+    #expect(
+      !report.issues.contains(where: {
+        $0.code == "missing_testplan_reference_symphonyswiftuiapp"
+      }))
   }
 }
 
@@ -567,6 +2205,101 @@ import Testing
         command: .test,
         subjects: [],
         explicitTestSubjects: ["SymphonySwiftUIAppTests", "SymphonySwiftUIAppUITests"],
+        outputMode: .filtered
+      )
+    )
+
+    #expect(FileManager.default.fileExists(atPath: summaryPath))
+    #expect(concurrency.maxConcurrentInvocations == 1)
+  }
+}
+
+@Test func validateExecutionBridgeSerializesSubjectRunsToAvoidNestedValidateDeadlocks() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let concurrency = InvocationConcurrencyBox()
+    let coveragePath = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    let coverageJSON = #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#.replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    try coverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let subjectRunner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "swift",
+        arguments.count == 4,
+        arguments[0] == "test",
+        arguments[1] == "--enable-code-coverage",
+        arguments[2] == "--filter"
+      {
+        concurrency.enterSynchronizingUntilStarted(expectedCount: 2)
+        defer { concurrency.leave() }
+        Thread.sleep(forTimeInterval: 0.05)
+        return StubProcessRunner.success("ok")
+      }
+      return StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: []), processRunner: subjectRunner),
+      processRunner: subjectRunner,
+      artifactManager: ArtifactManager(processRunner: subjectRunner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: noXcodeCapabilities,
+      productLocator: ProductLocator(processRunner: subjectRunner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: noXcodeCapabilities
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: subjectRunner),
+      statusSink: { _ in }
+    )
+
+    let summaryPath = try tool.validate(
+      ExecutionRequest(
+        command: .validate,
+        subjects: ["SymphonyShared", "SymphonyHarnessCLI"],
+        explicitTestSubjects: [],
         outputMode: .filtered
       )
     )
@@ -746,7 +2479,7 @@ import Testing
   }
 }
 
-@Test func subjectExecutionBridgePreservesCanonicalSchemeOnlyEndpointOverrides() throws {
+@Test func subjectExecutionBridgePreservesCanonicalEndpointOverridesAndExplicitPortPrecedence() throws {
   try withTemporaryRepositoryFixture { repoRoot in
     let workspace = WorkspaceContext(
       projectRoot: repoRoot,
@@ -782,7 +2515,7 @@ import Testing
         #expect(environment["SIMCTL_CHILD_CUSTOM"] == "1")
         #expect(environment["SIMCTL_CHILD_SYMPHONY_SERVER_SCHEME"] == "https")
         #expect(environment["SIMCTL_CHILD_SYMPHONY_SERVER_HOST"] == "persisted.example.com")
-        #expect(environment["SIMCTL_CHILD_SYMPHONY_SERVER_PORT"] == "8080")
+        #expect(environment["SIMCTL_CHILD_SYMPHONY_SERVER_PORT"] == "9443")
         #expect(environment["SIMCTL_CHILD_SYMPHONY_SERVER_URL"] == nil)
         return StubProcessRunner.success("launched")
       }
@@ -825,6 +2558,7 @@ import Testing
         environment: [
           "CUSTOM": "1",
           "SYMPHONY_SERVER_SCHEME": "https",
+          "SYMPHONY_SERVER_PORT": "9443",
         ],
         outputMode: .filtered
       )
@@ -845,7 +2579,7 @@ import Testing
       at: coveragePath.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
-    try #"""
+    let coverageJSON = #"""
     {
       "data": [
         {
@@ -858,9 +2592,8 @@ import Testing
         }
       ]
     }
-    """#
-    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
-    .write(to: coveragePath, atomically: true, encoding: .utf8)
+    """#.replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    try coverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
 
     let workspace = WorkspaceContext(
       projectRoot: repoRoot,
@@ -1150,6 +2883,15 @@ import Testing
         encoding: .utf8
       )
     }
+    try #"""
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
+    """#.write(
+      to: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/project.pbxproj"),
+      atomically: true,
+      encoding: .utf8
+    )
 
     let workspace = WorkspaceContext(
       projectRoot: repoRoot,
@@ -1158,6 +2900,7 @@ import Testing
       xcodeProjectPath: nil
     )
     let observedPlans = SignalBox()
+    let observedDerivedDataPaths = SignalBox()
     let coveragePath = repoRoot.appendingPathComponent(
       ".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
     try FileManager.default.createDirectory(
@@ -1187,14 +2930,18 @@ import Testing
           let testPlanFlagIndex = arguments.firstIndex(of: "-testPlan"),
           arguments.indices.contains(testPlanFlagIndex + 1),
           let destinationFlagIndex = arguments.firstIndex(of: "-destination"),
-          arguments.indices.contains(destinationFlagIndex + 1)
+          arguments.indices.contains(destinationFlagIndex + 1),
+          let derivedDataFlagIndex = arguments.firstIndex(of: "-derivedDataPath"),
+          arguments.indices.contains(derivedDataFlagIndex + 1)
         else {
-          return StubProcessRunner.failure("missing test plan or destination")
+          return StubProcessRunner.failure("missing test plan, destination, or derived data path")
         }
 
         let testPlan = arguments[testPlanFlagIndex + 1]
         let destination = arguments[destinationFlagIndex + 1]
+        let derivedDataPath = arguments[derivedDataFlagIndex + 1]
         observedPlans.append("\(testPlan)|\(destination)")
+        observedDerivedDataPaths.append("\(testPlan)|\(derivedDataPath)")
 
         if let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") {
           let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
@@ -1271,10 +3018,504 @@ import Testing
       "SymphonySwiftUIAppUITests|platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
       "SymphonySwiftUIAppUITests|platform=iOS Simulator,id=BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
     ]))
+    #expect(
+      Set(observedDerivedDataPaths.values) == Set([
+        "SymphonySwiftUIApp|\(repoRoot.appendingPathComponent(".build/harness/derived-data/SymphonySwiftUIApp/symphonyswiftuiapp").path)",
+        "SymphonySwiftUIAppTests|\(repoRoot.appendingPathComponent(".build/harness/derived-data/SymphonySwiftUIApp/symphonyswiftuiapptests").path)",
+        "SymphonySwiftUIAppUITests|\(repoRoot.appendingPathComponent(".build/harness/derived-data/SymphonySwiftUIApp/symphonyswiftuiappuitests").path)",
+      ]))
     let summaryText = try String(contentsOf: URL(fileURLWithPath: summaryPath), encoding: .utf8)
     #expect(
       summaryText.contains(
         "validation_policies: coverage, artifacts, environment, xcodeTestPlans, accessibility"))
+  }
+}
+
+@Test func validateExecutionBridgeRetriesBusyPreflightValidationPlanOnce() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    for name in [
+      "SymphonySwiftUIApp.xctestplan",
+      "SymphonySwiftUIAppTests.xctestplan",
+      "SymphonySwiftUIAppUITests.xctestplan",
+    ] {
+      try "{}\n".write(
+        to: testPlanRoot.appendingPathComponent(name),
+        atomically: true,
+        encoding: .utf8
+      )
+    }
+    try #"""
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
+    """#.write(
+      to: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/project.pbxproj"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let attemptCounts = StringIntBox()
+    let busyPlanKey =
+      "SymphonySwiftUIApp|platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+
+    let coveragePath = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "xcodebuild", arguments.last == "test" {
+        guard
+          let testPlanFlagIndex = arguments.firstIndex(of: "-testPlan"),
+          arguments.indices.contains(testPlanFlagIndex + 1),
+          let destinationFlagIndex = arguments.firstIndex(of: "-destination"),
+          arguments.indices.contains(destinationFlagIndex + 1)
+        else {
+          return StubProcessRunner.failure("missing test plan or destination")
+        }
+
+        let testPlan = arguments[testPlanFlagIndex + 1]
+        let destination = arguments[destinationFlagIndex + 1]
+        let key = "\(testPlan)|\(destination)"
+        let attempt = attemptCounts.increment(for: key)
+
+        if let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") {
+          let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
+          try FileManager.default.createDirectory(at: bundlePath, withIntermediateDirectories: true)
+        }
+
+        if key == busyPlanKey, attempt == 1 {
+          return StubProcessRunner.failure(
+            "Application failed preflight checks (Underlying Error: Busy)")
+        }
+
+        return StubProcessRunner.success("validated \(testPlan)")
+      }
+      return StubProcessRunner.success()
+    }
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(
+          devices: [
+            SimulatorDevice(
+              name: "iPhone 17",
+              udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+            SimulatorDevice(
+              name: "iPad Pro (M4)",
+              udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+              state: "Shutdown",
+              runtime: "iOS 18"
+            ),
+          ]
+        ),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    let summaryPath = try tool.validate(
+      ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+    )
+
+    let summaryText = try String(contentsOf: URL(fileURLWithPath: summaryPath), encoding: .utf8)
+    #expect(summaryText.contains("validation_policy_result xcodeTestPlans: success"))
+    #expect(attemptCounts.value(for: busyPlanKey) == 2)
+  }
+}
+
+@Test func validateExecutionBridgeRemovesStaleResultBundlesBeforeRunningCheckedInPlans() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    for name in [
+      "SymphonySwiftUIApp.xctestplan",
+      "SymphonySwiftUIAppTests.xctestplan",
+      "SymphonySwiftUIAppUITests.xctestplan",
+    ] {
+      try "{}\n".write(
+        to: testPlanRoot.appendingPathComponent(name),
+        atomically: true,
+        encoding: .utf8
+      )
+    }
+    try #"""
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
+    """#.write(
+      to: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/project.pbxproj"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let destinations = [
+      SimulatorDevice(
+        name: "iPhone 17",
+        udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+        state: "Shutdown",
+        runtime: "iOS 18"
+      ),
+      SimulatorDevice(
+        name: "iPad Pro (M4)",
+        udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+        state: "Shutdown",
+        runtime: "iOS 18"
+      ),
+    ]
+    for testPlan in ["SymphonySwiftUIApp", "SymphonySwiftUIAppTests", "SymphonySwiftUIAppUITests"] {
+      for destination in destinations {
+        let slug = ShellQuoting.slugify("\(testPlan)-\(destination.name)")
+        let staleBundle = workspace.buildStateRoot.appendingPathComponent(
+          "results/SymphonySwiftUIApp/\(slug).xcresult",
+          isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+          at: staleBundle,
+          withIntermediateDirectories: true
+        )
+      }
+    }
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "xcodebuild", arguments.last == "test" {
+        guard let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") else {
+          return StubProcessRunner.failure("missing result bundle path")
+        }
+
+        let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
+        if FileManager.default.fileExists(atPath: bundlePath.path) {
+          return StubProcessRunner.failure("stale result bundle was not cleared")
+        }
+
+        try FileManager.default.createDirectory(at: bundlePath, withIntermediateDirectories: true)
+        return StubProcessRunner.success("validated")
+      }
+      return StubProcessRunner.success()
+    }
+    let coveragePath = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: destinations),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    let summaryPath = try tool.validate(
+      ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+    )
+
+    #expect(FileManager.default.fileExists(atPath: summaryPath))
+  }
+}
+
+@Test func validateExecutionBridgeTerminatesAndUninstallsExistingSimulatorAppBeforeEachPlan() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let testPlanRoot = repoRoot.appendingPathComponent(
+      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: testPlanRoot, withIntermediateDirectories: true)
+    for name in [
+      "SymphonySwiftUIApp.xctestplan",
+      "SymphonySwiftUIAppTests.xctestplan",
+      "SymphonySwiftUIAppUITests.xctestplan",
+    ] {
+      try "{}\n".write(
+        to: testPlanRoot.appendingPathComponent(name),
+        atomically: true,
+        encoding: .utf8
+      )
+    }
+    try #"""
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
+    PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
+    """#.write(
+      to: repoRoot.appendingPathComponent("SymphonyApps.xcodeproj/project.pbxproj"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: repoRoot.appendingPathComponent("Symphony.xcworkspace"),
+      xcodeProjectPath: nil
+    )
+    let destinations = [
+      SimulatorDevice(
+        name: "iPhone 17",
+        udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+        state: "Shutdown",
+        runtime: "iOS 18"
+      ),
+      SimulatorDevice(
+        name: "iPad Pro (M4)",
+        udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+        state: "Shutdown",
+        runtime: "iOS 18"
+      ),
+    ]
+    let terminateSignals = SignalBox()
+    let uninstallSignals = SignalBox()
+    let testInvocationCount = InvocationCounterBox()
+    let expectedBundleIdentifiers = Set([
+      "dev.atjsh.symphony",
+      "dev.atjsh.symphony.tests",
+      "dev.atjsh.symphony.tests.xctrunner",
+      "dev.atjsh.symphony.uitests",
+      "dev.atjsh.symphony.uitests.xctrunner",
+    ])
+    let expectedCleanupCountPerPlan = expectedBundleIdentifiers.count
+
+    let runner = RoutedProcessRunner { command, arguments, _, _, _ in
+      if command == "xcodebuild",
+        arguments.starts(with: ["-showBuildSettings", "-json"])
+      {
+        let payload = """
+          [
+            {
+              "buildSettings": {
+                "TARGET_BUILD_DIR": "\(repoRoot.path)/DerivedData/Products",
+                "FULL_PRODUCT_NAME": "Symphony.app",
+                "PRODUCT_BUNDLE_IDENTIFIER": "dev.atjsh.symphony"
+              }
+            }
+          ]
+          """
+        return StubProcessRunner.success(payload)
+      }
+
+      if command == "xcrun", arguments.prefix(2) == ["simctl", "terminate"] {
+        terminateSignals.append(arguments.suffix(2).joined(separator: "|"))
+        return StubProcessRunner.success()
+      }
+      if command == "xcrun", arguments.prefix(2) == ["simctl", "uninstall"] {
+        uninstallSignals.append(arguments.suffix(2).joined(separator: "|"))
+        return StubProcessRunner.success()
+      }
+
+      if command == "xcodebuild", arguments.last == "test" {
+        let currentInvocation = testInvocationCount.increment()
+        #expect(terminateSignals.values.count == currentInvocation * expectedCleanupCountPerPlan)
+        #expect(uninstallSignals.values.count == currentInvocation * expectedCleanupCountPerPlan)
+        #expect(Set(terminateSignals.values.suffix(expectedCleanupCountPerPlan)) == Set(
+          expectedBundleIdentifiers.map { "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA|\($0)" }
+        ) || Set(terminateSignals.values.suffix(expectedCleanupCountPerPlan)) == Set(
+          expectedBundleIdentifiers.map { "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB|\($0)" }
+        ))
+        #expect(Set(uninstallSignals.values.suffix(expectedCleanupCountPerPlan)) == Set(
+          expectedBundleIdentifiers.map { "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA|\($0)" }
+        ) || Set(uninstallSignals.values.suffix(expectedCleanupCountPerPlan)) == Set(
+          expectedBundleIdentifiers.map { "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB|\($0)" }
+        ))
+
+        if let bundleIndex = arguments.firstIndex(of: "-resultBundlePath") {
+          let bundlePath = URL(fileURLWithPath: arguments[bundleIndex + 1])
+          try FileManager.default.createDirectory(at: bundlePath, withIntermediateDirectories: true)
+        }
+        return StubProcessRunner.success("validated")
+      }
+
+      return StubProcessRunner.success()
+    }
+
+    let coveragePath = repoRoot.appendingPathComponent(
+      ".build/arm64-apple-macosx/debug/codecov/symphony-swift.json")
+    try FileManager.default.createDirectory(
+      at: coveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            {
+              "filename": "__REPO__/Sources/Covered.swift",
+              "summary": { "lines": { "count": 4, "covered": 4 } }
+            }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+    let perfectCoverage = CoverageReport(
+      coveredLines: 4,
+      executableLines: 4,
+      lineCoverage: 1,
+      includeTestTargets: false,
+      excludedTargets: [],
+      targets: []
+    )
+    let harnessRunner = StubProcessRunner(results: [
+      "swift test --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+    ])
+    let tool = SymphonyHarnessTool(
+      workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
+      executionContextBuilder: ExecutionContextBuilder(),
+      simulatorResolver: SimulatorResolver(
+        catalog: StubSimulatorCatalog(devices: destinations),
+        processRunner: runner
+      ),
+      processRunner: runner,
+      artifactManager: ArtifactManager(processRunner: runner),
+      endpointOverrideStore: EndpointOverrideStore(),
+      doctorService: StubDoctorService(
+        report: DiagnosticsReport(issues: [], checkedPaths: [], checkedExecutables: []),
+        rendered: "ok"),
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests),
+      productLocator: ProductLocator(processRunner: runner),
+      commitHarness: CommitHarness(
+        processRunner: harnessRunner,
+        statusSink: { _ in },
+        clientCoverageLoader: { _ in perfectCoverage },
+        serverCoverageLoader: { _ in perfectCoverage },
+        toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+          capabilities: .fullyAvailableForTests)
+      ),
+      gitHookInstaller: GitHookInstaller(processRunner: runner),
+      statusSink: { _ in }
+    )
+
+    let summaryPath = try tool.validate(
+      ExecutionRequest(command: .validate, subjects: [], explicitTestSubjects: [], outputMode: .filtered)
+    )
+
+    #expect(FileManager.default.fileExists(atPath: summaryPath))
+    #expect(terminateSignals.values.count == 6 * expectedCleanupCountPerPlan)
+    #expect(uninstallSignals.values.count == 6 * expectedCleanupCountPerPlan)
   }
 }
 
@@ -3589,6 +5830,15 @@ func buildToolHarnessWritesPackageInspectionFromCommitHarnessExecutionBeforeArti
   _ = tool
 }
 
+private func loadCoverageReport(fromSharedSummaryPath summaryPath: String, subject: String) throws
+  -> CoverageReport
+{
+  let coverageURL = URL(fileURLWithPath: summaryPath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("subjects/\(subject)/coverage.json")
+  return try JSONDecoder().decode(CoverageReport.self, from: Data(contentsOf: coverageURL))
+}
+
 private func makeCoverageTool(
   workspace: WorkspaceContext, runner: RoutedProcessRunner,
   statusSink: @escaping @Sendable (String) -> Void
@@ -3656,6 +5906,39 @@ private final class RoutedProcessRunner: ProcessRunning, @unchecked Sendable {
     startedDetachedExecutions.append((executablePath, environment, output))
     lock.unlock()
     return 4242
+  }
+}
+
+private final class InvocationCounterBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+
+  func increment() -> Int {
+    lock.lock()
+    value += 1
+    let currentValue = value
+    lock.unlock()
+    return currentValue
+  }
+}
+
+private final class StringIntBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values = [String: Int]()
+
+  func increment(for key: String) -> Int {
+    lock.lock()
+    values[key, default: 0] += 1
+    let currentValue = values[key, default: 0]
+    lock.unlock()
+    return currentValue
+  }
+
+  func value(for key: String) -> Int? {
+    lock.lock()
+    let currentValue = values[key]
+    lock.unlock()
+    return currentValue
   }
 }
 

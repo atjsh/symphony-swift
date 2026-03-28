@@ -16,11 +16,21 @@ struct OperatorFlowLayout: Layout {
   }
 
   func makeCache(subviews: Subviews) -> Cache {
-    Cache(sizes: subviews.map { $0.sizeThatFits(.unspecified) })
+    var sizes = [CGSize]()
+    sizes.reserveCapacity(subviews.count)
+    for subview in subviews {
+      sizes.append(subview.sizeThatFits(.unspecified))
+    }
+    return Cache(sizes: sizes)
   }
 
   func updateCache(_ cache: inout Cache, subviews: Subviews) {
-    cache.sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+    var sizes = [CGSize]()
+    sizes.reserveCapacity(subviews.count)
+    for subview in subviews {
+      sizes.append(subview.sizeThatFits(.unspecified))
+    }
+    cache.sizes = sizes
   }
 
   func sizeThatFits(
@@ -28,14 +38,22 @@ struct OperatorFlowLayout: Layout {
     subviews: Subviews,
     cache: inout Cache
   ) -> CGSize {
-    let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+    let maxWidth = operatorFlowLayoutMaxWidth(for: proposal.width)
     let rows = makeRows(maxWidth: maxWidth, sizes: cache.sizes)
-    let width = rows.map(\.width).max() ?? 0
-    let height =
-      rows.reduce(0) { partialResult, row in
-        partialResult + row.height
-      } + rowSpacing * CGFloat(max(rows.count - 1, 0))
-    return CGSize(width: proposal.width ?? width, height: height)
+    var rowWidths = [CGFloat]()
+    var rowHeights = [CGFloat]()
+    rowWidths.reserveCapacity(rows.count)
+    rowHeights.reserveCapacity(rows.count)
+    for row in rows {
+      rowWidths.append(row.width)
+      rowHeights.append(row.height)
+    }
+    return operatorFlowLayoutMeasuredSize(
+      proposedWidth: proposal.width,
+      rowWidths: rowWidths,
+      rowHeights: rowHeights,
+      rowSpacing: rowSpacing
+    )
   }
 
   func placeSubviews(
@@ -88,22 +106,62 @@ struct OperatorFlowLayout: Layout {
   }
 }
 
+func operatorFlowLayoutMaxWidth(for proposedWidth: CGFloat?) -> CGFloat {
+  if let proposedWidth {
+    return proposedWidth
+  }
+  return .greatestFiniteMagnitude
+}
+
+func operatorFlowLayoutMeasuredSize(
+  proposedWidth: CGFloat?,
+  rowWidths: [CGFloat],
+  rowHeights: [CGFloat],
+  rowSpacing: CGFloat
+) -> CGSize {
+  var width: CGFloat = 0
+  for rowWidth in rowWidths {
+    width = max(width, rowWidth)
+  }
+
+  var height: CGFloat = 0
+  for rowHeight in rowHeights {
+    height += rowHeight
+  }
+  height += rowSpacing * CGFloat(max(rowHeights.count - 1, 0))
+
+  if let proposedWidth {
+    return CGSize(width: proposedWidth, height: height)
+  }
+  return CGSize(width: width, height: height)
+}
+
 private struct OperatorFlowLayoutRow {
   var indices = [Int]()
   var width: CGFloat = 0
   var height: CGFloat = 0
 }
 
-private struct DetailLineValueSelectionModifier: ViewModifier {
-  let enabled: Bool
+func detailLineTextSelectionEnabled(for enabled: Bool) -> Bool {
+  #if os(iOS)
+    false
+  #else
+    enabled
+  #endif
+}
 
+extension View {
   @ViewBuilder
-  func body(content: Content) -> some View {
-    if enabled {
-      content.textSelection(.enabled)
-    } else {
-      content
-    }
+  func operatorDetailTextSelection(enabled: Bool) -> some View {
+    #if os(iOS)
+      self
+    #else
+      if detailLineTextSelectionEnabled(for: enabled) {
+        self.textSelection(.enabled)
+      } else {
+        self
+      }
+    #endif
   }
 }
 
@@ -150,15 +208,15 @@ struct DetailLine: View {
     Text(label)
       .font(.caption)
       .bold()
-      .foregroundStyle(.secondary)
+      .foregroundStyle(Color.primary)
   }
 
   private var detailValue: some View {
     Text(value)
       .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
-      .foregroundStyle(.secondary)
+      .foregroundStyle(Color.primary)
       .fixedSize(horizontal: false, vertical: true)
-      .modifier(DetailLineValueSelectionModifier(enabled: monospaced))
+      .operatorDetailTextSelection(enabled: monospaced)
   }
 }
 
@@ -206,7 +264,7 @@ struct MarkdownMessageText: View {
       .tint(theme.accentTint)
       .lineSpacing(3)
       .fixedSize(horizontal: false, vertical: true)
-      .textSelection(.enabled)
+      .operatorDetailTextSelection(enabled: true)
   }
 }
 
@@ -216,14 +274,18 @@ struct StatePill: View {
   let tint: Color
 
   var body: some View {
-    Label(text, systemImage: statusSymbol(text))
-      .font(.caption)
+    HStack(spacing: 6) {
+      Image(systemName: statusSymbol(text))
+        .foregroundStyle(tint)
+      Text(text)
+        .foregroundStyle(Color.primary)
+    }
+      .font(.footnote.weight(.semibold))
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(tint.opacity(0.12), in: Capsule())
-      .foregroundStyle(tint)
       .overlay(
         Capsule()
           .strokeBorder(tint.opacity(0.18), lineWidth: 1)
@@ -237,13 +299,13 @@ struct QuietBadge: View {
 
   var body: some View {
     Text(text)
-      .font(.caption)
+      .font(.footnote.weight(.medium))
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(theme.badgeFill, in: Capsule())
-      .foregroundStyle(theme.quietText)
+      .foregroundStyle(Color.primary)
       .overlay(
         Capsule()
           .strokeBorder(theme.badgeBorder, lineWidth: 1)
@@ -256,14 +318,18 @@ struct PriorityBadge: View {
   let priority: Int
 
   var body: some View {
-    Label("P\(priority)", systemImage: "flag.fill")
-      .font(.caption)
+    HStack(spacing: 6) {
+      Image(systemName: "flag.fill")
+        .foregroundStyle(theme.warningTint)
+      Text("P\(priority)")
+        .foregroundStyle(Color.primary)
+    }
+      .font(.footnote.weight(.semibold))
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(theme.warningTint.opacity(0.12), in: Capsule())
-      .foregroundStyle(theme.warningTint)
       .overlay(
         Capsule()
           .strokeBorder(theme.warningTint.opacity(0.18), lineWidth: 1)
@@ -277,14 +343,15 @@ struct ProviderBadge: View {
 
   var body: some View {
     Text(label.replacingOccurrences(of: "_", with: " ").uppercased())
-      .font(.caption)
-      .bold()
-      .lineLimit(1)
-      .fixedSize(horizontal: true, vertical: false)
+      .font(.footnote.weight(.semibold))
+      .lineLimit(2)
+      .minimumScaleFactor(0.85)
+      .multilineTextAlignment(.center)
+      .fixedSize(horizontal: false, vertical: true)
       .padding(.horizontal, 9)
       .padding(.vertical, 5)
       .background(theme.badgeFill, in: Capsule())
-      .foregroundStyle(theme.accentTint)
+      .foregroundStyle(Color.primary)
       .overlay(
         Capsule()
           .strokeBorder(theme.badgeBorder, lineWidth: 1)
@@ -301,7 +368,7 @@ struct MetricChip: View {
     HStack(spacing: 6) {
       Text(label)
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.primary)
         .lineLimit(1)
       Text(value)
         .font(.subheadline)

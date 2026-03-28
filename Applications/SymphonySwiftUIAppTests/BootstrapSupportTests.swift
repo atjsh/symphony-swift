@@ -4,7 +4,7 @@ import Testing
 
 @testable import SymphonySwiftUIApp
 
-@Suite("Bootstrap Support")
+@Suite("Bootstrap Support", .serialized)
 struct BootstrapSupportTests {
   @Test func effectiveServerEndpointUsesDefaults() {
     let endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: [:])
@@ -208,6 +208,42 @@ struct BootstrapSupportTests {
 
     let defaultApp = SymphonyApp()
     _ = defaultApp.body
+
+    let configuredApp = SymphonyApp(arguments: ["Symphony"], environment: [:], startupOutput: { _ in })
+    _ = configuredApp.body
+  }
+
+  @Test func defaultStartupOutputCanBeInvokedDirectly() {
+    SymphonyApp.defaultStartupOutput("[Symphony] startup output probe")
+  }
+
+  @Test func defaultStartupLogEmitterCanBeInvokedDirectly() {
+    SymphonyApp.emitStartupLogsIfNeeded(
+      environment: [
+        BootstrapKeepAlivePolicy.exitAfterStartupKey: "1",
+        BootstrapEnvironment.serverSchemeKey: "https",
+        BootstrapEnvironment.serverHostKey: "app.example.com",
+        BootstrapEnvironment.serverPortKey: "9443",
+      ]
+    )
+  }
+
+  @MainActor
+  @Test func symphonyAppInitEmitsStartupLogsWhenExitAfterStartupIsRequested() {
+    let outputRecorder = SynchronizedOutputRecorder()
+
+    SymphonyApp.emitStartupLogsIfNeeded(
+      environment: [
+        BootstrapKeepAlivePolicy.exitAfterStartupKey: "1",
+        BootstrapEnvironment.serverSchemeKey: "https",
+        BootstrapEnvironment.serverHostKey: "app.example.com",
+        BootstrapEnvironment.serverPortKey: "9443",
+      ],
+      output: outputRecorder.append
+    )
+
+    #expect(outputRecorder.lines.contains("[Symphony] starting"))
+    #expect(outputRecorder.lines.contains("[Symphony] endpoint=https://app.example.com:9443"))
   }
 
   @Test func uitestingSymphonyAPIClientReturnsFixtureData() async throws {
@@ -261,5 +297,22 @@ struct BootstrapSupportTests {
       streamEvents.append(event)
     }
     #expect(streamEvents.isEmpty)
+  }
+}
+
+private final class SynchronizedOutputRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage = [String]()
+
+  var lines: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  func append(_ line: String) {
+    lock.lock()
+    storage.append(line)
+    lock.unlock()
   }
 }

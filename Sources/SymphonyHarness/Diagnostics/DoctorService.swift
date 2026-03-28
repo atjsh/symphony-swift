@@ -192,7 +192,7 @@ public struct DoctorService: DoctorServicing {
           code: "extra_package_manifest",
           message:
             "Found an extra package manifest at \(extraPackageManifest.path). The migration target allows only the root Package.swift.",
-          suggestedFix: "Remove nested package manifests under `Tools/`."
+          suggestedFix: "Remove nested package manifests anywhere under the repository root."
         ))
     }
 
@@ -217,13 +217,71 @@ public struct DoctorService: DoctorServicing {
         ))
     }
 
+    issues.append(contentsOf: appXcodeSurfaceIssues(in: layout))
+
+    return issues
+  }
+
+  private func appXcodeSurfaceIssues(in layout: RepositoryLayout) -> [DiagnosticIssue] {
+    let schemeRoot = canonicalAppProjectPath(in: layout).appendingPathComponent(
+      "xcshareddata/xcschemes",
+      isDirectory: true
+    )
+    let appSchemeURL = schemeRoot.appendingPathComponent("SymphonySwiftUIApp.xcscheme", isDirectory: false)
+    let uiTestSchemeURL = schemeRoot.appendingPathComponent(
+      "SymphonySwiftUIAppUITests.xcscheme",
+      isDirectory: false
+    )
+
+    var issues = [DiagnosticIssue]()
+    issues.append(
+      contentsOf: missingSchemeIssue(
+        at: appSchemeURL,
+        code: "missing_xcscheme_symphonyswiftuiapp",
+        message: "Required shared scheme `SymphonySwiftUIApp.xcscheme` is missing."
+      )
+    )
+    issues.append(
+      contentsOf: missingSchemeIssue(
+        at: uiTestSchemeURL,
+        code: "missing_xcscheme_symphonyswiftuiappuitests",
+        message: "Required shared scheme `SymphonySwiftUIAppUITests.xcscheme` is missing."
+      )
+    )
+
+    if fileManager.fileExists(atPath: appSchemeURL.path) {
+      issues.append(
+        contentsOf: missingTestPlanReferenceIssue(
+          in: appSchemeURL,
+          requiredReferences: [
+            "SymphonySwiftUIApp.xctestplan",
+            "SymphonySwiftUIAppTests.xctestplan",
+            "SymphonySwiftUIAppUITests.xctestplan",
+          ],
+          code: "missing_testplan_reference_symphonyswiftuiapp",
+          message:
+            "Shared scheme `SymphonySwiftUIApp.xcscheme` must reference the checked-in app, unit, and UI test plans."
+        )
+      )
+    }
+
+    if fileManager.fileExists(atPath: uiTestSchemeURL.path) {
+      issues.append(
+        contentsOf: missingTestPlanReferenceIssue(
+          in: uiTestSchemeURL,
+          requiredReferences: ["SymphonySwiftUIAppUITests.xctestplan"],
+          code: "missing_testplan_reference_symphonyswiftuiappuitests",
+          message:
+            "Shared scheme `SymphonySwiftUIAppUITests.xcscheme` must reference the checked-in UI test plan."
+        )
+      )
+    }
+
     return issues
   }
 
   private func checkedInTestPlans(in layout: RepositoryLayout) -> [URL] {
-    let projectRoot =
-      layout.xcodeProjectPath
-      ?? layout.projectRoot.appendingPathComponent("SymphonyApps.xcodeproj", isDirectory: true)
+    let projectRoot = canonicalAppProjectPath(in: layout)
     let testPlanRoot = projectRoot.appendingPathComponent("xcshareddata/xctestplans", isDirectory: true)
     guard let urls = try? fileManager.contentsOfDirectory(
       at: testPlanRoot,
@@ -236,24 +294,67 @@ public struct DoctorService: DoctorServicing {
   }
 
   private func extraPackageManifest(in projectRoot: URL) -> URL? {
-    let toolsRoot = projectRoot.appendingPathComponent("Tools", isDirectory: true)
-    guard fileManager.fileExists(atPath: toolsRoot.path) else {
-      return nil
-    }
-
     let enumerator = fileManager.enumerator(
-      at: toolsRoot,
+      at: projectRoot,
       includingPropertiesForKeys: [.isDirectoryKey],
       options: [.skipsHiddenFiles]
     )
+    let canonicalManifestPath =
+      projectRoot
+      .appendingPathComponent("Package.swift", isDirectory: false)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .path
 
     while let next = enumerator?.nextObject() as? URL {
-      if next.lastPathComponent == "Package.swift" {
+      let nextPath = next.resolvingSymlinksInPath().standardizedFileURL.path
+      if next.lastPathComponent == "Package.swift", nextPath != canonicalManifestPath {
         return next
       }
     }
 
     return nil
+  }
+
+  private func canonicalAppProjectPath(in layout: RepositoryLayout) -> URL {
+    layout.xcodeProjectPath
+      ?? layout.projectRoot.appendingPathComponent("SymphonyApps.xcodeproj", isDirectory: true)
+  }
+
+  private func missingSchemeIssue(at url: URL, code: String, message: String) -> [DiagnosticIssue] {
+    guard !fileManager.fileExists(atPath: url.path) else {
+      return []
+    }
+    return [
+      DiagnosticIssue(
+        severity: .error,
+        code: code,
+        message: message,
+        suggestedFix: "Check in the shared scheme at \(url.path)."
+      )
+    ]
+  }
+
+  private func missingTestPlanReferenceIssue(
+    in schemeURL: URL,
+    requiredReferences: [String],
+    code: String,
+    message: String
+  ) -> [DiagnosticIssue] {
+    guard
+      let scheme = try? String(contentsOf: schemeURL, encoding: .utf8),
+      requiredReferences.allSatisfy({ scheme.contains($0) })
+    else {
+      return [
+        DiagnosticIssue(
+          severity: .error,
+          code: code,
+          message: message,
+          suggestedFix: "Update \(schemeURL.lastPathComponent) to reference the checked-in test plans."
+        )
+      ]
+    }
+    return []
   }
 
   private func executableAvailable(named executable: String) -> Bool {

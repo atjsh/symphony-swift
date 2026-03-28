@@ -91,6 +91,11 @@ import Testing
   #expect(!buildModels.contains("public struct BuildCommandRequest"))
   #expect(!buildModels.contains("public struct TestCommandRequest"))
   #expect(!buildModels.contains("public struct RunCommandRequest"))
+  #expect(!buildModels.contains("public enum XcodeAction"))
+  #expect(!buildModels.contains("public struct SchemeSelector"))
+  #expect(!buildModels.contains("public struct XcodeCommandRequest"))
+  #expect(!buildModels.contains("public enum BuildCommandFamily"))
+  #expect(!buildModels.contains("public enum ProductKind"))
   #expect(!buildModels.contains("public struct HarnessCommandRequest"))
   #expect(!buildModels.contains("public struct HooksInstallRequest"))
   #expect(!buildModels.contains("public struct ArtifactsCommandRequest"))
@@ -114,6 +119,8 @@ import Testing
   #expect(!toolSource.contains("public func simList(currentDirectory: URL)"))
 
   #expect(!artifactManager.contains("public func resolveArtifacts(workspace: WorkspaceContext, request: ArtifactsCommandRequest)"))
+  #expect(!artifactManager.contains("public func recordXcodeExecution("))
+  #expect(!artifactManager.contains("public func recordSwiftPMExecution("))
   #expect(!commitHarness.contains("public func run(workspace: WorkspaceContext, request: HarnessCommandRequest)"))
   #expect(!commitHarness.contains("public func execute(workspace: WorkspaceContext, request: HarnessCommandRequest)"))
 }
@@ -159,8 +166,9 @@ import Testing
   #expect(justfile.contains("run subject"))
   #expect(justfile.contains("validate *subjects:"))
   #expect(justfile.contains("doctor:"))
-  #expect(justfile.contains("swift run harness build"))
-  #expect(justfile.contains("swift run harness validate"))
+  #expect(justfile.contains("harness_scratch_path :="))
+  #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness build"))
+  #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness validate"))
 }
 
 @Test func rootManifestPublishesCanonicalServerTargetsAndRemovesLegacyRuntimeTargets() throws {
@@ -367,7 +375,7 @@ import Testing
   let justfile = try String(contentsOf: justfilePath, encoding: .utf8)
   for recipe in ["build", "test", "run", "validate", "doctor"] {
     #expect(justfile.contains(recipe))
-    #expect(justfile.contains("swift run harness \(recipe)"))
+    #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness \(recipe)"))
   }
 
   let preCommit = try String(contentsOf: preCommitPath, encoding: .utf8)

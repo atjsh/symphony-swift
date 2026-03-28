@@ -45,6 +45,20 @@ private final class ErrorCapture: @unchecked Sendable {
   }
 }
 
+private func waitForRecordedError(
+  _ capture: ErrorCapture,
+  attempts: Int = 100,
+  intervalNanoseconds: UInt64 = 20_000_000
+) async -> Error? {
+  for _ in 0..<attempts {
+    if let error = capture.value {
+      return error
+    }
+    try? await Task.sleep(nanoseconds: intervalNanoseconds)
+  }
+  return capture.value
+}
+
 // MARK: - ProviderAdapterError Tests
 
 @Test func providerAdapterErrorEquatable() {
@@ -294,6 +308,48 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(continuationEvents.map(\.sequence.rawValue) == [1, 2])
 }
 
+@Test func codexAdapterContinueSessionThrowsWhenNoSession() async {
+  let adapter = CodexAdapter(config: .defaults)
+
+  await #expect(throws: ProviderAdapterError.self) {
+    _ = try await adapter.continueSession(sessionID: SessionID("s-missing"), guidance: "keep going")
+  }
+}
+
+@Test func codexAdapterContinueSessionSubmissionFailureRemovesSessionAndTerminatesProcess() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-submit-error"),
+    issue: try makeIssue(title: "Continue"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-submit-error"}}}"# + "\n")
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("continue failed"))
+
+  await #expect(throws: ProviderAdapterError.self) {
+    _ = try await adapter.continueSession(
+      sessionID: SessionID("s-submit-error"),
+      guidance: "keep going"
+    )
+  }
+
+  #expect(stubProcess.terminationCount == 1)
+  await #expect(throws: ProviderAdapterError.self) {
+    _ = try await adapter.continueSession(
+      sessionID: SessionID("s-submit-error"),
+      guidance: "second try"
+    )
+  }
+}
+
 @Test func codexAdapterCancelSessionThrowsWhenNoSession() async {
   let adapter = CodexAdapter(config: .defaults)
   do {
@@ -327,6 +383,31 @@ private final class ErrorCapture: @unchecked Sendable {
   try await adapter.cancelSession(sessionID: SessionID("s-interrupt"))
   #expect(stubProcess.interruptCount == 1)
   #expect(stubProcess.terminationCount == 0)
+}
+
+@Test func codexAdapterInterruptSessionReturnsFalseWhenInterruptSubmissionFails() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-interrupt-failure"),
+    issue: try makeIssue(title: "Interrupt failure"),
+    workspacePath: "/tmp",
+    prompt: "test",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupt-failure"}}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"method":"turn/started","params":{"threadId":"thread-interrupt-failure","turn":{"id":"turn-interrupt-failure"}}}"#
+      + "\n")
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("interrupt failed"))
+
+  let interrupted = try await adapter.interruptSession(sessionID: SessionID("s-interrupt-failure"))
+  #expect(interrupted == false)
 }
 
 @Test func codexAdapterCancelSessionFallsBackToTerminateWithoutTurnIdentity() async throws {
@@ -522,11 +603,11 @@ private final class ErrorCapture: @unchecked Sendable {
     }
   }
 
-  try await Task.sleep(nanoseconds: 250_000_000)
+  let recordedError = await waitForRecordedError(errorCapture)
   consumer.cancel()
   _ = await consumer.result
 
-  let timeoutError = try #require(errorCapture.value as? ProviderAdapterError)
+  let timeoutError = try #require(recordedError as? ProviderAdapterError)
   #expect(timeoutError == .readTimeout(sessionID: SessionID("s-read-timeout"), readTimeoutMS: 50))
 }
 
@@ -557,11 +638,11 @@ private final class ErrorCapture: @unchecked Sendable {
     }
   }
 
-  try await Task.sleep(nanoseconds: 250_000_000)
+  let recordedError = await waitForRecordedError(errorCapture)
   consumer.cancel()
   _ = await consumer.result
 
-  let timeoutError = try #require(errorCapture.value as? ProviderAdapterError)
+  let timeoutError = try #require(recordedError as? ProviderAdapterError)
   #expect(timeoutError == .turnTimeout(sessionID: SessionID("s-turn-timeout"), turnTimeoutMS: 50))
 }
 
@@ -593,6 +674,24 @@ private final class ErrorCapture: @unchecked Sendable {
   let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-buffer"))
   stubProcess.simulateOutput(#"{"type":"mes"#)
   stubProcess.simulateOutput(#"sage"}"# + "\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "message")
+  #expect(events[0].normalizedKind == .message)
+}
+
+@Test func codexAdapterProcessesBufferedTerminationLineWithoutTrailingNewline() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CodexAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-buffered-exit"))
+  stubProcess.simulateOutput(#"{"type":"message","content":"tail"}"#)
   stubProcess.simulateTermination(exitCode: 0)
 
   var events: [AgentRawEvent] = []
@@ -756,6 +855,12 @@ private final class ErrorCapture: @unchecked Sendable {
   }
 }
 
+@Test func claudeCodeAdapterInterruptSessionAlwaysReturnsFalse() async throws {
+  let adapter = ClaudeCodeAdapter(config: .defaults)
+  let interrupted = try await adapter.interruptSession(sessionID: SessionID("s-claude-interrupt"))
+  #expect(interrupted == false)
+}
+
 @Test func claudeCodeAdapterMakeEventStream() async throws {
   let stubProcess = StubLaunchedProcess()
   let adapter = ClaudeCodeAdapter(config: .defaults)
@@ -832,7 +937,7 @@ private final class ErrorCapture: @unchecked Sendable {
 @Test func copilotCLIAdapterCapabilities() {
   let adapter = CopilotCLIAdapter(config: .defaults)
   #expect(adapter.providerName == .copilotCLI)
-  #expect(!adapter.capabilities.supportsResume)
+  #expect(adapter.capabilities.supportsResume)
   #expect(!adapter.capabilities.supportsInterrupt)
   #expect(!adapter.capabilities.supportsUsageTotals)
   #expect(!adapter.capabilities.supportsRateLimits)
@@ -847,7 +952,7 @@ private final class ErrorCapture: @unchecked Sendable {
   stubLauncher.setStubProcess(stubProcess)
 
   let adapter = CopilotCLIAdapter(config: .defaults, processLauncher: stubLauncher)
-  _ = try await adapter.startSession(
+  let stream = try await adapter.startSession(
     sessionID: SessionID("s1"),
     workspacePath: "/tmp/ws",
     prompt: "fix",
@@ -859,20 +964,148 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(stubLauncher.invocations[0].workspacePath == "/tmp/ws")
 
   let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
-  #expect(recordedMessages.count == 3)
+  #expect(recordedMessages.count == 2)
   #expect(
     recordedMessages.map { $0["method"] as? String } == [
       "initialize",
-      "session/start",
-      "session/prompt",
+      "newSession",
     ])
 
-  let promptMessage = try #require(recordedMessages.last)
+  stubProcess.simulateOutput(#"{"id":2,"result":{"sessionId":"copilot-session-1"}}"# + "\n")
+  stubProcess.simulateOutput(#"{"id":3,"result":{"stopReason":"end_turn"}}"# + "\n")
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  let recordedAfterSession = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedAfterSession.count == 3)
+  #expect(recordedAfterSession.map { $0["method"] as? String } == [
+    "initialize",
+    "newSession",
+    "prompt",
+  ])
+
+  let promptMessage = try #require(recordedAfterSession.last)
   let promptParams = try #require(promptMessage["params"] as? [String: Any])
-  #expect(promptParams["prompt"] as? String == "fix")
+  #expect(promptParams["sessionId"] as? String == "copilot-session-1")
+  let promptBlocks = try #require(promptParams["prompt"] as? [Any])
+  let promptBlock = try #require(promptBlocks.first as? [String: Any])
+  #expect(promptBlock["type"] as? String == "text")
+  #expect(promptBlock["text"] as? String == "fix")
+  #expect(events.map(\.providerEventType) == ["result", "result"])
 }
 
-@Test func copilotCLIAdapterContinueSessionThrows() async {
+@Test func copilotCLIAdapterContinuationEmulatesPromptOnSameSession() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CopilotCLIAdapter(config: .defaults, processLauncher: stubLauncher)
+  let initialStream = try await adapter.startSession(
+    sessionID: SessionID("s1"),
+    workspacePath: "/tmp/ws",
+    prompt: "fix",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"sessionId":"copilot-session-1"}}"# + "\n")
+  stubProcess.simulateOutput(#"{"id":3,"result":{"stopReason":"end_turn"}}"# + "\n")
+
+  var initialEvents: [AgentRawEvent] = []
+  for try await event in initialStream {
+    initialEvents.append(event)
+  }
+
+  _ = try await adapter.continueSession(sessionID: SessionID("s1"), guidance: "keep going")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedMessages.count == 4)
+  #expect(recordedMessages.map { $0["method"] as? String } == [
+    "initialize",
+    "newSession",
+    "prompt",
+    "prompt",
+  ])
+
+  let continuationPrompt = try #require(recordedMessages.last)
+  let continuationParams = try #require(continuationPrompt["params"] as? [String: Any])
+  #expect(continuationParams["sessionId"] as? String == "copilot-session-1")
+  let promptBlocks = try #require(continuationParams["prompt"] as? [Any])
+  let promptBlock = try #require(promptBlocks.first as? [String: Any])
+  #expect(promptBlock["text"] as? String == "keep going")
+  #expect(initialEvents.map(\.providerEventType) == ["result", "result"])
+}
+
+@Test func copilotCLIAdapterHandlesRequestPermissionAndSessionUpdate() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CopilotCLIAdapter(config: .defaults, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-perm"),
+    workspacePath: "/tmp/ws",
+    prompt: "fix",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"sessionId":"copilot-session-1"}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"id":7,"method":"session/request_permission","params":{"sessionId":"copilot-session-1","toolCall":{"kind":"shell","command":"git status"},"options":[{"optionId":"allow-once","name":"Allow once","kind":"allow_once"},{"optionId":"reject-once","name":"Reject once","kind":"reject_once"}]}}"#
+      + "\n")
+  stubProcess.simulateOutput(
+    #"{"method":"session/update","params":{"status":"completed"}}"# + "\n")
+  stubProcess.simulateOutput(#"{"id":3,"result":{"stopReason":"end_turn"}}"# + "\n")
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.map(\.providerEventType) == ["result", "session/request_permission", "session/update", "result"])
+  let recordedResponses = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedResponses.count == 4)
+  let response = try #require(recordedResponses.last)
+  #expect(response["id"] as? Int == 7)
+  let result = try #require(response["result"] as? [String: Any])
+  let outcome = try #require(result["outcome"] as? [String: Any])
+  #expect(outcome["outcome"] as? String == "selected")
+  #expect(outcome["optionId"] as? String == "allow-once")
+}
+
+@Test func copilotCLIAdapterCancelsPermissionResponseWhenNoSelectableOptionExists() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CopilotCLIAdapter(config: .defaults, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-perm-cancel"),
+    workspacePath: "/tmp/ws",
+    prompt: "fix",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"sessionId":"copilot-session-2"}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"id":8,"method":"requestPermission","params":{"sessionId":"copilot-session-2","toolCall":{"kind":"shell","command":"git status"},"options":[{"name":"No option id"}]}}"#
+      + "\n")
+  stubProcess.simulateOutput(#"{"id":3,"result":{"stopReason":"end_turn"}}"# + "\n")
+
+  for try await _ in stream {}
+
+  let recordedResponses = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  let response = try #require(recordedResponses.last)
+  #expect(response["id"] as? Int == 8)
+  let result = try #require(response["result"] as? [String: Any])
+  let outcome = try #require(result["outcome"] as? [String: Any])
+  #expect(outcome["outcome"] as? String == "cancelled")
+  #expect(outcome["optionId"] == nil)
+}
+
+@Test func copilotCLIAdapterContinueSessionRequiresExistingSession() async {
   let adapter = CopilotCLIAdapter(config: .defaults)
   do {
     _ = try await adapter.continueSession(sessionID: SessionID("s1"), guidance: "continue")
@@ -880,6 +1113,12 @@ private final class ErrorCapture: @unchecked Sendable {
   } catch {
     #expect(error is ProviderAdapterError)
   }
+}
+
+@Test func copilotCLIAdapterInterruptSessionAlwaysReturnsFalse() async throws {
+  let adapter = CopilotCLIAdapter(config: .defaults)
+  let interrupted = try await adapter.interruptSession(sessionID: SessionID("s-copilot-interrupt"))
+  #expect(interrupted == false)
 }
 
 @Test func copilotCLIAdapterCancelSessionThrowsWhenNoSession() async {
@@ -909,23 +1148,22 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(events[0].providerEventType == "update")
 }
 
-@Test func copilotCLIAdapterCompletedUpdateStopsStreamingFurtherEvents() async throws {
+@Test func copilotCLIAdapterPromptResultStopsStreamingFurtherEvents() async throws {
   let stubProcess = StubLaunchedProcess()
   let adapter = CopilotCLIAdapter(config: .defaults)
 
   let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-acp"))
   stubProcess.simulateOutput(
     "{\"method\":\"session/update\",\"params\":{\"status\":\"completed\"}}\n")
+  stubProcess.simulateOutput("{\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}\n")
   stubProcess.simulateOutput("{\"event\":\"update\",\"content\":\"late\"}\n")
-  stubProcess.simulateTermination(exitCode: 0)
 
   var events: [AgentRawEvent] = []
   for try await event in stream {
     events.append(event)
   }
 
-  #expect(events.count == 1)
-  #expect(events[0].providerEventType == "session/update")
+  #expect(events.map(\.providerEventType) == ["session/update", "result"])
 }
 
 @Test func copilotCLIAdapterMissingEnvelopeUsesUnknownEventDescriptor() async throws {
@@ -945,6 +1183,87 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(events.count == 1)
   #expect(events[0].providerEventType == "unknown")
   #expect(events[0].normalizedKind == .unknown)
+}
+
+@Test func copilotCLIAdapterRequestPermissionSubmissionFailureFinishesStreamWithError() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CopilotCLIAdapter(config: .defaults, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-perm-error"),
+    workspacePath: "/tmp/ws",
+    prompt: "fix",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"sessionId":"copilot-session-error"}}"# + "\n")
+  stubProcess.setInputError(ProviderAdapterError.processLaunchFailed("permission failed"))
+  stubProcess.simulateOutput(
+    #"{"id":9,"method":"session/request_permission","params":{"sessionId":"copilot-session-error","options":[{"optionId":"allow-once"}]}}"#
+      + "\n")
+
+  var caughtError: Error?
+  do {
+    for try await _ in stream {}
+  } catch {
+    caughtError = error
+  }
+
+  let adapterError = try #require(caughtError as? ProviderAdapterError)
+  guard case .processLaunchFailed = adapterError else {
+    #expect(Bool(false), "Expected request_permission submission failure to surface as processLaunchFailed")
+    return
+  }
+}
+
+@Test func copilotCLIAdapterPromptResultNonEndTurnFailsStreamWithTerminalOutcome() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CopilotCLIAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-acp-stop"))
+  stubProcess.simulateOutput(#"{"id":3,"result":{"stopReason":"max_turns"}}"# + "\n")
+
+  var caughtError: Error?
+  do {
+    for try await _ in stream {}
+  } catch {
+    caughtError = error
+  }
+
+  let adapterError = try #require(caughtError as? ProviderAdapterError)
+  #expect(
+    adapterError == .terminalOutcome(
+      sessionID: SessionID("s-acp-stop"),
+      outcome: "max_turns"
+    ))
+}
+
+@Test func copilotCLIAdapterErrorEnvelopeFailsStreamWithTerminalErrorOutcome() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CopilotCLIAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-acp-error"))
+  stubProcess.simulateOutput(#"{"error":{"message":"boom"}}"# + "\n")
+
+  var events: [AgentRawEvent] = []
+  var caughtError: Error?
+  do {
+    for try await event in stream {
+      events.append(event)
+    }
+  } catch {
+    caughtError = error
+  }
+
+  #expect(events.map(\.providerEventType) == ["error"])
+  let adapterError = try #require(caughtError as? ProviderAdapterError)
+  #expect(
+    adapterError == .terminalOutcome(
+      sessionID: SessionID("s-acp-error"),
+      outcome: "error"
+    ))
 }
 
 // MARK: - StubProcessLauncher Tests
@@ -997,6 +1316,17 @@ private final class ErrorCapture: @unchecked Sendable {
   process.terminate()
 
   #expect(captured.withLock { $0 } == [15])
+}
+
+@Test func stubLaunchedProcessInterruptCountsOnceAndIgnoresAfterTermination() {
+  let process = StubLaunchedProcess()
+
+  process.interrupt()
+  process.terminate()
+  process.interrupt()
+
+  #expect(process.interruptCount == 1)
+  #expect(process.terminationCount == 1)
 }
 
 // MARK: - ProviderAdapterFactory Tests
@@ -1102,6 +1432,19 @@ private final class ErrorCapture: @unchecked Sendable {
   )
   // Terminate should not crash
   process.terminate()
+  Thread.sleep(forTimeInterval: 0.5)
+}
+
+@Test func defaultLaunchedProcessInterrupt() throws {
+  let launcher = DefaultProcessLauncher()
+  let tmpDir = NSTemporaryDirectory()
+  let process = try launcher.launch(
+    command: "sleep 60",
+    workspacePath: tmpDir,
+    environment: [:]
+  )
+
+  process.interrupt()
   Thread.sleep(forTimeInterval: 0.5)
 }
 
@@ -1356,6 +1699,24 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(unsupportedTool == .approvalRequest)
 }
 
+@Test func eventKindInferenceCodexFileChangeRequiredMapsApprovalRequest() {
+  let kind = EventKindInference.infer(
+    from:
+      #"{"method":"item/fileChange/required","params":{"request":{"kind":"file_change"}}}"#,
+    provider: .codex
+  )
+  #expect(kind == .approvalRequest)
+}
+
+@Test func eventKindInferenceCodexUnsupportedAndToolTokensMapApprovalRequest() {
+  let kind = EventKindInference.infer(
+    from:
+      #"{"type":"tool_unsupported","params":{"tool":{"kind":"dynamic"}}}"#,
+    provider: .codex
+  )
+  #expect(kind == .approvalRequest)
+}
+
 @Test func eventKindInferenceCodexError() {
   let kind = EventKindInference.infer(from: "{\"type\": \"error\"}", provider: .codex)
   #expect(kind == .error)
@@ -1474,6 +1835,14 @@ private final class ErrorCapture: @unchecked Sendable {
   #expect(kind == .error)
 }
 
+@Test func eventKindInferenceCopilotErrorEnvelopeUsesErrorBranch() {
+  let kind = EventKindInference.infer(
+    from: #"{"error":{"message":"bad request"},"id":1}"#,
+    provider: .copilotCLI
+  )
+  #expect(kind == .error)
+}
+
 @Test func eventKindInferenceCopilotUnknown() {
   let kind = EventKindInference.infer(from: "{\"type\": \"custom\"}", provider: .copilotCLI)
   #expect(kind == .unknown)
@@ -1513,6 +1882,48 @@ private final class ErrorCapture: @unchecked Sendable {
     provider: .copilotCLI
   )
   #expect(kind == .status)
+}
+
+@Test func eventKindInferenceCopilotPermissionRequestIsApprovalRequest() {
+  let kind = EventKindInference.infer(
+    from: "{\"method\": \"session/request_permission\"}",
+    provider: .copilotCLI
+  )
+  #expect(kind == .approvalRequest)
+}
+
+@Test func eventKindInferenceCopilotPromptResultIsStatus() {
+  let kind = EventKindInference.infer(
+    from: "{\"id\": 3, \"result\": {\"stopReason\": \"end_turn\"}}",
+    provider: .copilotCLI
+  )
+  #expect(kind == .status)
+}
+
+@Test func codexTurnOutcomeParsesFailedAndInterruptedStatesFromNestedPayloads() {
+  let failed = codexTurnOutcome(
+    from:
+      #"{"method":"turn/completed","params":{"outcome":[" ","failed"]}}"#
+  )
+  #expect(failed == .failed)
+
+  let interrupted = codexTurnOutcome(
+    from:
+      #"{"method":"turn/completed","params":{"payload":{"state":"cancelled"}}}"#
+  )
+  #expect(interrupted == .interrupted)
+
+  let cancelled = codexTurnOutcome(
+    from:
+      #"{"method":"turn/cancelled","params":{"turn_id":"turn-cancelled"}}"#
+  )
+  #expect(cancelled == .interrupted)
+
+  let completed = codexTurnOutcome(
+    from:
+      #"{"method":"turn/completed","params":{"outcome":[" "," "]}}"#
+  )
+  #expect(completed == .completed)
 }
 
 // MARK: - Session Tracking Tests

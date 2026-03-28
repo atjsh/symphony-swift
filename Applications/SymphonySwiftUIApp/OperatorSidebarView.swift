@@ -13,25 +13,23 @@ struct OperatorSidebarView: View {
 
   private var issueList: some View {
     List(selection: issueSelection) {
-      Section("Issues") {
-        ForEach(model.filteredIssues, id: \.issueID.rawValue) { issue in
-          Button(
-            action: makeOperatorSidebarSelectIssueAction(
-              issueID: issue.issueID,
-              model: model,
-              selectIssue: selectIssue
-            )
-          ) {
-            IssueSidebarRow(
-              theme: theme,
-              issue: issue,
-              isSelected: issue.issueID == model.selectedIssueID
-            )
-          }
-          .buttonStyle(.plain)
-          .tag(Optional(issue.issueID))
-          .accessibilityIdentifier("issue-row-\(issue.issueID.rawValue)")
+      ForEach(model.filteredIssues, id: \.issueID.rawValue) { issue in
+        Button(
+          action: makeOperatorSidebarSelectIssueAction(
+            issueID: issue.issueID,
+            model: model,
+            selectIssue: selectIssue
+          )
+        ) {
+          IssueSidebarRow(
+            theme: theme,
+            issue: issue,
+            isSelected: issue.issueID == model.selectedIssueID
+          )
         }
+        .buttonStyle(.plain)
+        .tag(Optional(issue.issueID))
+        .accessibilityIdentifier("issue-row-\(issue.issueID.rawValue)")
       }
     }
     .accessibilityIdentifier("issue-list")
@@ -40,7 +38,17 @@ struct OperatorSidebarView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: theme.sectionSpacing) {
       TextField("Filter Issues", text: $model.issueSearchText)
-        .textFieldStyle(.roundedBorder)
+        .font(.body)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white.opacity(0.96))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(theme.insetStroke, lineWidth: 1)
+        )
         .accessibilityIdentifier("sidebar-search")
 
       OperatorServerStatusSummaryView(
@@ -141,8 +149,17 @@ private struct OperatorServerStatusSummaryView: View {
   let portText: String
   let openServerEditor: () -> Void
 
+  @ViewBuilder
+  private var serverActionLabel: some View {
+    Text("Server")
+      .font(.body.weight(.semibold))
+  }
+
   private var statusText: String {
     if let health {
+      if theme.compact {
+        return health.trackerKind.capitalized
+      }
       return "Connected to \(health.trackerKind.capitalized)"
     }
     if connectionError != nil {
@@ -156,6 +173,16 @@ private struct OperatorServerStatusSummaryView: View {
       return connectionError
     }
     return "\(host):\(portText)"
+  }
+
+  private var statusAccessibilityText: String {
+    if let health {
+      return "Connected to \(health.trackerKind.capitalized)"
+    }
+    if connectionError != nil {
+      return "Connection failed"
+    }
+    return "Not connected"
   }
 
   private var statusColor: Color {
@@ -179,17 +206,29 @@ private struct OperatorServerStatusSummaryView: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(statusText)
             .font(.headline)
-          Text(statusDetail)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
             .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
+            .accessibilityLabel(statusAccessibilityText)
+          Text(statusDetail)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Color.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
         }
-
-        Spacer(minLength: 8)
       }
 
-      Button("Configure Server", systemImage: "slider.horizontal.3", action: openServerEditor)
+      Button(action: openServerEditor) {
+        serverActionLabel
+          .foregroundStyle(theme.bodyText)
+          .lineLimit(2)
+          .minimumScaleFactor(0.8)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
         .buttonStyle(.borderless)
+        .accessibilityLabel("Configure Server")
         .accessibilityIdentifier("server-editor-summary-button")
     }
     .operatorPanel(theme)
@@ -197,18 +236,39 @@ private struct OperatorServerStatusSummaryView: View {
 }
 
 private struct IssueSidebarRow: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let theme: OperatorTheme
   let issue: IssueSummary
   let isSelected: Bool
 
+  private var metadataPlacement: OperatorIssueRowMetadataPlacement {
+    operatorIssueRowMetadataPlacement(
+      isCompact: theme.compact,
+      prefersAccessibilityLayout: dynamicTypeSize.isAccessibilitySize
+    )
+  }
+
+  private var issueIdentifierDisplayText: String {
+    issue.identifier.rawValue
+      .replacingOccurrences(of: "/", with: "/\u{200B}")
+      .replacingOccurrences(of: "#", with: "\u{200B}#")
+  }
+
+  private var issueIdentifierLabel: some View {
+    Text(verbatim: issueIdentifierDisplayText)
+      .font(.caption.monospaced())
+      .foregroundStyle(.secondary)
+      .lineLimit(2)
+      .minimumScaleFactor(0.75)
+      .fixedSize(horizontal: false, vertical: true)
+      .accessibilityLabel(issue.identifier.rawValue)
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      if operatorIssueRowMetadataPlacement(isCompact: theme.compact) == .trailing {
+      if metadataPlacement == .trailing {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-          Text(issue.identifier.rawValue)
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+          issueIdentifierLabel
 
           Spacer(minLength: 12)
 
@@ -218,10 +278,7 @@ private struct IssueSidebarRow: View {
         }
       } else {
         VStack(alignment: .leading, spacing: 6) {
-          Text(issue.identifier.rawValue)
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+          issueIdentifierLabel
 
           if let provider = issue.currentProvider {
             ProviderBadge(theme: theme, label: provider)
@@ -231,7 +288,9 @@ private struct IssueSidebarRow: View {
 
       Text(issue.title)
         .font(.body)
-        .lineLimit(theme.compact ? 3 : 2)
+        .lineLimit(3)
+        .minimumScaleFactor(0.85)
+        .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
 
       OperatorFlowLayout(spacing: 6, rowSpacing: 6) {

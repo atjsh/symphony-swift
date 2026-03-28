@@ -34,7 +34,7 @@ public struct CoverageReporter {
       command: "xcrun", arguments: ["xccov", "view", "--report", "--json", resultBundlePath.path])
   }
 
-  public func export(
+  func export(
     resultBundlePath: URL,
     artifactRoot: URL,
     product: ProductKind,

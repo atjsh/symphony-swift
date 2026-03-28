@@ -76,6 +76,24 @@ import Testing
   }
 }
 
+@Test func buildCommandRequiresAtLeastOneProductionSubject() {
+  do {
+    _ = try SymphonyHarnessCommand.Build.parseAsRoot([])
+    Issue.record("Expected build without subjects to fail validation.")
+  } catch {
+    #expect(String(describing: error).contains("at least one canonical production subject"))
+  }
+}
+
+@Test func buildCommandRejectsExplicitTestSubjects() {
+  do {
+    _ = try SymphonyHarnessCommand.Build.parseAsRoot(["SymphonyServerTests"])
+    Issue.record("Expected build to reject explicit test subjects.")
+  } catch {
+    #expect(String(describing: error).contains("production subjects"))
+  }
+}
+
 @Test func cliContextDefaultsMatchCurrentProcessEnvironment() {
   try! CLIContext.withOverrides(
     toolFactory: { RecordingCLITool() },
@@ -100,6 +118,24 @@ import Testing
     #expect(CLIContext.makeTool() is SymphonyHarnessTool)
     #expect(CLIContext.currentDirectory().path == FileManager.default.currentDirectoryPath)
     CLIContext.emit("")
+  }
+}
+
+@Test func runCommandRejectsNonRunnableCanonicalSubject() {
+  do {
+    _ = try SymphonyHarnessCommand.Run.parseAsRoot(["SymphonyShared"])
+    Issue.record("Expected run to reject non-runnable subjects.")
+  } catch {
+    #expect(String(describing: error).contains("canonical runnable subject"))
+  }
+}
+
+@Test func commandsRejectUnknownCanonicalSubjects() {
+  do {
+    _ = try SymphonyHarnessCommand.Validate.parseAsRoot(["NotASubject"])
+    Issue.record("Expected validate to reject unknown subjects.")
+  } catch {
+    #expect(String(describing: error).contains("Unknown subject 'NotASubject'"))
   }
 }
 
@@ -187,6 +223,28 @@ import Testing
       "validate-output",
       "doctor-output",
     ])
+}
+
+@Test func runCommandAcceptsDirectHostAndPortOverrides() throws {
+  let tool = RecordingCLITool()
+
+  try CLIContext.withOverrides(
+    toolFactory: { tool },
+    printer: { _ in },
+    currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) }
+  ) {
+    var run =
+      try SymphonyHarnessCommand.Run.parseAsRoot([
+        "SymphonyServerCLI",
+        "--host", "localhost",
+        "--port", "8080",
+      ]) as! SymphonyHarnessCommand.Run
+    try run.run()
+  }
+
+  #expect(tool.executionRequests.count == 1)
+  #expect(tool.executionRequests[0].environment["SYMPHONY_SERVER_HOST"] == "localhost")
+  #expect(tool.executionRequests[0].environment["SYMPHONY_SERVER_PORT"] == "8080")
 }
 
 @Test func runCommandRejectsInvalidEnvironmentOverrideFormat() throws {

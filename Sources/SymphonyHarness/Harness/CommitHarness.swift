@@ -364,7 +364,15 @@ public struct CommitHarness {
   }
 
   private static func resolveCoverageArtifactRoot(from outputPath: String) throws -> URL {
-    let resolvedURL = URL(fileURLWithPath: outputPath)
+    var canonicalPath = outputPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    for line in outputPath.components(separatedBy: .newlines) {
+      let candidate = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !candidate.isEmpty {
+        canonicalPath = candidate
+        break
+      }
+    }
+    let resolvedURL = URL(fileURLWithPath: canonicalPath)
     var isDirectory: ObjCBool = false
     if FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDirectory),
       isDirectory.boolValue

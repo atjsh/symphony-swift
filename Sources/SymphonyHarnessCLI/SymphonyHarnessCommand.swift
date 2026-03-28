@@ -128,7 +128,8 @@ extension SymphonyHarnessCommand {
         environment: [:],
         outputMode: xcodeOutputMode
       )
-      CLIContext.emit(try CLIContext.makeTool().test(request))
+      let output = try CLIContext.makeTool().test(request)
+      CLIContext.emit(TestCoveragePreviewFormatter().formatIfPossible(output))
     }
   }
 

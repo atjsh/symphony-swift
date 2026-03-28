@@ -2,9 +2,9 @@
 
 ## Status
 
-- State: refresh pass updated against the live repository on 2026-03-28.
-- Confidence: static app/Xcode layout and repo assertions are verified; prior runtime Xcode/UI pass claims are now treated as pending revalidation.
-- Inventory: keep this task slug; this pass did not justify splitting, merging, creating, or deleting a migration-status task.
+- State: refreshed against the first full green Xcode-host `just validate` run on 2026-03-29.
+- Confidence: static app/Xcode layout, checked-in test-plan ownership, and live multi-destination app validation are all verified.
+- Inventory: keep this task slug; the runtime revalidation gap is closed and does not require a new tracker.
 
 ## Spec refs
 
@@ -13,6 +13,8 @@
 - `SPEC.md` 17.4
 - `SPEC.md` 17.5
 - `SPEC.md` 17.6
+- `SPEC.md` 17.7
+- `SPEC.md` 17.9
 - `SPEC.md` 20.3
 - `SPEC.md` 20.7.5
 
@@ -30,15 +32,15 @@
   Evidence: `Applications/SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests.swift`, `Applications/SymphonySwiftUIApp/SymphonyOperatorRootView.swift`, and `Applications/SymphonySwiftUIApp/OperatorSidebarView.swift`.
 - The dedicated UI test plan still declares `SYMPHONY_UI_TESTING=1`, while the non-UI plans remain separate.
   Evidence: `SymphonyApps.xcodeproj/xcshareddata/xctestplans/SymphonySwiftUIApp.xctestplan`, `SymphonyApps.xcodeproj/xcshareddata/xctestplans/SymphonySwiftUIAppTests.xctestplan`, and `SymphonyApps.xcodeproj/xcshareddata/xctestplans/SymphonySwiftUIAppUITests.xctestplan`.
+- Fresh live validation proved the required checked-in app plan matrix across approved phone and tablet destinations.
+  Evidence: `.build/harness/runs/20260328-173457-validate-b001c7f0-6bae-41bc-bf29-ee8db609588f/summary.txt` and `.build/harness/runs/20260328-173457-validate-b001c7f0-6bae-41bc-bf29-ee8db609588f/subjects/SymphonySwiftUIApp/summary.txt`.
 
 ## Drift / residual gaps
 
-- This refresh did not rerun the checked-in Xcode test plans or the seeded app UI flows. Earlier claims that the plans "compile and run", "complete end to end", or that specific seeded scenarios "pass" were stronger than the evidence collected in this pass and have been downgraded to pending revalidation.
-- The current evidence is strongest for checked-in structure and static test coverage. It does not independently prove live Xcode-host behavior such as macOS UI-plan completion, screenshot attachment generation, or accessibility-audit pass status on a current host.
-- No additional task file is needed for this migration stream yet; the remaining uncertainty is runtime revalidation, not a separate migration axis.
+- The exported xcresult artifacts still legitimately omit simulator recordings and UI-tree captures for some non-UI plans. Those anomalies are present in the green validate run and are not treated as failures by the current artifact contract.
+- The migration stream no longer has an app/Xcode runtime revalidation blocker. Remaining work here is routine maintenance if schemes, plans, or simulator destinations change.
 
 ## Next update
 
-- Re-run the checked-in `SymphonySwiftUIApp`, `SymphonySwiftUIAppTests`, and `SymphonySwiftUIAppUITests` plans on an Xcode host before restoring any "passes", "builds", or "completes" language.
+- Re-run the full app validation matrix whenever scheme ownership, plan membership, or destination policy changes.
 - Keep the static project/scheme/test-plan assertions aligned with `SymphonyApps.xcodeproj` whenever target naming, signing, or plan membership changes.
-- Revisit task boundaries only if app naming, plan ownership, or UI-test responsibilities move into a distinct migration stream.

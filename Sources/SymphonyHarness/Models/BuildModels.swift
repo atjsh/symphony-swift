@@ -1,7 +1,14 @@
 import Foundation
 import SymphonyShared
 
-public enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
+enum BuildCommandFamily: String, Codable, CaseIterable, Sendable {
+  case build
+  case test
+  case run
+  case harness
+}
+
+public enum ArtifactCommand: String, Codable, CaseIterable, Sendable {
   case build
   case test
   case run
@@ -13,7 +20,7 @@ public enum ProductBackend: String, Codable, CaseIterable, Sendable {
   case swiftPM
 }
 
-public enum ProductKind: String, Codable, CaseIterable, Sendable {
+enum ProductKind: String, Codable, CaseIterable, Sendable {
   case server
   case client
 
@@ -59,6 +66,32 @@ public enum ProductKind: String, Codable, CaseIterable, Sendable {
       return .macos
     case .client:
       return .iosSimulator
+    }
+  }
+}
+
+extension BuildCommandFamily {
+  var artifactCommand: ArtifactCommand {
+    switch self {
+    case .build:
+      return .build
+    case .test:
+      return .test
+    case .run:
+      return .run
+    case .harness:
+      return .harness
+    }
+  }
+}
+
+extension ProductKind {
+  var runtimeTarget: RuntimeTarget {
+    switch self {
+    case .server:
+      return .server
+    case .client:
+      return .client
     }
   }
 }
@@ -160,13 +193,13 @@ public struct ExecutionContext: Sendable {
   }
 }
 
-public enum XcodeAction: String, Codable, Sendable {
+enum XcodeAction: String, Codable, Sendable {
   case build
   case buildForTesting
   case test
   case launch
 
-  public var xcodebuildAction: String? {
+  var xcodebuildAction: String? {
     switch self {
     case .build:
       return "build"
@@ -180,18 +213,18 @@ public enum XcodeAction: String, Codable, Sendable {
   }
 }
 
-public struct SchemeSelector: Codable, Hashable, Sendable {
-  public let product: ProductKind
-  public let scheme: String
-  public let platform: PlatformKind
+struct SchemeSelector: Codable, Hashable, Sendable {
+  let product: ProductKind
+  let scheme: String
+  let platform: PlatformKind
 
-  public init(product: ProductKind, scheme: String?, platform: PlatformKind?) {
+  init(product: ProductKind, scheme: String?, platform: PlatformKind?) {
     self.product = product
     self.scheme = scheme ?? product.defaultScheme
     self.platform = platform ?? product.defaultPlatform
   }
 
-  public var runIdentifier: String {
+  var runIdentifier: String {
     ShellQuoting.slugify(self.scheme)
   }
 }
@@ -230,22 +263,22 @@ public struct ResolvedDestination: Codable, Hashable, Sendable {
   }
 }
 
-public struct XcodeCommandRequest: Codable, Hashable, Sendable {
-  public let action: XcodeAction
-  public let scheme: String
-  public let destination: ResolvedDestination
-  public let derivedDataPath: URL
-  public let resultBundlePath: URL
-  public let enableCodeCoverage: Bool
-  public let outputMode: XcodeOutputMode
-  public let environment: [String: String]
-  public let workspacePath: URL?
-  public let projectPath: URL?
-  public let testPlan: String?
-  public let onlyTesting: [String]
-  public let skipTesting: [String]
+struct XcodeCommandRequest: Codable, Hashable, Sendable {
+  let action: XcodeAction
+  let scheme: String
+  let destination: ResolvedDestination
+  let derivedDataPath: URL
+  let resultBundlePath: URL
+  let enableCodeCoverage: Bool
+  let outputMode: XcodeOutputMode
+  let environment: [String: String]
+  let workspacePath: URL?
+  let projectPath: URL?
+  let testPlan: String?
+  let onlyTesting: [String]
+  let skipTesting: [String]
 
-  public init(
+  init(
     action: XcodeAction,
     scheme: String,
     destination: ResolvedDestination,
@@ -275,7 +308,7 @@ public struct XcodeCommandRequest: Codable, Hashable, Sendable {
     self.skipTesting = skipTesting
   }
 
-  public func renderedArguments() throws -> [String] {
+  func renderedArguments() throws -> [String] {
     guard let action = action.xcodebuildAction else {
       throw SymphonyHarnessError(
         code: "invalid_xcode_action",
@@ -471,18 +504,62 @@ public struct CoverageInspectionFileReport: Codable, Hashable, Sendable {
 
 public struct CoverageInspectionReport: Codable, Hashable, Sendable {
   public let backend: ProductBackend
-  public let product: ProductKind
+  public let target: RuntimeTarget
   public let generatedAt: String
   public let files: [CoverageInspectionFileReport]
 
   public init(
-    backend: ProductBackend, product: ProductKind, generatedAt: String,
+    backend: ProductBackend,
+    target: RuntimeTarget,
+    generatedAt: String,
     files: [CoverageInspectionFileReport]
   ) {
     self.backend = backend
-    self.product = product
+    self.target = target
     self.generatedAt = generatedAt
     self.files = files
+  }
+
+  init(
+    backend: ProductBackend,
+    product: ProductKind,
+    generatedAt: String,
+    files: [CoverageInspectionFileReport]
+  ) {
+    self.init(
+      backend: backend,
+      target: product.runtimeTarget,
+      generatedAt: generatedAt,
+      files: files
+    )
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case backend
+    case target
+    case product
+    case generatedAt
+    case files
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    backend = try container.decode(ProductBackend.self, forKey: .backend)
+    if let target = try container.decodeIfPresent(RuntimeTarget.self, forKey: .target) {
+      self.target = target
+    } else {
+      self.target = try container.decode(ProductKind.self, forKey: .product).runtimeTarget
+    }
+    generatedAt = try container.decode(String.self, forKey: .generatedAt)
+    files = try container.decode([CoverageInspectionFileReport].self, forKey: .files)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(backend, forKey: .backend)
+    try container.encode(target, forKey: .target)
+    try container.encode(generatedAt, forKey: .generatedAt)
+    try container.encode(files, forKey: .files)
   }
 }
 
@@ -505,15 +582,46 @@ public struct CoverageInspectionRawCommand: Codable, Hashable, Sendable {
 
 public struct CoverageInspectionRawReport: Codable, Hashable, Sendable {
   public let backend: ProductBackend
-  public let product: ProductKind
+  public let target: RuntimeTarget
   public let commands: [CoverageInspectionRawCommand]
 
   public init(
-    backend: ProductBackend, product: ProductKind, commands: [CoverageInspectionRawCommand]
+    backend: ProductBackend,
+    target: RuntimeTarget,
+    commands: [CoverageInspectionRawCommand]
   ) {
     self.backend = backend
-    self.product = product
+    self.target = target
     self.commands = commands
+  }
+
+  init(backend: ProductBackend, product: ProductKind, commands: [CoverageInspectionRawCommand]) {
+    self.init(backend: backend, target: product.runtimeTarget, commands: commands)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case backend
+    case target
+    case product
+    case commands
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    backend = try container.decode(ProductBackend.self, forKey: .backend)
+    if let target = try container.decodeIfPresent(RuntimeTarget.self, forKey: .target) {
+      self.target = target
+    } else {
+      self.target = try container.decode(ProductKind.self, forKey: .product).runtimeTarget
+    }
+    commands = try container.decode([CoverageInspectionRawCommand].self, forKey: .commands)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(backend, forKey: .backend)
+    try container.encode(target, forKey: .target)
+    try container.encode(commands, forKey: .commands)
   }
 }
 
@@ -672,7 +780,7 @@ public struct HarnessReport: Codable, Hashable, Sendable {
 }
 
 public struct ArtifactRun: Codable, Hashable, Sendable {
-  public let command: BuildCommandFamily
+  public let command: ArtifactCommand
   public let runID: String
   public let timestamp: String
   public let artifactRoot: URL
@@ -680,7 +788,10 @@ public struct ArtifactRun: Codable, Hashable, Sendable {
   public let indexPath: URL
 
   public init(
-    command: BuildCommandFamily, runID: String, timestamp: String, artifactRoot: URL,
+    command: ArtifactCommand,
+    runID: String,
+    timestamp: String,
+    artifactRoot: URL,
     summaryPath: URL, indexPath: URL
   ) {
     self.command = command
@@ -713,13 +824,16 @@ public struct ArtifactIndexEntry: Codable, Hashable, Sendable {
 
 public struct ArtifactIndex: Codable, Hashable, Sendable {
   public let entries: [ArtifactIndexEntry]
-  public let command: BuildCommandFamily
+  public let command: ArtifactCommand
   public let runID: String
   public let timestamp: String
   public let anomalies: [ArtifactAnomaly]
 
   public init(
-    entries: [ArtifactIndexEntry], command: BuildCommandFamily, runID: String, timestamp: String,
+    entries: [ArtifactIndexEntry],
+    command: ArtifactCommand,
+    runID: String,
+    timestamp: String,
     anomalies: [ArtifactAnomaly]
   ) {
     self.entries = entries

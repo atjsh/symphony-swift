@@ -7,7 +7,7 @@ import SymphonyShared
 
 @main
 struct SymphonyApp: App {
-  @StateObject private var model: SymphonyOperatorModel
+  private let model: SymphonyOperatorModel
 
   nonisolated static func resolveClient(
     arguments: [String],
@@ -24,18 +24,59 @@ struct SymphonyApp: App {
       scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
 
     let client = Self.resolveClient(arguments: ProcessInfo.processInfo.arguments, environment: environment)
-    _model = StateObject(
-      wrappedValue: SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint))
+    model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
 
+    Self.emitStartupLogsIfNeeded(environment: environment)
+  }
+
+  init(
+    arguments: [String],
+    environment: [String: String],
+    startupOutput: @escaping @Sendable (String) -> Void
+  ) {
+    let endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: environment)
+    let sharedEndpoint = try! ServerEndpoint(
+      scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+
+    let client = Self.resolveClient(arguments: arguments, environment: environment)
+    model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+
+    Self.emitStartupLogsIfNeeded(environment: environment, output: startupOutput)
+  }
+
+  nonisolated static func emitStartupLogsIfNeeded(environment: [String: String]) {
     if BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: environment) {
       let state = BootstrapStartupState.current(componentName: "Symphony", environment: environment)
-      state.startupLogLines.forEach { print($0) }
+      for line in state.startupLogLines {
+        defaultStartupOutput(line)
+      }
       #if canImport(AppKit)
         DispatchQueue.main.async {
           NSApp.terminate(nil)
         }
       #endif
     }
+  }
+
+  nonisolated static func emitStartupLogsIfNeeded(
+    environment: [String: String],
+    output: @escaping @Sendable (String) -> Void
+  ) {
+    if BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: environment) {
+      let state = BootstrapStartupState.current(componentName: "Symphony", environment: environment)
+      for line in state.startupLogLines {
+        output(line)
+      }
+      #if canImport(AppKit)
+        DispatchQueue.main.async {
+          NSApp.terminate(nil)
+        }
+      #endif
+    }
+  }
+
+  nonisolated static func defaultStartupOutput(_ line: String) {
+    print(line)
   }
 
   private var isUITesting: Bool {
@@ -181,7 +222,7 @@ struct UITestingSymphonyAPIClient: SymphonyAPIClientProtocol {
           provider: "claude_code",
           sequence: EventSequence(1),
           timestamp: "2026-03-24T01:10:00Z",
-          rawJSON: #"{"message":"Starting implementation"}"#,
+          rawJSON: #"{"message":"Started"}"#,
           providerEventType: "message",
           normalizedEventKind: "message"
         ),
@@ -190,7 +231,7 @@ struct UITestingSymphonyAPIClient: SymphonyAPIClientProtocol {
           provider: "claude_code",
           sequence: EventSequence(2),
           timestamp: "2026-03-24T01:15:00Z",
-          rawJSON: #"{"name":"edit_file","arguments":"path=main.swift"}"#,
+          rawJSON: #"{"name":"edit_file","arguments":"Edit main.swift"}"#,
           providerEventType: "tool_use",
           normalizedEventKind: "tool_call"
         ),

@@ -105,19 +105,6 @@ private final class CodexSessionState: @unchecked Sendable {
     lock.withLock { _issueTitle }
   }
 
-  var renderedTitle: String? {
-    lock.withLock {
-      guard let issueIdentifier = _issueIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-        !issueIdentifier.isEmpty,
-        let issueTitle = _issueTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-        !issueTitle.isEmpty
-      else {
-        return nil
-      }
-      return "\(issueIdentifier): \(issueTitle)"
-    }
-  }
-
   var threadID: String? {
     lock.withLock { _threadID }
   }
@@ -327,8 +314,6 @@ enum EventKindInference {
       return .status
     case "thread/tokenUsage/updated":
       return .usage
-    case "item/commandExecution/requestApproval":
-      return .approvalRequest
     case "item/agentMessage/delta":
       return .message
     case "item/started", "item/completed":
@@ -445,8 +430,20 @@ enum EventKindInference {
   }
 
   private static func inferCopilotCLI(_ json: [String: Any]) -> NormalizedEventKind {
-    if let method = json["method"] as? String, method == "session/update" {
+    if let method = json["method"] as? String,
+      ["session/request_permission", "requestPermission"].contains(method)
+    {
+      return .approvalRequest
+    }
+    if let method = json["method"] as? String, ["session/update", "sessionUpdate"].contains(method)
+    {
       return .status
+    }
+    if copilotPromptStopReason(from: json) != nil {
+      return .status
+    }
+    if json["error"] != nil {
+      return .error
     }
 
     guard let type = json["type"] as? String ?? json["event"] as? String else { return .unknown }
@@ -500,6 +497,12 @@ enum ProviderEventInspection {
     case .claudeCode:
       return json["type"] as? String ?? "unknown"
     case .copilotCLI:
+      if json["error"] != nil {
+        return "error"
+      }
+      if json["result"] != nil {
+        return "result"
+      }
       return json["method"] as? String ?? json["type"] as? String ?? json["event"] as? String
         ?? "unknown"
     }
@@ -514,14 +517,7 @@ enum ProviderEventInspection {
       let type = json["type"] as? String
       return ["result", "error"].contains(type)
     case .copilotCLI:
-      if let method = json["method"] as? String,
-        method == "session/update",
-        let params = json["params"] as? [String: Any],
-        let status = params["status"] as? String
-      {
-        return ["completed", "cancelled", "failed", "timed_out", "timeout"].contains(status)
-      }
-      return false
+      return copilotPromptStopReason(from: json) != nil || json["error"] != nil
     }
   }
 }
@@ -1011,6 +1007,74 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
   }
 }
 
+private final class CopilotSessionState: @unchecked Sendable {
+  private let lock = NSLock()
+  private let startupPrompt: String
+  private var _providerSessionID: String?
+  private var didSendStartupPrompt = false
+  private var nextRequestID = 3
+
+  init(startupPrompt: String) {
+    self.startupPrompt = startupPrompt
+  }
+
+  func recordProviderSessionID(_ providerSessionID: String) {
+    lock.withLock {
+      _providerSessionID = providerSessionID
+    }
+  }
+
+  func startupPromptMessageIfNeeded() -> [String: Any]? {
+    lock.withLock {
+      guard !didSendStartupPrompt, let providerSessionID = _providerSessionID else { return nil }
+      didSendStartupPrompt = true
+      let requestID = nextRequestID
+      nextRequestID += 1
+      return makeCopilotPromptMessage(
+        id: requestID,
+        providerSessionID: providerSessionID,
+        prompt: startupPrompt
+      )
+    }
+  }
+
+  func continuationPromptMessage(guidance: String) -> [String: Any]? {
+    lock.withLock {
+      guard let providerSessionID = _providerSessionID else { return nil }
+      let requestID = nextRequestID
+      nextRequestID += 1
+      return makeCopilotPromptMessage(
+        id: requestID,
+        providerSessionID: providerSessionID,
+        prompt: guidance
+      )
+    }
+  }
+}
+
+private final class CopilotSessionRegistry: @unchecked Sendable {
+  private let lock = NSLock()
+  private var states: [SessionID: CopilotSessionState] = [:]
+
+  func store(_ state: CopilotSessionState, for sessionID: SessionID) {
+    lock.withLock {
+      states[sessionID] = state
+    }
+  }
+
+  func state(for sessionID: SessionID) -> CopilotSessionState? {
+    lock.withLock {
+      states[sessionID]
+    }
+  }
+
+  func remove(sessionID: SessionID) {
+    lock.withLock {
+      states.removeValue(forKey: sessionID)
+    }
+  }
+}
+
 // MARK: - Claude Code CLI Adapter (Section 10.8)
 
 public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
@@ -1159,7 +1223,7 @@ public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
 public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
   public let providerName: ProviderName = .copilotCLI
   public let capabilities = ProviderCapabilities(
-    supportsResume: false,
+    supportsResume: true,
     supportsInterrupt: false,
     supportsUsageTotals: false,
     supportsRateLimits: false,
@@ -1171,6 +1235,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
   private let config: CopilotCLIProviderConfig
   private let processLauncher: ProcessLaunching
   private let activeSessions = SessionStore()
+  private let sessionRegistry = CopilotSessionRegistry()
 
   public init(config: CopilotCLIProviderConfig, processLauncher: ProcessLaunching? = nil) {
     self.config = config
@@ -1184,6 +1249,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
     prompt: String,
     environment: [String: String]
   ) async throws -> AsyncThrowingStream<AgentRawEvent, Error> {
+    let sessionState = CopilotSessionState(startupPrompt: prompt)
     let process = try processLauncher.launch(
       command: config.command,
       workspacePath: workspacePath,
@@ -1195,23 +1261,20 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
           "id": 1,
           "method": "initialize",
           "params": [
-            "client": "symphony",
-            "protocol": "acp",
+            "clientCapabilities": [:],
+            "clientInfo": [
+              "name": "symphony",
+              "version": "0.0.1",
+            ],
+            "protocolVersion": 1,
           ],
         ],
         [
           "id": 2,
-          "method": "session/start",
+          "method": "newSession",
           "params": [
-            "session_id": sessionID.rawValue
-          ],
-        ],
-        [
-          "id": 3,
-          "method": "session/prompt",
-          "params": [
-            "session_id": sessionID.rawValue,
-            "prompt": prompt,
+            "cwd": workspacePath,
+            "mcpServers": [],
           ],
         ],
       ],
@@ -1223,14 +1286,29 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       workspacePath: workspacePath,
       environment: environment
     )
-    return makeEventStream(from: process, sessionID: sessionID)
+    sessionRegistry.store(sessionState, for: sessionID)
+    return makeEventStream(from: process, sessionID: sessionID, sessionState: sessionState)
   }
 
   public func continueSession(
     sessionID: SessionID,
     guidance: String
   ) async throws -> AsyncThrowingStream<AgentRawEvent, Error> {
-    throw ProviderAdapterError.unsupportedProvider(.copilotCLI)
+    guard let managedSession = activeSessions.managedSession(for: sessionID),
+      let sessionState = sessionRegistry.state(for: sessionID),
+      let promptMessage = sessionState.continuationPromptMessage(guidance: guidance)
+    else {
+      throw ProviderAdapterError.sessionNotFound(sessionID)
+    }
+    try submitJSONMessages(
+      [promptMessage],
+      to: managedSession.process
+    )
+    return makeEventStream(
+      from: managedSession.process,
+      sessionID: sessionID,
+      sessionState: sessionState
+    )
   }
 
   public func interruptSession(sessionID: SessionID) async throws -> Bool {
@@ -1241,6 +1319,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
     guard let process = activeSessions.remove(sessionID: sessionID) else {
       throw ProviderAdapterError.sessionNotFound(sessionID)
     }
+    sessionRegistry.remove(sessionID: sessionID)
     process.terminate()
   }
 
@@ -1248,8 +1327,21 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
     from process: LaunchedProcess,
     sessionID: SessionID
   ) -> AsyncThrowingStream<AgentRawEvent, Error> {
+    makeEventStream(
+      from: process,
+      sessionID: sessionID,
+      sessionState: CopilotSessionState(startupPrompt: "")
+    )
+  }
+
+  private func makeEventStream(
+    from process: LaunchedProcess,
+    sessionID: SessionID,
+    sessionState: CopilotSessionState
+  ) -> AsyncThrowingStream<AgentRawEvent, Error> {
     let counter = SessionSequenceCounter()
     let activeSessions = self.activeSessions
+    let sessionRegistry = self.sessionRegistry
     let finishState = StreamFinishState()
     return AsyncThrowingStream { continuation in
       process.onOutput { data in
@@ -1257,6 +1349,18 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
 
         for line in protocolLines(from: output) {
           guard !finishState.isFinished else { return }
+
+          let jsonObject = protocolJSONObject(from: line)
+          if let json = jsonObject {
+            do {
+              try handleCopilotProtocolMessage(json, process: process, sessionState: sessionState)
+            } catch {
+              finishState.finishIfNeeded {
+                continuation.finish(throwing: error)
+              }
+              return
+            }
+          }
 
           let descriptor = ProviderEventInspection.describe(from: line, provider: .copilotCLI)
           let event = AgentRawEvent(
@@ -1271,9 +1375,24 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
           continuation.yield(event)
 
           if descriptor.isTerminal {
-            activeSessions.remove(sessionID: sessionID)
             finishState.finishIfNeeded {
-              continuation.finish()
+              if let stopReason = copilotPromptStopReason(from: jsonObject) {
+                if stopReason == "end_turn" {
+                  continuation.finish()
+                } else {
+                  continuation.finish(
+                    throwing: ProviderAdapterError.terminalOutcome(
+                      sessionID: sessionID,
+                      outcome: stopReason
+                    ))
+                }
+              } else {
+                continuation.finish(
+                  throwing: ProviderAdapterError.terminalOutcome(
+                    sessionID: sessionID,
+                    outcome: "error"
+                  ))
+              }
             }
             return
           }
@@ -1281,6 +1400,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       }
       process.onTermination { exitCode in
         activeSessions.remove(sessionID: sessionID)
+        sessionRegistry.remove(sessionID: sessionID)
         finishState.finishIfNeeded {
           if exitCode == 0 {
             continuation.finish()
@@ -1292,6 +1412,28 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
       }
     }
   }
+}
+
+private func handleCopilotProtocolMessage(
+  _ json: [String: Any],
+  process: LaunchedProcess,
+  sessionState: CopilotSessionState
+) throws {
+  if let providerSessionID = copilotProviderSessionID(from: json) {
+    sessionState.recordProviderSessionID(providerSessionID)
+    if let startupPrompt = sessionState.startupPromptMessageIfNeeded() {
+      try submitJSONMessages([startupPrompt], to: process)
+    }
+  }
+
+  guard let method = json["method"] as? String,
+    ["session/request_permission", "requestPermission"].contains(method),
+    let id = json["id"] as? Int,
+    let response = copilotPermissionResponse(for: json, requestID: id)
+  else {
+    return
+  }
+  try submitJSONMessages([response], to: process)
 }
 
 // MARK: - Process Launching Abstraction
@@ -1628,6 +1770,67 @@ private func protocolLines(from output: String) -> [String] {
 private func protocolJSONObject(from line: String) -> [String: Any]? {
   guard let data = line.data(using: .utf8) else { return nil }
   return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+}
+
+private func copilotProviderSessionID(from jsonObject: [String: Any]?) -> String? {
+  guard let result = jsonObject?["result"] as? [String: Any] else { return nil }
+  return result["sessionId"] as? String
+}
+
+private func copilotPromptStopReason(from jsonObject: [String: Any]?) -> String? {
+  guard let result = jsonObject?["result"] as? [String: Any] else { return nil }
+  return result["stopReason"] as? String
+}
+
+private func copilotPermissionResponse(
+  for jsonObject: [String: Any],
+  requestID: Int
+) -> [String: Any]? {
+  let params = jsonObject["params"] as? [String: Any]
+  let options = params?["options"] as? [Any]
+  let optionID = options?
+    .compactMap { $0 as? [String: Any] }
+    .compactMap { $0["optionId"] as? String }
+    .first
+
+  let outcome: [String: Any]
+  if let optionID {
+    outcome = [
+      "outcome": "selected",
+      "optionId": optionID,
+    ]
+  } else {
+    outcome = [
+      "outcome": "cancelled"
+    ]
+  }
+
+  return [
+    "id": requestID,
+    "result": [
+      "outcome": outcome
+    ],
+  ]
+}
+
+private func makeCopilotPromptMessage(
+  id: Int,
+  providerSessionID: String,
+  prompt: String
+) -> [String: Any] {
+  [
+    "id": id,
+    "method": "prompt",
+    "params": [
+      "sessionId": providerSessionID,
+      "prompt": [
+        [
+          "type": "text",
+          "text": prompt,
+        ]
+      ],
+    ],
+  ]
 }
 
 private func codexStartupThreadID(from jsonObject: [String: Any]?) -> String? {

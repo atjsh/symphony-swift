@@ -218,6 +218,18 @@ import Testing
   #expect(config.copilotCLI == .defaults)
 }
 
+@Test func providersConfigReturnsProviderSpecificStallTimeouts() {
+  let config = ProvidersConfig(
+    codex: CodexProviderConfig(stallTimeoutMS: 101),
+    claudeCode: ClaudeCodeProviderConfig(stallTimeoutMS: 202),
+    copilotCLI: CopilotCLIProviderConfig(stallTimeoutMS: 303)
+  )
+
+  #expect(config.stallTimeoutMS(for: .codex) == 101)
+  #expect(config.stallTimeoutMS(for: .claudeCode) == 202)
+  #expect(config.stallTimeoutMS(for: .copilotCLI) == 303)
+}
+
 @Test func codexProviderConfigDefaults() {
   let config = CodexProviderConfig.defaults
   #expect(config.command == "codex app-server")
@@ -228,6 +240,40 @@ import Testing
   #expect(config.turnTimeoutMS == 3_600_000)
   #expect(config.readTimeoutMS == 5_000)
   #expect(config.stallTimeoutMS == 300_000)
+}
+
+@Test func codexSandboxValueSupportsLiteralConversionFoundationAccessorsAndDerivedConfigAccessors() {
+  let stringValue: CodexSandboxValue = "workspace-write"
+  let boolValue: CodexSandboxValue = true
+  let integerValue: CodexSandboxValue = 17
+  let doubleValue: CodexSandboxValue = 2.5
+  let arrayValue: CodexSandboxValue = ["workspace-write", true, 17, 2.5, nil]
+  let objectValue: CodexSandboxValue = [
+    "mode": "workspace-write",
+    "network_access": false,
+    "writable_roots": ["/tmp/cache", "/tmp/output"],
+    "null_value": nil,
+  ]
+
+  #expect(stringValue.stringValue == "workspace-write")
+  #expect(boolValue.stringValue == nil)
+  #expect(stringValue.foundationValue as? String == "workspace-write")
+  #expect(boolValue.foundationValue as? Bool == true)
+  #expect(integerValue.foundationValue as? Int == 17)
+  #expect(doubleValue.foundationValue as? Double == 2.5)
+  #expect((arrayValue.foundationValue as? [Any])?.count == 5)
+  let foundationObject = objectValue.foundationValue as? [String: Any]
+  #expect(foundationObject?["mode"] as? String == "workspace-write")
+  #expect(foundationObject?["network_access"] as? Bool == false)
+  #expect((foundationObject?["writable_roots"] as? [String]) == ["/tmp/cache", "/tmp/output"])
+  #expect(foundationObject?["null_value"] is NSNull)
+
+  let config = CodexProviderConfig(
+    sessionApprovalPolicy: "manual",
+    sessionSandbox: "workspace-write"
+  )
+  #expect(config.approvalPolicy == "manual")
+  #expect(config.threadSandbox == "workspace-write")
 }
 
 @Test func claudeCodeProviderConfigDefaults() {
@@ -806,38 +852,51 @@ import Testing
   #expect(def.config.server.port == 8080)
 }
 
-@Test func workflowParserCodexProviderFallsBackToLegacyKeys() throws {
+@Test func workflowParserCodexProviderIgnoresLegacyKeys() throws {
   let content = """
     ---
     providers:
       codex:
         approval_policy: legacy-session
+        session_approval_policy: canonical-session
         thread_sandbox:
           mode: legacy-session-sandbox
           network_access: false
-        turn_sandbox_policy:
-          mode: legacy-turn-sandbox
-          writable_roots:
-            - /tmp/legacy
+        session_sandbox:
+          mode: canonical-session-sandbox
     ---
     Prompt
     """
   let definition = try WorkflowParser.parse(content: content)
 
-  #expect(definition.config.providers.codex.sessionApprovalPolicy == "legacy-session")
+  #expect(definition.config.providers.codex.sessionApprovalPolicy == "canonical-session")
   #expect(
     definition.config.providers.codex.sessionSandbox
       == [
-        "mode": "legacy-session-sandbox",
-        "network_access": false,
+        "mode": "canonical-session-sandbox",
       ])
-  #expect(definition.config.providers.codex.turnApprovalPolicy == "legacy-session")
+  #expect(definition.config.providers.codex.turnApprovalPolicy == "canonical-session")
+  #expect(definition.config.providers.codex.turnSandboxPolicy == nil)
+}
+
+@Test func workflowParserCodexSandboxValueCoversScalarCompositeNullAndUnsupportedInputs() {
+  #expect(WorkflowParser.codexSandboxValue(42) == .integer(42))
+  #expect(WorkflowParser.codexSandboxValue(1.25) == .double(1.25))
   #expect(
-    definition.config.providers.codex.turnSandboxPolicy
-      == [
-        "mode": "legacy-turn-sandbox",
-        "writable_roots": ["/tmp/legacy"],
-      ])
+    WorkflowParser.codexSandboxValue(["workspace-write", true, 7])
+      == .array([.string("workspace-write"), .bool(true), .integer(7)])
+  )
+  #expect(
+    WorkflowParser.codexSandboxValue([
+      "mode": "workspace-write",
+      "network_access": false,
+    ]) == .object([
+      "mode": .string("workspace-write"),
+      "network_access": .bool(false),
+    ])
+  )
+  #expect(WorkflowParser.codexSandboxValue(NSNull()) == .null)
+  #expect(WorkflowParser.codexSandboxValue(Date()) == nil)
 }
 
 @Test func workflowParserAcceptsObjectShapedCodexSandboxValues() throws {

@@ -66,6 +66,13 @@ func operatorIssueRowMetadataPlacement(isCompact: Bool) -> OperatorIssueRowMetad
   isCompact ? .stacked : .trailing
 }
 
+func operatorIssueRowMetadataPlacement(
+  isCompact: Bool,
+  prefersAccessibilityLayout: Bool
+) -> OperatorIssueRowMetadataPlacement {
+  prefersAccessibilityLayout ? .stacked : operatorIssueRowMetadataPlacement(isCompact: isCompact)
+}
+
 func operatorDetailNavigationTitleDisplayPreference(isCompact: Bool)
   -> OperatorDetailNavigationTitleDisplayPreference
 {

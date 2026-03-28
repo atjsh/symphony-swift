@@ -7,7 +7,7 @@ public struct ExecutionContextBuilder {
     self.fileManager = fileManager
   }
 
-  public func make(
+  func make(
     workspace: WorkspaceContext,
     worker: WorkerScope,
     command: BuildCommandFamily,

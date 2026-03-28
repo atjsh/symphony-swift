@@ -5,17 +5,11 @@ import Testing
 @testable import SymphonyHarness
 
 @Test func buildModelsExposeExpectedDefaultsAndComputedValues() throws {
-  #expect(BuildCommandFamily.allCases == [.build, .test, .run, .harness])
-  #expect(ProductKind.server.defaultBackend == .swiftPM)
-  #expect(ProductKind.client.defaultBackend == .xcode)
-  #expect(ProductKind.server.defaultScheme == "SymphonyServer")
-  #expect(ProductKind.client.defaultScheme == "SymphonySwiftUIApp")
-  #expect(ProductKind.server.defaultSwiftPMProduct == "symphony-server")
+  #expect(ArtifactCommand.allCases == [.build, .test, .run, .harness])
+  #expect(RuntimeTarget.allCases == [.server, .client])
   #expect(ProductKind.client.defaultSwiftPMProduct == nil)
-  #expect(ProductKind.server.defaultSwiftPMTestFilter == "SymphonyServerTests")
   #expect(ProductKind.client.defaultSwiftPMTestFilter == nil)
-  #expect(ProductKind.server.defaultPlatform == .macos)
-  #expect(ProductKind.client.defaultPlatform == .iosSimulator)
+  #expect(BuildCommandFamily.allCases.map(\.artifactCommand) == ArtifactCommand.allCases)
 
   #expect(PlatformKind.macos.xcodeDestinationPlatform == "macOS")
   #expect(PlatformKind.iosSimulator.xcodeDestinationPlatform == "iOS Simulator")
@@ -174,13 +168,13 @@ import Testing
   )
   let inspectionReport = CoverageInspectionReport(
     backend: .swiftPM,
-    product: .server,
+    target: .server,
     generatedAt: "2026-03-25T00:00:00Z",
     files: [inspectionFile]
   )
   let rawReport = CoverageInspectionRawReport(
     backend: .xcode,
-    product: .client,
+    target: .client,
     commands: [
       CoverageInspectionRawCommand(
         commandLine: "xcrun xccov view --archive --file /tmp/Foo.swift /tmp/result.xcresult",
@@ -238,6 +232,26 @@ import Testing
     serverFileViolations: []
   )
   #expect(cleanHarness.meetsCoverageThreshold)
+
+  let legacyInspectionReport = try JSONDecoder().decode(
+    CoverageInspectionReport.self,
+    from: Data(
+      #"{"backend":"swiftPM","product":"server","generatedAt":"2026-03-25T00:00:00Z","files":[]}"#
+        .utf8)
+  )
+  #expect(legacyInspectionReport.target == .server)
+
+  let legacyRawInspectionReport = try JSONDecoder().decode(
+    CoverageInspectionRawReport.self,
+    from: Data(#"{"backend":"xcode","product":"client","commands":[]}"#.utf8)
+  )
+  #expect(legacyRawInspectionReport.target == .client)
+
+  let targetedRawInspectionReport = try JSONDecoder().decode(
+    CoverageInspectionRawReport.self,
+    from: Data(#"{"backend":"swiftPM","target":"server","commands":[]}"#.utf8)
+  )
+  #expect(targetedRawInspectionReport.target == .server)
 
   let artifactRun = ArtifactRun(
     command: .run,

@@ -90,36 +90,57 @@ public struct SimulatorResolver {
         xcodeDestination: Self.hostMacOSDestination
       )
     case .iosSimulator:
-      let requested = selector.simulatorUDID ?? selector.simulatorName ?? "iPhone 17"
       let devices = try catalog.availableDevices()
 
-      if let exactUDID = devices.first(where: { $0.udid == requested }) {
-        return ResolvedDestination(
-          platform: .iosSimulator,
-          displayName: "\(exactUDID.name) (\(exactUDID.udid))",
-          simulatorName: exactUDID.name,
-          simulatorUDID: exactUDID.udid,
-          xcodeDestination: "platform=iOS Simulator,id=\(exactUDID.udid)"
-        )
+      if selector.simulatorUDID == nil, selector.simulatorName == nil {
+        let sortedDevices = devices.sorted(by: Self.defaultDeviceSort)
+        var preferredDevice = sortedDevices.first
+        for device in sortedDevices where device.name.localizedCaseInsensitiveContains("iphone") {
+          preferredDevice = device
+          break
+        }
+        guard let preferredDevice else {
+          throw SymphonyHarnessError(
+            code: "missing_simulator",
+            message: "No available simulator matched the default selection."
+          )
+        }
+        return Self.resolvedDestination(for: preferredDevice)
       }
 
-      let exactNameMatches = devices.filter { $0.name == requested }
+      let requested: String
+      if let simulatorUDID = selector.simulatorUDID {
+        requested = simulatorUDID
+      } else {
+        requested = selector.simulatorName!
+      }
+
+      var exactUDIDMatch: SimulatorDevice?
+      for device in devices where device.udid == requested {
+        exactUDIDMatch = device
+        break
+      }
+      if let exactUDIDMatch {
+        return Self.resolvedDestination(for: exactUDIDMatch)
+      }
+
+      var exactNameMatches = [SimulatorDevice]()
+      for device in devices where device.name == requested {
+        exactNameMatches.append(device)
+      }
       if exactNameMatches.count > 1 {
         throw SymphonyHarnessError(
           code: "ambiguous_simulator_name",
           message: "Simulator name '\(requested)' matches multiple devices. Use a UDID instead.")
       }
       if let exactName = exactNameMatches.first {
-        return ResolvedDestination(
-          platform: .iosSimulator,
-          displayName: "\(exactName.name) (\(exactName.udid))",
-          simulatorName: exactName.name,
-          simulatorUDID: exactName.udid,
-          xcodeDestination: "platform=iOS Simulator,id=\(exactName.udid)"
-        )
+        return Self.resolvedDestination(for: exactName)
       }
 
-      let fuzzyMatches = devices.filter { $0.name.localizedCaseInsensitiveContains(requested) }
+      var fuzzyMatches = [SimulatorDevice]()
+      for device in devices where device.name.localizedCaseInsensitiveContains(requested) {
+        fuzzyMatches.append(device)
+      }
       if fuzzyMatches.count > 1 {
         throw SymphonyHarnessError(
           code: "ambiguous_simulator_match",
@@ -132,13 +153,7 @@ public struct SimulatorResolver {
           code: "missing_simulator", message: "No available simulator matched '\(requested)'.")
       }
 
-      return ResolvedDestination(
-        platform: .iosSimulator,
-        displayName: "\(fuzzy.name) (\(fuzzy.udid))",
-        simulatorName: fuzzy.name,
-        simulatorUDID: fuzzy.udid,
-        xcodeDestination: "platform=iOS Simulator,id=\(fuzzy.udid)"
-      )
+      return Self.resolvedDestination(for: fuzzy)
     }
   }
 
@@ -226,5 +241,22 @@ extension SimulatorResolver {
     #else
       "platform=macOS"
     #endif
+  }
+
+  fileprivate static func resolvedDestination(for device: SimulatorDevice) -> ResolvedDestination {
+    ResolvedDestination(
+      platform: .iosSimulator,
+      displayName: "\(device.name) (\(device.udid))",
+      simulatorName: device.name,
+      simulatorUDID: device.udid,
+      xcodeDestination: "platform=iOS Simulator,id=\(device.udid)"
+    )
+  }
+
+  fileprivate static func defaultDeviceSort(lhs: SimulatorDevice, rhs: SimulatorDevice) -> Bool {
+    if lhs.name == rhs.name {
+      return lhs.udid < rhs.udid
+    }
+    return lhs.name < rhs.name
   }
 }

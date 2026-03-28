@@ -30,7 +30,7 @@ import Testing
   }
 }
 
-@Test func workspaceDiscoveryRejectsExtraToolsPackageManifest() throws {
+@Test func workspaceDiscoveryRejectsExtraRepositoryPackageManifest() throws {
   try withTemporaryDirectory { directory in
     let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
     try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
@@ -45,20 +45,21 @@ import Testing
       at: repoRoot.appendingPathComponent("Symphony.xcworkspace"), withIntermediateDirectories: true
     )
     try FileManager.default.createDirectory(
-      at: repoRoot.appendingPathComponent("Tools/SymphonyBuildPackage"),
+      at: repoRoot.appendingPathComponent("Fixtures/SamplePackage"),
       withIntermediateDirectories: true
     )
     try "subpackage".write(
-      to: repoRoot.appendingPathComponent("Tools/SymphonyBuildPackage/Package.swift"),
+      to: repoRoot.appendingPathComponent("Fixtures/SamplePackage/Package.swift"),
       atomically: true,
       encoding: .utf8
     )
 
     do {
       _ = try WorkspaceDiscovery(processRunner: StubProcessRunner()).discover(from: repoRoot)
-      Issue.record("Expected an extra tools package manifest to fail discovery.")
+      Issue.record("Expected an extra repository package manifest to fail discovery.")
     } catch let error as SymphonyHarnessError {
       #expect(error.code == "extra_package_manifest")
+      #expect(error.message.contains("Fixtures/SamplePackage/Package.swift"))
     }
   }
 }

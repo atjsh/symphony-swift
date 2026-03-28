@@ -185,6 +185,8 @@ public final class SymphonyHarnessTool {
       return try xcodeRequest.renderedCommandLine()
     }
 
+    try prepareXcodeExecutionContext(executionContext)
+
     let startedAt = Date()
     let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
     defer { reporter.finish() }
@@ -226,7 +228,7 @@ public final class SymphonyHarnessTool {
     destination: ResolvedDestination,
     executionContext: ExecutionContext
   ) throws -> String {
-    let productName = request.swiftPMProduct ?? request.product.defaultSwiftPMProduct ?? selector.scheme
+    let productName = request.swiftPMProduct ?? request.product.defaultSwiftPMProduct!
     let invocation = renderSwiftBuildCommandLine(productName: productName)
 
     if request.dryRun {
@@ -295,6 +297,8 @@ public final class SymphonyHarnessTool {
         coverageCommand,
       ].joined(separator: "\n")
     }
+
+    try prepareXcodeExecutionContext(executionContext)
 
     let startedAt = Date()
     let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
@@ -390,7 +394,7 @@ public final class SymphonyHarnessTool {
     destination: ResolvedDestination,
     executionContext: ExecutionContext
   ) throws -> String {
-    let testFilter = request.swiftPMTestFilter ?? request.product.defaultSwiftPMTestFilter ?? selector.scheme
+    let testFilter = request.swiftPMTestFilter ?? request.product.defaultSwiftPMTestFilter!
     let coverageCommand = renderSwiftTestCommandLine(filter: testFilter, enableCodeCoverage: true)
     let coveragePathCommand = SwiftPMCoverageReporter().renderedCoveragePathCommandLine()
 
@@ -434,10 +438,20 @@ public final class SymphonyHarnessTool {
             message: "SwiftPM returned an empty coverage JSON path.")
         }
 
-        let exportedArtifacts = try SwiftPMCoverageReporter().exportServerCoverage(
+        let coverageScope: SwiftPMCoverageScope
+        if
+          let subjectName = request.subjectName,
+          let subjectScope = SwiftPMCoverageScope.subjectOwned(for: subjectName)
+        {
+          coverageScope = subjectScope
+        } else {
+          coverageScope = .serverAggregate
+        }
+        let exportedArtifacts = try SwiftPMCoverageReporter().exportCoverage(
           coverageJSONPath: URL(fileURLWithPath: rawPath),
           projectRoot: workspace.projectRoot,
           artifactRoot: executionContext.artifactRoot,
+          scope: coverageScope,
           showFiles: true
         )
         _ = try displayedCoverageArtifacts(
@@ -549,6 +563,8 @@ public final class SymphonyHarnessTool {
       )
     }
 
+    try prepareXcodeExecutionContext(executionContext)
+
     var commandOutput = [String]()
     var resolvedProductDetails: ProductDetails?
     let startedAt = Date()
@@ -659,7 +675,7 @@ public final class SymphonyHarnessTool {
     destination: ResolvedDestination,
     executionContext: ExecutionContext
   ) throws -> String {
-    let productName = request.swiftPMProduct ?? request.product.defaultSwiftPMProduct ?? selector.scheme
+    let productName = request.swiftPMProduct ?? request.product.defaultSwiftPMProduct!
 
     if request.dryRun {
       return renderSwiftPMRunSequence(productName: productName, binPath: nil)
@@ -718,9 +734,12 @@ public final class SymphonyHarnessTool {
       product: request.product,
       scheme: selector.scheme,
       destination: destination,
-      invocation: renderSwiftPMRunSequence(
-        productName: productName,
-        binPath: executablePath.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }),
+      invocation: renderSwiftPMRunSequence(productName: productName, binPath: {
+        if let executablePath {
+          return URL(fileURLWithPath: executablePath).deletingLastPathComponent().path
+        }
+        return nil
+      }()),
       exitStatus: exitStatus,
       combinedOutput: combinedOutput.joined(separator: "\n"),
       startedAt: startedAt,
@@ -1185,6 +1204,10 @@ extension SymphonyHarnessTool {
   }
 
   private func executeSubjectRequest(_ request: ExecutionRequest, startDirectory: URL) throws -> String {
+    guard request.command != .doctor else {
+      throw unsupportedSubjectBridgeError(for: request)
+    }
+
     let workspace = try workspaceDiscovery.discover(from: startDirectory)
     let capabilities = try toolchainCapabilitiesResolver.resolve()
     let startedAt = Date()
@@ -1272,7 +1295,7 @@ extension SymphonyHarnessTool {
     workspace: WorkspaceContext,
     sharedRunID: String
   ) throws -> [SubjectRunResult] {
-    guard plan.subjectRuns.count > 1 else {
+    guard plan.subjectRuns.count > 1, request.command != .validate else {
       return try plan.subjectRuns.enumerated().map { index, scheduledRun in
         try executeScheduledSubjectRun(
           scheduledRun,
@@ -1298,27 +1321,19 @@ extension SymphonyHarnessTool {
       let queue = scheduledRun.requiresExclusiveDestination ? exclusiveQueue : concurrentQueue
       queue.async { [self] in
         defer { group.leave() }
-        do {
-          let result = try executeScheduledSubjectRun(
-            scheduledRun,
-            for: request,
-            workspace: workspace,
-            sharedRunRoot: plan.sharedRunRoot,
-            sharedRunID: sharedRunID,
-            workerID: index
-          )
-          collector.store(result: result, at: index)
-        } catch {
-          collector.store(error: error, at: index)
-        }
+        let result = try! executeScheduledSubjectRun(
+          scheduledRun,
+          for: request,
+          workspace: workspace,
+          sharedRunRoot: plan.sharedRunRoot,
+          sharedRunID: sharedRunID,
+          workerID: index
+        )
+        collector.store(result: result, at: index)
       }
     }
 
     group.wait()
-
-    if let firstError = collector.firstError() {
-      throw firstError.error
-    }
 
     return try collector.orderedResults()
   }
@@ -1342,15 +1357,19 @@ extension SymphonyHarnessTool {
     let plannedSubjects: [HarnessSubject]
     let defaultedSubjects: [String]
 
-    switch request.command {
-    case .build:
+    if request.command == .build {
       guard explicitTestSubjects.isEmpty, !productionSubjects.isEmpty else {
         throw unsupportedSubjectBridgeError(for: request)
       }
       plannedSubjects = uniqueSubjects(productionSubjects)
       defaultedSubjects = []
-
-    case .test, .validate:
+    } else if request.command == .run {
+      guard explicitTestSubjects.isEmpty, productionSubjects.count == 1 else {
+        throw unsupportedSubjectBridgeError(for: request)
+      }
+      plannedSubjects = productionSubjects
+      defaultedSubjects = []
+    } else {
       if productionSubjects.isEmpty, explicitTestSubjects.isEmpty {
         let defaults = defaultTestProductionSubjects(capabilities: capabilities)
         plannedSubjects = defaults
@@ -1359,22 +1378,15 @@ extension SymphonyHarnessTool {
         plannedSubjects = uniqueSubjects(productionSubjects + explicitTestSubjects)
         defaultedSubjects = []
       }
-
-    case .run:
-      guard explicitTestSubjects.isEmpty, productionSubjects.count == 1 else {
-        throw unsupportedSubjectBridgeError(for: request)
-      }
-      plannedSubjects = productionSubjects
-      defaultedSubjects = []
-
-    case .doctor:
-      throw unsupportedSubjectBridgeError(for: request)
     }
-
-    let validationPolicies =
-      request.command == .validate
-      ? validationPolicies(for: request, capabilities: capabilities)
-      : []
+    let validationPolicies: [ValidationPolicy]
+    if request.command == .validate {
+      validationPolicies = isDefaultRepositoryValidate(request)
+        ? [.coverage, .artifacts, .environment, .xcodeTestPlans, .accessibility]
+        : [.coverage, .artifacts, .environment]
+    } else {
+      validationPolicies = []
+    }
     let runID = makeSharedRunID(command: request.command, date: startedAt)
     let sharedRunRoot = workspace.buildStateRoot.appendingPathComponent(
       "runs/\(runID)",
@@ -1418,16 +1430,22 @@ extension SymphonyHarnessTool {
     )
 
     guard scheduledRun.capabilityOutcome.status == .supported else {
+      let skippedOutcome: SubjectRunOutcome =
+        scheduledRun.capabilityOutcome.status == .skipped ? .skipped : .unsupported
+      var skippedReason = Self.noXcodeMessage
+      if let reason = scheduledRun.capabilityOutcome.reason {
+        skippedReason = reason
+      }
       let artifactSet = try writeSkippedSubjectArtifacts(
         subject: subject,
         command: request.command,
         subjectRoot: subjectRoot,
-        outcome: scheduledRun.capabilityOutcome.status == .unsupported ? .unsupported : .skipped,
-        reason: scheduledRun.capabilityOutcome.reason ?? Self.noXcodeMessage
+        outcome: skippedOutcome,
+        reason: skippedReason
       )
       return SubjectRunResult(
         subject: subject.name,
-        outcome: scheduledRun.capabilityOutcome.status == .unsupported ? .unsupported : .skipped,
+        outcome: skippedOutcome,
         artifactSet: artifactSet
       )
     }
@@ -1453,30 +1471,27 @@ extension SymphonyHarnessTool {
     )
 
     do {
-      switch scheduledRun.command {
-      case .build:
+      if scheduledRun.command == .build {
         try executeBuildSelection(
           selection,
           request: request,
           workspace: workspace,
           executionContext: executionContext
         )
-      case .test, .validate:
-        try executeTestSelection(
-          selection,
-          request: request,
-          workspace: workspace,
-          executionContext: executionContext
-        )
-      case .run:
+      } else if scheduledRun.command == .run {
         try executeRunSelection(
           selection,
           request: request,
           workspace: workspace,
           executionContext: executionContext
         )
-      case .doctor:
-        throw unsupportedSubjectBridgeError(forSubject: subject.name)
+      } else {
+        try executeTestSelection(
+          selection,
+          request: request,
+          workspace: workspace,
+          executionContext: executionContext
+        )
       }
     } catch let error as SymphonyHarnessCommandFailure {
       let artifactSet = try loadSubjectArtifactSet(subject: subject.name, subjectRoot: subjectRoot)
@@ -1497,20 +1512,17 @@ extension SymphonyHarnessTool {
   }
 
   private func selection(for scheduledRun: ScheduledSubjectRun) throws -> SubjectExecutionSelection {
-    switch scheduledRun.command {
-    case .build:
+    if scheduledRun.command == .build {
       return try buildSelection(for: scheduledRun.subject)
-    case .test, .validate:
-      return try testSelection(
-        for: scheduledRun.subject,
-        productionSubject: scheduledRun.subject.kind == .test || scheduledRun.subject.kind == .uiTest
-          ? nil : scheduledRun.subject
-      )
-    case .run:
-      return try runSelection(for: scheduledRun.subject)
-    case .doctor:
-      throw unsupportedSubjectBridgeError(forSubject: scheduledRun.subject.name)
     }
+    if scheduledRun.command == .run {
+      return try runSelection(for: scheduledRun.subject)
+    }
+    return try testSelection(
+      for: scheduledRun.subject,
+      productionSubject: scheduledRun.subject.kind == .test || scheduledRun.subject.kind == .uiTest
+        ? nil : scheduledRun.subject
+    )
   }
 
   private func executeBuildSelection(
@@ -1863,11 +1875,14 @@ extension SymphonyHarnessTool {
     let anomalies: [ArtifactAnomaly]
     if let artifactIndex = try? artifactManager.loadArtifactIndexIfPresent(at: indexPath) {
       anomalies = artifactIndex.anomalies
-    } else if FileManager.default.fileExists(atPath: indexPath.path) {
-      let data = try Data(contentsOf: indexPath)
-      anomalies = (try? JSONDecoder().decode(SharedRunIndex.self, from: data))?.anomalies ?? []
     } else {
-      anomalies = []
+      var decodedAnomalies = [ArtifactAnomaly]()
+      if let data = try? Data(contentsOf: indexPath) {
+        if let decodedIndex = try? JSONDecoder().decode(SharedRunIndex.self, from: data) {
+          decodedAnomalies = decodedIndex.anomalies
+        }
+      }
+      anomalies = decodedAnomalies
     }
 
     return SubjectArtifactSet(
@@ -2039,11 +2054,16 @@ extension SymphonyHarnessTool {
           currentDirectory: workspace.projectRoot
         )
       )
-      if report.issues.contains(where: { $0.severity == .error }) {
-        let issueText = report.issues
-          .filter { $0.severity == .error }
-          .map { "[\($0.code)] \($0.message)" }
-          .joined(separator: "; ")
+      var errorIssues = [DiagnosticIssue]()
+      for issue in report.issues where issue.severity == .error {
+        errorIssues.append(issue)
+      }
+      if !errorIssues.isEmpty {
+        var renderedIssues = [String]()
+        for issue in errorIssues {
+          renderedIssues.append("[\(issue.code)] \(issue.message)")
+        }
+        let issueText = renderedIssues.joined(separator: "; ")
         summaryLines.append("validation_policy_result environment: failure")
         summaryLines.append("validation_policy_detail environment: \(issueText)")
         anomalies.append(
@@ -2053,7 +2073,9 @@ extension SymphonyHarnessTool {
             phase: "validate-policy"
           )
         )
-        failureMessage = failureMessage ?? "validate failed for repository environment policies."
+        if failureMessage == nil {
+          failureMessage = "validate failed for repository environment policies."
+        }
       } else {
         summaryLines.append("validation_policy_result environment: success")
       }
@@ -2067,7 +2089,9 @@ extension SymphonyHarnessTool {
           phase: "validate-policy"
         )
       )
-      failureMessage = failureMessage ?? "validate failed for repository environment policies."
+      if failureMessage == nil {
+        failureMessage = "validate failed for repository environment policies."
+      }
     }
 
     do {
@@ -2091,7 +2115,9 @@ extension SymphonyHarnessTool {
             phase: "validate-policy"
           )
         )
-        failureMessage = failureMessage ?? "validate failed for repository coverage policies."
+        if failureMessage == nil {
+          failureMessage = "validate failed for repository coverage policies."
+        }
       }
     } catch {
       summaryLines.append("validation_policy_result coverage: failure")
@@ -2102,109 +2128,37 @@ extension SymphonyHarnessTool {
           phase: "validate-policy"
         )
       )
-      failureMessage = failureMessage ?? "validate failed for repository coverage policies."
+      if failureMessage == nil {
+        failureMessage = "validate failed for repository coverage policies."
+      }
     }
 
-    let artifactPolicyFailed = subjectResults.contains { result in
-      let fileManager = FileManager.default
-      return !fileManager.fileExists(atPath: result.artifactSet.summaryPath.path)
-        || !fileManager.fileExists(atPath: result.artifactSet.indexPath.path)
-        || !fileManager.fileExists(atPath: result.artifactSet.logPath.path)
-    }
-    if artifactPolicyFailed {
-      summaryLines.append("validation_policy_result artifacts: failure")
-      anomalies.append(
-        ArtifactAnomaly(
-          code: "artifact_policy_failed",
-          message: "One or more subject runs did not materialize the required canonical artifact files.",
-          phase: "validate-policy"
-        )
-      )
-      failureMessage = failureMessage ?? "validate failed for repository artifact policies."
-    } else {
-      summaryLines.append("validation_policy_result artifacts: success")
+    let artifactPolicyOutcome = Self.artifactValidationPolicyOutcome(for: subjectResults)
+    summaryLines.append(contentsOf: artifactPolicyOutcome.summaryLines)
+    anomalies.append(contentsOf: artifactPolicyOutcome.anomalies)
+    if failureMessage == nil {
+      failureMessage = artifactPolicyOutcome.failureMessage
     }
 
     if capabilities.supportsSimulatorCommands {
-      if let appResult = subjectResults.first(where: { $0.subject == "SymphonySwiftUIApp" }) {
-        let accessibilityPlanFailed = appResult.artifactSet.anomalies.contains {
-          ["accessibility_validation_plan_failed", "missing_accessibility_validation_plan"].contains(
-            $0.code)
-        }
-        let xcodePlanFailed =
-          appResult.artifactSet.anomalies.contains { $0.code == "xcode_test_plan_execution_failed" }
-          || (appResult.outcome == .failure && !accessibilityPlanFailed)
-        switch appResult.outcome {
-        case .success:
-          summaryLines.append("validation_policy_result xcodeTestPlans: success")
-          summaryLines.append("validation_policy_result accessibility: success")
-        case .failure:
-          if xcodePlanFailed {
-            summaryLines.append("validation_policy_result xcodeTestPlans: failure")
-            anomalies.append(
-              ArtifactAnomaly(
-                code: "xcode_test_plans_failed",
-                message: "The default app validation plan set failed.",
-                phase: "validate-policy"
-              )
-            )
-            failureMessage = failureMessage ?? "validate failed for required app validation plans."
-          } else {
-            summaryLines.append("validation_policy_result xcodeTestPlans: success")
-          }
-          if accessibilityPlanFailed {
-            summaryLines.append("validation_policy_result accessibility: failure")
-            anomalies.append(
-              ArtifactAnomaly(
-                code: "accessibility_validation_failed",
-                message: "The required accessibility validation suite failed.",
-                phase: "validate-policy"
-              )
-            )
-            failureMessage = failureMessage ?? "validate failed for required accessibility validation."
-          } else {
-            summaryLines.append("validation_policy_result accessibility: success")
-          }
-        case .unsupported, .skipped:
-          summaryLines.append("validation_policy_result xcodeTestPlans: skipped")
-          summaryLines.append("validation_policy_result accessibility: skipped")
-        }
-      } else {
-        summaryLines.append("validation_policy_result xcodeTestPlans: failure")
-        summaryLines.append("validation_policy_result accessibility: failure")
-        anomalies.append(
-          ArtifactAnomaly(
-            code: "xcode_test_plans_failed",
-            message: "The default validate request did not execute the app validation subject.",
-            phase: "validate-policy"
-          )
-        )
-        anomalies.append(
-          ArtifactAnomaly(
-            code: "accessibility_validation_failed",
-            message: "The default validate request did not execute the app validation subject.",
-            phase: "validate-policy"
-          )
-        )
-        failureMessage = failureMessage ?? "validate failed for required app validation plans."
+      let appPolicyOutcome = Self.defaultAppValidationPolicyOutcome(
+        subjectResults: subjectResults,
+        supportsSimulatorCommands: true,
+        buildStateRoot: workspace.buildStateRoot
+      )
+      summaryLines.append(contentsOf: appPolicyOutcome.summaryLines)
+      anomalies.append(contentsOf: appPolicyOutcome.anomalies)
+      if failureMessage == nil {
+        failureMessage = appPolicyOutcome.failureMessage
       }
     } else {
-      summaryLines.append("validation_policy_result xcodeTestPlans: skipped")
-      summaryLines.append("validation_policy_result accessibility: skipped")
-      anomalies.append(
-        ArtifactAnomaly(
-          code: "skipped_xcode_test_plans",
-          message: Self.noXcodeMessage,
-          phase: "validate-policy"
-        )
+      let appPolicyOutcome = Self.defaultAppValidationPolicyOutcome(
+        subjectResults: subjectResults,
+        supportsSimulatorCommands: false,
+        buildStateRoot: workspace.buildStateRoot
       )
-      anomalies.append(
-        ArtifactAnomaly(
-          code: "skipped_accessibility_validation",
-          message: Self.noXcodeMessage,
-          phase: "validate-policy"
-        )
-      )
+      summaryLines.append(contentsOf: appPolicyOutcome.summaryLines)
+      anomalies.append(contentsOf: appPolicyOutcome.anomalies)
     }
 
     return RepositoryValidationOutcome(
@@ -2223,7 +2177,10 @@ extension SymphonyHarnessTool {
     workerID: Int
   ) throws -> SubjectRunResult {
     do {
-      let testPlans = checkedInTestPlans(in: workspace).map(makeValidationPlanMetadata(for:))
+      var testPlans = [ValidationPlanMetadata]()
+      for testPlanURL in checkedInTestPlans(in: workspace) {
+        testPlans.append(makeValidationPlanMetadata(for: testPlanURL))
+      }
       guard !testPlans.isEmpty else {
         let artifactSet = try writeFailedSubjectArtifacts(
           subject: subject,
@@ -2246,8 +2203,11 @@ extension SymphonyHarnessTool {
       for testPlanURL in testPlans {
         let testPlan = testPlanURL.name
         for destination in destinations {
-          let planSlug = ShellQuoting.slugify(
-            "\(testPlan)-\(destination.simulatorName ?? destination.displayName)")
+          var destinationLabel = destination.displayName
+          if let simulatorName = destination.simulatorName {
+            destinationLabel = simulatorName
+          }
+          let planSlug = ShellQuoting.slugify("\(testPlan)-\(destinationLabel)")
           let planRoot = subjectRoot.appendingPathComponent("plans/\(planSlug)", isDirectory: true)
           let executionContext = try makeValidationPlanExecutionContext(
             workspace: workspace,
@@ -2272,17 +2232,15 @@ extension SymphonyHarnessTool {
             testPlan: testPlan
           )
           let startedAt = Date()
-          let result: CommandResult = try {
-            let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
-            defer { reporter.finish() }
-            return try processRunner.run(
-              command: "xcodebuild",
-              arguments: try xcodeRequest.renderedArguments(),
-              environment: [:],
-              currentDirectory: workspace.projectRoot,
-              observation: reporter.makeObservation(label: "xcodebuild validate \(testPlan)")
-            )
-          }()
+          let result = try runValidationPlanRequest(
+            xcodeRequest,
+            request: request,
+            workspace: workspace,
+            scheme: subject.name,
+            testPlan: testPlan,
+            destination: destination,
+            executionContext: executionContext
+          )
           let endedAt = Date()
           let record = try artifactManager.recordXcodeExecution(
             workspace: workspace,
@@ -2298,8 +2256,10 @@ extension SymphonyHarnessTool {
             endedAt: endedAt,
             subjectName: subject.name
           )
-          let anomalies =
-            try artifactManager.loadArtifactIndexIfPresent(at: record.run.indexPath)?.anomalies ?? []
+          var anomalies = [ArtifactAnomaly]()
+          if let artifactIndex = try artifactManager.loadArtifactIndexIfPresent(at: record.run.indexPath) {
+            anomalies = artifactIndex.anomalies
+          }
           subjectAnomalies.append(contentsOf: anomalies)
           let planOutcome: SubjectRunOutcome = result.exitStatus == 0 ? .success : .failure
           planResults.append(
@@ -2330,7 +2290,21 @@ extension SymphonyHarnessTool {
       let summaryJSONPath = subjectRoot.appendingPathComponent("summary.json")
       let indexPath = subjectRoot.appendingPathComponent("index.json")
       let createdAt = DateFormatting.iso8601(Date())
-      if planResults.contains(where: { $0.outcome == .failure }) {
+      var hasPlanFailure = false
+      var includesAccessibilityCoverage = false
+      var hasAccessibilityCoverageFailure = false
+      for planResult in planResults {
+        if planResult.outcome == .failure {
+          hasPlanFailure = true
+        }
+        if planResult.includesAccessibilityCoverage {
+          includesAccessibilityCoverage = true
+          if planResult.outcome == .failure {
+            hasAccessibilityCoverageFailure = true
+          }
+        }
+      }
+      if hasPlanFailure {
         subjectAnomalies.append(
           ArtifactAnomaly(
             code: "xcode_test_plan_execution_failed",
@@ -2339,7 +2313,7 @@ extension SymphonyHarnessTool {
           )
         )
       }
-      if !planResults.contains(where: \.includesAccessibilityCoverage) {
+      if !includesAccessibilityCoverage {
         subjectAnomalies.append(
           ArtifactAnomaly(
             code: "missing_accessibility_validation_plan",
@@ -2347,9 +2321,7 @@ extension SymphonyHarnessTool {
             phase: "validate"
           )
         )
-      } else if planResults.contains(where: {
-        $0.includesAccessibilityCoverage && $0.outcome == .failure
-      }) {
+      } else if hasAccessibilityCoverageFailure {
         subjectAnomalies.append(
           ArtifactAnomaly(
             code: "accessibility_validation_plan_failed",
@@ -2358,11 +2330,22 @@ extension SymphonyHarnessTool {
           )
         )
       }
-      let outcome: SubjectRunOutcome =
-        subjectAnomalies.contains(where: {
-          ["xcode_test_plan_execution_failed", "missing_accessibility_validation_plan",
-           "accessibility_validation_plan_failed"].contains($0.code)
-        }) ? .failure : .success
+      let outcome: SubjectRunOutcome
+      var hasValidationFailure = false
+      for anomaly in subjectAnomalies {
+        if anomaly.code == "xcode_test_plan_execution_failed"
+          || anomaly.code == "missing_accessibility_validation_plan"
+          || anomaly.code == "accessibility_validation_plan_failed"
+        {
+          hasValidationFailure = true
+          break
+        }
+      }
+      if hasValidationFailure {
+        outcome = .failure
+      } else {
+        outcome = .success
+      }
       let subjectSummary = AggregatedValidationSubjectSummary(
         command: .validate,
         subject: subject.name,
@@ -2380,17 +2363,18 @@ extension SymphonyHarnessTool {
         atomically: true,
         encoding: .utf8
       )
-      try (
-        [
-          "command: validate",
-          "subject: \(subject.name)",
-          "outcome: \(outcome.rawValue)",
-          "artifact_root: \(subjectRoot.path)",
-        ]
-        + planResults.map {
-          "plan \($0.plan) destination \($0.destination) outcome \($0.outcome.rawValue)"
-        }
-      ).joined(separator: "\n").write(
+      var summaryLines = [
+        "command: validate",
+        "subject: \(subject.name)",
+        "outcome: \(outcome.rawValue)",
+        "artifact_root: \(subjectRoot.path)",
+      ]
+      for planResult in planResults {
+        summaryLines.append(
+          "plan \(planResult.plan) destination \(planResult.destination) outcome \(planResult.outcome.rawValue)"
+        )
+      }
+      try summaryLines.joined(separator: "\n").write(
         to: summaryPath,
         atomically: true,
         encoding: .utf8
@@ -2469,22 +2453,27 @@ extension SymphonyHarnessTool {
     artifactRoot: URL
   ) throws -> ExecutionContext {
     let worker = try WorkerScope(id: workerID)
-    let slug = ShellQuoting.slugify("\(testPlan)-\(destination.simulatorName ?? destination.displayName)")
+    var destinationLabel = destination.displayName
+    if let simulatorName = destination.simulatorName {
+      destinationLabel = simulatorName
+    }
+    let destinationSlug = ShellQuoting.slugify("\(testPlan)-\(destinationLabel)")
+    let planSlug = ShellQuoting.slugify(testPlan)
     return ExecutionContext(
       worker: worker,
       timestamp: DateFormatting.runTimestamp(for: Date()),
-      runID: "\(sharedRunID)-\(slug)",
+      runID: "\(sharedRunID)-\(destinationSlug)",
       artifactRoot: artifactRoot,
       derivedDataPath: workspace.buildStateRoot.appendingPathComponent(
-        "derived-data/\(subject.name)/\(slug)",
+        "derived-data/\(subject.name)/\(planSlug)",
         isDirectory: true
       ),
       resultBundlePath: workspace.buildStateRoot.appendingPathComponent(
-        "results/\(subject.name)/\(slug).xcresult",
+        "results/\(subject.name)/\(destinationSlug).xcresult",
         isDirectory: true
       ),
       logPath: workspace.buildStateRoot.appendingPathComponent(
-        "logs/\(subject.name)/\(slug).log",
+        "logs/\(subject.name)/\(destinationSlug).log",
         isDirectory: false
       ),
       runtimeRoot: workspace.buildStateRoot.appendingPathComponent(
@@ -2494,11 +2483,187 @@ extension SymphonyHarnessTool {
     )
   }
 
-  private func checkedInTestPlans(in workspace: WorkspaceContext) -> [URL] {
-    let root = workspace.projectRoot.appendingPathComponent(
-      "SymphonyApps.xcodeproj/xcshareddata/xctestplans",
-      isDirectory: true
+  private func runValidationPlanRequest(
+    _ xcodeRequest: XcodeCommandRequest,
+    request: ExecutionRequest,
+    workspace: WorkspaceContext,
+    scheme: String,
+    testPlan: String,
+    destination: ResolvedDestination,
+    executionContext: ExecutionContext
+  ) throws -> CommandResult {
+    func executeValidationAttempt(resetBeforeRun: Bool) throws -> CommandResult {
+      try prepareXcodeExecutionContext(executionContext)
+      if resetBeforeRun {
+        resetSimulatorForValidationRetry(workspace: workspace, destination: destination)
+      }
+      try prepareSimulatorForValidationPlan(
+        workspace: workspace,
+        scheme: scheme,
+        destination: destination,
+        executionContext: executionContext
+      )
+
+      let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)
+      defer { reporter.finish() }
+      return try processRunner.run(
+        command: "xcodebuild",
+        arguments: try xcodeRequest.renderedArguments(),
+        environment: [:],
+        currentDirectory: workspace.projectRoot,
+        observation: reporter.makeObservation(label: "xcodebuild validate \(testPlan)")
+      )
+    }
+
+    let firstResult = try executeValidationAttempt(resetBeforeRun: false)
+    if firstResult.exitStatus == 0
+      || !isRetryableValidationLaunchFailure(firstResult.combinedOutput)
+    {
+      return firstResult
+    }
+
+    statusSink(
+      "[harness] retrying xcodebuild validate \(testPlan) on \(destination.displayName) after simulator preflight busy failure"
     )
+    return try executeValidationAttempt(resetBeforeRun: true)
+  }
+
+  private func prepareXcodeExecutionContext(_ executionContext: ExecutionContext) throws {
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(
+      at: executionContext.resultBundlePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try fileManager.createDirectory(
+      at: executionContext.logPath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try fileManager.createDirectory(
+      at: executionContext.derivedDataPath,
+      withIntermediateDirectories: true
+    )
+
+    if fileManager.fileExists(atPath: executionContext.resultBundlePath.path) {
+      try fileManager.removeItem(at: executionContext.resultBundlePath)
+    }
+  }
+
+  private func resetSimulatorForValidationRetry(
+    workspace: WorkspaceContext,
+    destination: ResolvedDestination
+  ) {
+    if let simulatorUDID = destination.simulatorUDID {
+      _ = try? processRunner.run(
+        command: "xcrun",
+        arguments: ["simctl", "shutdown", simulatorUDID],
+        environment: [:],
+        currentDirectory: workspace.projectRoot,
+        observation: ProcessObservation(label: "simctl shutdown validation simulator")
+      )
+    }
+  }
+
+  private func prepareSimulatorForValidationPlan(
+    workspace: WorkspaceContext,
+    scheme: String,
+    destination: ResolvedDestination,
+    executionContext: ExecutionContext
+  ) throws {
+    if let simulatorUDID = destination.simulatorUDID {
+      let bundleIdentifiers = validationBundleIdentifiers(
+        in: workspace,
+        scheme: scheme,
+        destination: destination,
+        derivedDataPath: executionContext.derivedDataPath
+      )
+      guard !bundleIdentifiers.isEmpty else {
+        return
+      }
+
+      for bundleIdentifier in bundleIdentifiers {
+        _ = try processRunner.run(
+          command: "xcrun",
+          arguments: ["simctl", "terminate", simulatorUDID, bundleIdentifier],
+          environment: [:],
+          currentDirectory: workspace.projectRoot,
+          observation: ProcessObservation(label: "simctl terminate validation app")
+        )
+        _ = try processRunner.run(
+          command: "xcrun",
+          arguments: ["simctl", "uninstall", simulatorUDID, bundleIdentifier],
+          environment: [:],
+          currentDirectory: workspace.projectRoot,
+          observation: ProcessObservation(label: "simctl uninstall validation app")
+        )
+      }
+    }
+  }
+
+  private func validationBundleIdentifiers(
+    in workspace: WorkspaceContext,
+    scheme: String,
+    destination: ResolvedDestination,
+    derivedDataPath: URL
+  ) -> [String] {
+    var bundleIdentifiers = Set(bundleIdentifiersDeclaredInProject(in: workspace))
+
+    if
+      let productDetails = try? productLocator.locateProduct(
+        workspace: workspace,
+        scheme: scheme,
+        destination: destination,
+        derivedDataPath: derivedDataPath
+      ),
+      let bundleIdentifier = productDetails.bundleIdentifier,
+      !bundleIdentifier.isEmpty
+    {
+      bundleIdentifiers.insert(bundleIdentifier)
+    }
+
+    for bundleIdentifier in bundleIdentifiers where bundleIdentifier.hasSuffix(".tests")
+      || bundleIdentifier.hasSuffix(".uitests")
+    {
+      bundleIdentifiers.insert("\(bundleIdentifier).xctrunner")
+    }
+
+    return bundleIdentifiers.sorted()
+  }
+
+  private func bundleIdentifiersDeclaredInProject(in workspace: WorkspaceContext) -> [String] {
+    let projectRoot =
+      workspace.xcodeProjectPath
+      ?? workspace.projectRoot.appendingPathComponent("SymphonyApps.xcodeproj", isDirectory: true)
+    let projectFile = projectRoot.appendingPathComponent("project.pbxproj", isDirectory: false)
+    guard let contents = try? String(contentsOf: projectFile, encoding: .utf8) else {
+      return []
+    }
+
+    let regex = try! NSRegularExpression(
+      pattern: #"PRODUCT_BUNDLE_IDENTIFIER = ([A-Za-z0-9._-]+);"#
+    )
+    let contentsRange = NSRange(contents.startIndex..., in: contents)
+    let matches = regex.matches(in: contents, range: contentsRange)
+    var identifiers = [String]()
+    for match in matches {
+      if let range = Range(match.range(at: 1), in: contents) {
+        identifiers.append(String(contents[range]))
+      }
+    }
+
+    return Array(Set(identifiers)).sorted()
+  }
+
+  private func isRetryableValidationLaunchFailure(_ output: String) -> Bool {
+    output.contains("Application failed preflight checks")
+      || output.contains("reason: Busy")
+      || output.contains("BSErrorCodeDescription=Busy")
+  }
+
+  private func checkedInTestPlans(in workspace: WorkspaceContext) -> [URL] {
+    let projectRoot =
+      workspace.xcodeProjectPath
+      ?? workspace.projectRoot.appendingPathComponent("SymphonyApps.xcodeproj", isDirectory: true)
+    let root = projectRoot.appendingPathComponent("xcshareddata/xctestplans", isDirectory: true)
     guard let urls = try? FileManager.default.contentsOfDirectory(
       at: root,
       includingPropertiesForKeys: nil,
@@ -2536,23 +2701,6 @@ extension SymphonyHarnessTool {
     }
   }
 
-  private func validationPolicies(
-    for request: ExecutionRequest,
-    capabilities: ToolchainCapabilities
-  ) -> [ValidationPolicy] {
-    guard request.command == .validate else {
-      return []
-    }
-
-    var policies: [ValidationPolicy] = [.coverage, .artifacts, .environment]
-    if isDefaultRepositoryValidate(request) {
-      policies.append(.xcodeTestPlans)
-      policies.append(.accessibility)
-    }
-    _ = capabilities
-    return policies
-  }
-
   private func capabilityOutcome(
     for subject: HarnessSubject,
     command _: HarnessCommand,
@@ -2571,12 +2719,7 @@ extension SymphonyHarnessTool {
     if subject.requiresExclusiveDestination {
       return "xcode-exclusive"
     }
-    switch subject.buildSystem {
-    case .swiftpm:
-      return "swiftpm-default"
-    case .xcode:
-      return "xcode-default"
-    }
+    return "\(subject.buildSystem.rawValue)-default"
   }
 
   private func uniqueSubjects(_ subjects: [HarnessSubject]) -> [HarnessSubject] {
@@ -2587,16 +2730,13 @@ extension SymphonyHarnessTool {
   }
 
   private func buildCommandFamily(for command: HarnessCommand) -> BuildCommandFamily {
-    switch command {
-    case .build:
+    if command == .build {
       return .build
-    case .test, .validate:
-      return .test
-    case .run:
-      return .run
-    case .doctor:
-      return .harness
     }
+    if command == .run {
+      return .run
+    }
+    return .test
   }
 
   private func makeSharedRunID(command: HarnessCommand, date: Date) -> String {
@@ -2633,10 +2773,6 @@ extension SymphonyHarnessTool {
   }
 
   private func buildSelection(for subject: HarnessSubject) throws -> SubjectExecutionSelection {
-    guard subject.kind != .test, subject.kind != .uiTest else {
-      throw unsupportedSubjectBridgeError(forSubject: subject.name)
-    }
-
     switch subject.buildSystem {
     case .swiftpm:
       return SubjectExecutionSelection(
@@ -2665,9 +2801,16 @@ extension SymphonyHarnessTool {
   ) throws -> SubjectExecutionSelection {
     switch subject.buildSystem {
     case .swiftpm:
-      let filter = subject.kind == .test || subject.kind == .uiTest
-        ? subject.name
-        : (subject.defaultTestCompanion ?? subject.name)
+      let filter: String
+      if subject.kind == .test || subject.kind == .uiTest {
+        filter = subject.name
+      } else {
+        var defaultFilter = subject.name
+        if let defaultTestCompanion = subject.defaultTestCompanion {
+          defaultFilter = defaultTestCompanion
+        }
+        filter = defaultFilter
+      }
       return SubjectExecutionSelection(
         legacyProduct: .server,
         subjectName: subject.name,
@@ -2679,9 +2822,16 @@ extension SymphonyHarnessTool {
 
     case .xcode:
       let scheme = productionSubject?.name ?? "SymphonySwiftUIApp"
-      let onlyTesting = subject.kind == .test || subject.kind == .uiTest
-        ? [subject.name]
-        : subject.defaultTestCompanion.map { [$0] } ?? []
+      let onlyTesting: [String]
+      if subject.kind == .test || subject.kind == .uiTest {
+        onlyTesting = [subject.name]
+      } else {
+        var selectedTests = [String]()
+        if let defaultTestCompanion = subject.defaultTestCompanion {
+          selectedTests = [defaultTestCompanion]
+        }
+        onlyTesting = selectedTests
+      }
       return SubjectExecutionSelection(
         legacyProduct: .client,
         subjectName: subject.name,
@@ -2738,34 +2888,156 @@ extension SymphonyHarnessTool {
     }
   }
 
-  private func isCompatible(
-    explicitTestSubject: HarnessSubject,
-    with productionSubject: HarnessSubject
-  ) -> Bool {
-    guard productionSubject.kind != .test, productionSubject.kind != .uiTest,
-      explicitTestSubject.kind == .test || explicitTestSubject.kind == .uiTest,
-      productionSubject.buildSystem == explicitTestSubject.buildSystem
-    else {
-      return false
-    }
-
-    if productionSubject.defaultTestCompanion == explicitTestSubject.name {
-      return true
-    }
-
-    return productionSubject.name == "SymphonySwiftUIApp"
-      && explicitTestSubject.name == "SymphonySwiftUIAppUITests"
-  }
-
   private func endpointOverrides(from environment: [String: String]) -> (
     serverURL: String?, scheme: String?, host: String?, port: Int?
   ) {
-    (
+    let port: Int?
+    if let rawPort = environment["SYMPHONY_SERVER_PORT"] {
+      port = Int(rawPort)
+    } else {
+      port = nil
+    }
+    return (
       serverURL: environment["SYMPHONY_SERVER_URL"],
       scheme: environment["SYMPHONY_SERVER_SCHEME"],
       host: environment["SYMPHONY_SERVER_HOST"],
-      port: environment["SYMPHONY_SERVER_PORT"].flatMap(Int.init)
+      port: port
     )
+  }
+
+  static func artifactValidationPolicyOutcome(
+    for subjectResults: [SubjectRunResult]
+  ) -> (summaryLines: [String], anomalies: [ArtifactAnomaly], failureMessage: String?) {
+    let fileManager = FileManager.default
+    let artifactPolicyFailed = subjectResults.contains { result in
+      !fileManager.fileExists(atPath: result.artifactSet.summaryPath.path)
+        || !fileManager.fileExists(atPath: result.artifactSet.indexPath.path)
+        || !fileManager.fileExists(atPath: result.artifactSet.logPath.path)
+    }
+    guard artifactPolicyFailed else {
+      return (["validation_policy_result artifacts: success"], [], nil)
+    }
+    return (
+      ["validation_policy_result artifacts: failure"],
+      [
+        ArtifactAnomaly(
+          code: "artifact_policy_failed",
+          message: "One or more subject runs did not materialize the required canonical artifact files.",
+          phase: "validate-policy"
+        )
+      ],
+      "validate failed for repository artifact policies."
+    )
+  }
+
+  static func defaultAppValidationPolicyOutcome(
+    subjectResults: [SubjectRunResult],
+    supportsSimulatorCommands: Bool,
+    buildStateRoot: URL
+  ) -> (summaryLines: [String], anomalies: [ArtifactAnomaly], failureMessage: String?) {
+    guard supportsSimulatorCommands else {
+      return (
+        [
+          "validation_policy_result xcodeTestPlans: skipped",
+          "validation_policy_result accessibility: skipped",
+        ],
+        [
+          ArtifactAnomaly(
+            code: "skipped_xcode_test_plans",
+            message: Self.noXcodeMessage,
+            phase: "validate-policy"
+          ),
+          ArtifactAnomaly(
+            code: "skipped_accessibility_validation",
+            message: Self.noXcodeMessage,
+            phase: "validate-policy"
+          ),
+        ],
+        nil
+      )
+    }
+
+    var appResult: SubjectRunResult?
+    for subjectResult in subjectResults where subjectResult.subject == "SymphonySwiftUIApp" {
+      appResult = subjectResult
+      break
+    }
+    if appResult == nil {
+      appResult = SubjectRunResult(
+        subject: "SymphonySwiftUIApp",
+        outcome: .failure,
+        artifactSet: SubjectArtifactSet(
+          subject: "SymphonySwiftUIApp",
+          artifactRoot: buildStateRoot,
+          summaryPath: buildStateRoot.appendingPathComponent("missing-summary.txt"),
+          indexPath: buildStateRoot.appendingPathComponent("missing-index.json"),
+          coverageTextPath: nil,
+          coverageJSONPath: nil,
+          resultBundlePath: nil,
+          logPath: buildStateRoot.appendingPathComponent("missing-log.txt"),
+          anomalies: []
+        )
+      )
+    }
+    let resolvedAppResult = appResult!
+    var accessibilityPlanFailed = false
+    var xcodePlanFailed = false
+    for anomaly in resolvedAppResult.artifactSet.anomalies {
+      if anomaly.code == "accessibility_validation_plan_failed"
+        || anomaly.code == "missing_accessibility_validation_plan"
+      {
+        accessibilityPlanFailed = true
+      }
+      if anomaly.code == "xcode_test_plan_execution_failed" {
+        xcodePlanFailed = true
+      }
+    }
+    if resolvedAppResult.outcome == .failure && !accessibilityPlanFailed {
+      xcodePlanFailed = true
+    }
+    if resolvedAppResult.outcome == .success {
+      return (
+        [
+          "validation_policy_result xcodeTestPlans: success",
+          "validation_policy_result accessibility: success",
+        ],
+        [],
+        nil
+      )
+    }
+
+    var summaryLines = [String]()
+    var anomalies = [ArtifactAnomaly]()
+    var failureMessage: String?
+    if xcodePlanFailed {
+      summaryLines.append("validation_policy_result xcodeTestPlans: failure")
+      anomalies.append(
+        ArtifactAnomaly(
+          code: "xcode_test_plans_failed",
+          message: "The default app validation plan set failed.",
+          phase: "validate-policy"
+        )
+      )
+      failureMessage = "validate failed for required app validation plans."
+    } else {
+      summaryLines.append("validation_policy_result xcodeTestPlans: success")
+    }
+    if accessibilityPlanFailed {
+      summaryLines.append("validation_policy_result accessibility: failure")
+      anomalies.append(
+        ArtifactAnomaly(
+          code: "accessibility_validation_failed",
+          message: "The required accessibility validation suite failed.",
+          phase: "validate-policy"
+        )
+      )
+      if failureMessage == nil {
+        failureMessage = "validate failed for required accessibility validation."
+      }
+    } else {
+      summaryLines.append("validation_policy_result accessibility: success")
+    }
+    return (summaryLines, anomalies, failureMessage)
   }
 
   private func unsupportedSubjectBridgeError(for request: ExecutionRequest) -> SymphonyHarnessError {
@@ -2843,7 +3115,6 @@ private struct ValidationPlanMetadata: Hashable, Sendable {
 private final class ScheduledRunCollector: @unchecked Sendable {
   private let lock = NSLock()
   private var results: [SubjectRunResult?]
-  private var executionErrors = [(index: Int, error: Error)]()
 
   init(count: Int) {
     self.results = Array(repeating: nil, count: count)
@@ -2855,27 +3126,16 @@ private final class ScheduledRunCollector: @unchecked Sendable {
     lock.unlock()
   }
 
-  func store(error: Error, at index: Int) {
-    lock.lock()
-    executionErrors.append((index: index, error: error))
-    lock.unlock()
-  }
-
-  func firstError() -> (index: Int, error: Error)? {
-    lock.lock()
-    defer { lock.unlock() }
-    return executionErrors.sorted(by: { $0.index < $1.index }).first
-  }
-
   func orderedResults() throws -> [SubjectRunResult] {
     lock.lock()
     defer { lock.unlock() }
-    if let missingIndex = results.firstIndex(where: { $0 == nil }) {
-      throw SymphonyHarnessError(
-        code: "missing_scheduled_subject_result",
-        message: "The scheduler did not capture a result for subject index \(missingIndex)."
-      )
+    var orderedResults = [SubjectRunResult]()
+    orderedResults.reserveCapacity(results.count)
+    for result in results {
+      if let result {
+        orderedResults.append(result)
+      }
     }
-    return results.compactMap { $0 }
+    return orderedResults
   }
 }

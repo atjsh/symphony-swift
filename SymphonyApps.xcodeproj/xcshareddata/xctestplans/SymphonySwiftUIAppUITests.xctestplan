@@ -18,7 +18,6 @@
   },
   "testTargets" : [
     {
-      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:SymphonyApps.xcodeproj",
         "identifier" : "0B018AD9F48103DB6D8603F4",

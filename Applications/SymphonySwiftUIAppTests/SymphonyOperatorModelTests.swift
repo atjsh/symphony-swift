@@ -994,7 +994,7 @@ struct SymphonyOperatorModelTests {
         normalizedEventKind: "status"
       ))
     XCTAssertEqual(invalidJSON.detail, "provider_status")
-    XCTAssertTrue(invalidJSON.metadata.contains("claude_code"))
+    XCTAssertTrue(invalidJSON.metadata.contains("claude code"))
   }
 
   @Test func EventPresentationCoversAdditionalCodexExtractionBranches() {

@@ -706,6 +706,235 @@ import Testing
   }
 }
 
+@Test func swiftPMCoverageScopeMapsCanonicalSwiftPMSubjectsToOwnedRoots() {
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyShared") == .shared)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonySharedTests") == .shared)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServerCore") == .serverCore)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServerCoreTests") == .serverCore)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServer") == .server)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServerTests") == .server)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServerCLI") == .serverCLI)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyServerCLITests") == .serverCLI)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyHarness") == .harness)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyHarnessTests") == .harness)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyHarnessCLI") == .harnessCLI)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonyHarnessCLITests") == .harnessCLI)
+  #expect(SwiftPMCoverageScope.subjectOwned(for: "SymphonySwiftUIApp") == nil)
+}
+
+@Test func swiftPMCoverageReporterExportsHarnessOwnedSourcesOnly() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyHarness"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyServer"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyHarnessCLI"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/harness"),
+      withIntermediateDirectories: true)
+
+    let coveragePath = directory.appendingPathComponent("swiftpm-harness-scope.json")
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarness/CoverageInspection.swift", "summary": { "lines": { "count": 12, "covered": 9 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 6, "covered": 3 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift", "summary": { "lines": { "count": 5, "covered": 5 } } },
+            { "filename": "__REPO__/Sources/harness/main.swift", "summary": { "lines": { "count": 3, "covered": 3 } } },
+            { "filename": "__REPO__/Sources/SymphonyServer/ProviderAdapter.swift", "summary": { "lines": { "count": 4, "covered": 4 } } },
+            { "filename": "__REPO__/Tests/SymphonyHarnessTests/Foo.swift", "summary": { "lines": { "count": 20, "covered": 20 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let artifacts = try SwiftPMCoverageReporter().exportCoverage(
+      coverageJSONPath: coveragePath,
+      projectRoot: repoRoot,
+      artifactRoot: directory.appendingPathComponent("artifacts-harness", isDirectory: true),
+      scope: .harness,
+      showFiles: true
+    )
+
+    #expect(artifacts.report.targets.map(\.name) == ["SymphonyHarness"])
+    #expect(artifacts.report.coveredLines == 12)
+    #expect(artifacts.report.executableLines == 18)
+    #expect(artifacts.report.excludedTargets == ["SymphonyHarnessTests"])
+    #expect(
+      artifacts.report.targets[0].files?.map(\.path) == [
+        "Sources/SymphonyHarness/CoverageInspection.swift",
+        "Sources/SymphonyHarness/SymphonyHarnessTool.swift",
+      ])
+    #expect(!artifacts.jsonOutput.contains("Sources/SymphonyServer/ProviderAdapter.swift"))
+    #expect(!artifacts.jsonOutput.contains("Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift"))
+  }
+}
+
+@Test func swiftPMCoverageReporterExportsHarnessCLIOwnedSourcesOnly() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyHarnessCLI"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/harness"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyHarness"),
+      withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources/SymphonyServer"),
+      withIntermediateDirectories: true)
+
+    let coveragePath = directory.appendingPathComponent("swiftpm-harness-cli-scope.json")
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift", "summary": { "lines": { "count": 10, "covered": 8 } } },
+            { "filename": "__REPO__/Sources/harness/main.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 4, "covered": 4 } } },
+            { "filename": "__REPO__/Sources/SymphonyServer/ProviderAdapter.swift", "summary": { "lines": { "count": 6, "covered": 6 } } },
+            { "filename": "__REPO__/Tests/SymphonyHarnessCLITests/Foo.swift", "summary": { "lines": { "count": 20, "covered": 20 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let artifacts = try SwiftPMCoverageReporter().exportCoverage(
+      coverageJSONPath: coveragePath,
+      projectRoot: repoRoot,
+      artifactRoot: directory.appendingPathComponent("artifacts-harness-cli", isDirectory: true),
+      scope: .harnessCLI,
+      showFiles: true
+    )
+
+    #expect(artifacts.report.targets.map(\.name) == ["SymphonyHarnessCLI"])
+    #expect(artifacts.report.coveredLines == 10)
+    #expect(artifacts.report.executableLines == 12)
+    #expect(artifacts.report.excludedTargets == ["SymphonyHarnessCLITests"])
+    #expect(
+      artifacts.report.targets[0].files?.map(\.path) == [
+        "Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift",
+        "Sources/harness/main.swift",
+      ])
+    #expect(!artifacts.jsonOutput.contains("Sources/SymphonyServer/ProviderAdapter.swift"))
+    #expect(!artifacts.jsonOutput.contains("Sources/SymphonyHarness/SymphonyHarnessTool.swift"))
+  }
+}
+
+@Test func swiftPMCoverageReporterExportsAllOwnedSwiftPMScopeRoots() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    for path in [
+      "Sources/SymphonyShared",
+      "Sources/SymphonyServerCore",
+      "Sources/SymphonyServer",
+      "Sources/SymphonyServerCLI",
+      "Sources/SymphonyHarness",
+      "Sources/SymphonyHarnessCLI",
+      "Sources/harness",
+    ] {
+      try FileManager.default.createDirectory(
+        at: repoRoot.appendingPathComponent(path),
+        withIntermediateDirectories: true
+      )
+    }
+
+    let coveragePath = directory.appendingPathComponent("swiftpm-owned-scopes.json")
+    try #"""
+    {
+      "data": [
+        {
+          "files": [
+            { "filename": "__REPO__/Sources/SymphonyShared/SymphonyShared.swift", "summary": { "lines": { "count": 2, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyServerCore/Orchestrator.swift", "summary": { "lines": { "count": 4, "covered": 3 } } },
+            { "filename": "__REPO__/Sources/SymphonyServer/ProviderAdapter.swift", "summary": { "lines": { "count": 6, "covered": 4 } } },
+            { "filename": "__REPO__/Sources/SymphonyServerCLI/main.swift", "summary": { "lines": { "count": 3, "covered": 2 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarness/SymphonyHarnessTool.swift", "summary": { "lines": { "count": 5, "covered": 4 } } },
+            { "filename": "__REPO__/Sources/SymphonyHarnessCLI/SymphonyHarnessCommand.swift", "summary": { "lines": { "count": 7, "covered": 6 } } },
+            { "filename": "__REPO__/Sources/harness/main.swift", "summary": { "lines": { "count": 2, "covered": 2 } } }
+          ]
+        }
+      ]
+    }
+    """#
+    .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+    .write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let reporter = SwiftPMCoverageReporter()
+    let scopes: [(SwiftPMCoverageScope, String, [String])] = [
+      (.shared, "SymphonyShared", ["SymphonySharedTests"]),
+      (.serverCore, "SymphonyServerCore", ["SymphonyServerCoreTests"]),
+      (.server, "SymphonyServer", ["SymphonyServerTests"]),
+      (.serverCLI, "SymphonyServerCLI", ["SymphonyServerCLITests"]),
+      (.harness, "SymphonyHarness", ["SymphonyHarnessTests"]),
+      (.harnessCLI, "SymphonyHarnessCLI", ["SymphonyHarnessCLITests"]),
+    ]
+
+    for (scope, targetName, excludedTargets) in scopes {
+      let artifacts = try reporter.exportCoverage(
+        coverageJSONPath: coveragePath,
+        projectRoot: repoRoot,
+        artifactRoot: directory.appendingPathComponent("artifacts-\(targetName)", isDirectory: true),
+        scope: scope,
+        showFiles: true
+      )
+
+      #expect(artifacts.report.targets.map(\.name) == [targetName])
+      #expect(artifacts.report.excludedTargets == excludedTargets)
+    }
+  }
+}
+
+@Test func swiftPMCoverageReporterUsesScopeDescriptionsInMissingSourceErrors() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+    let coveragePath = directory.appendingPathComponent("swiftpm-empty-scopes.json")
+    try #"{"data":[{"files":[]}]}"#.write(to: coveragePath, atomically: true, encoding: .utf8)
+
+    let expectations: [(SwiftPMCoverageScope, String)] = [
+      (.shared, "SymphonyShared"),
+      (.serverCore, "SymphonyServerCore"),
+      (.server, "SymphonyServer"),
+      (.serverCLI, "SymphonyServerCLI"),
+      (.harness, "SymphonyHarness"),
+      (.harnessCLI, "SymphonyHarnessCLI"),
+    ]
+
+    for (scope, subjectDescription) in expectations {
+      do {
+        _ = try SwiftPMCoverageReporter().exportCoverage(
+          coverageJSONPath: coveragePath,
+          projectRoot: repoRoot,
+          artifactRoot: directory.appendingPathComponent("missing-\(subjectDescription)", isDirectory: true),
+          scope: scope,
+          showFiles: true
+        )
+        Issue.record("Expected missing \(subjectDescription) sources to fail.")
+      } catch let error as SymphonyHarnessError {
+        #expect(error.code == "swiftpm_coverage_sources_missing")
+        #expect(error.message.contains(subjectDescription))
+      }
+    }
+  }
+}
+
 @Test func commitHarnessCoversValidationFailuresAndCoverageCommandFailures() throws {
   try withTemporaryDirectory { directory in
     let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
@@ -869,6 +1098,319 @@ import Testing
       CommitHarness.resolvedExecutablePath(
         raw: "./.build/debug/harness", workingDirectory: repoRoot
       ).hasSuffix(".build/debug/harness"))
+    #expect(
+      CommitHarness.coverageSuiteArguments(
+        product: "SymphonyHarness",
+        platform: nil,
+        outputMode: .quiet
+      ) == ["test", "SymphonyHarness", "--xcode-output-mode", "quiet"]
+    )
+  }
+}
+
+@Test func commitHarnessCoverageSuiteRequiresReadableSharedSummaryArtifacts() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+    let packageCoveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+    try FileManager.default.createDirectory(
+      at: packageCoveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try
+      #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+      .write(to: packageCoveragePath, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+
+    let missingSummaryPath = directory.appendingPathComponent("missing/summary.txt").path
+    do {
+      _ = try CommitHarness(
+        processRunner: CoverageCommandProcessRunner(
+          packageCoveragePath: packageCoveragePath.path,
+          coverageResult: CommandResult(exitStatus: 0, stdout: missingSummaryPath, stderr: "")
+        )
+      ).run(
+        workspace: workspace,
+        request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+      )
+      Issue.record("Expected missing shared summary paths to fail.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_test_summary_path")
+    }
+
+    let missingSummaryJSONRoot = directory.appendingPathComponent("missing-summary-json", isDirectory: true)
+    try FileManager.default.createDirectory(at: missingSummaryJSONRoot, withIntermediateDirectories: true)
+    let missingSummaryJSONPath = missingSummaryJSONRoot.appendingPathComponent("summary.txt")
+    try "summary\n".write(to: missingSummaryJSONPath, atomically: true, encoding: .utf8)
+    do {
+      _ = try CommitHarness(
+        processRunner: CoverageCommandProcessRunner(
+          packageCoveragePath: packageCoveragePath.path,
+          coverageResult: CommandResult(exitStatus: 0, stdout: missingSummaryJSONPath.path, stderr: "")
+        )
+      ).run(
+        workspace: workspace,
+        request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+      )
+      Issue.record("Expected missing shared summary JSON to fail.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_test_summary_json")
+    }
+
+    let emptySummaryRoot = directory.appendingPathComponent("empty-summary", isDirectory: true)
+    try FileManager.default.createDirectory(at: emptySummaryRoot, withIntermediateDirectories: true)
+    let emptySummaryPath = emptySummaryRoot.appendingPathComponent("summary.txt")
+    try "summary\n".write(to: emptySummaryPath, atomically: true, encoding: .utf8)
+    let emptySummary = SharedRunSummary(
+      command: .test,
+      runID: "empty-summary",
+      startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      endedAt: Date(timeIntervalSince1970: 1_700_000_060),
+      subjects: [],
+      subjectResults: []
+    )
+    try JSONEncoder().encode(emptySummary).write(
+      to: emptySummaryRoot.appendingPathComponent("summary.json")
+    )
+    do {
+      _ = try CommitHarness(
+        processRunner: CoverageCommandProcessRunner(
+          packageCoveragePath: packageCoveragePath.path,
+          coverageResult: CommandResult(exitStatus: 0, stdout: emptySummaryPath.path, stderr: "")
+        )
+      ).run(
+        workspace: workspace,
+        request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+      )
+      Issue.record("Expected missing subject results to fail.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_test_subject_result")
+    }
+  }
+}
+
+@Test func commitHarnessCoverageSuiteResolvesArtifactRootFromSuccessfulSharedSummary() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"),
+      withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources"),
+      withIntermediateDirectories: true
+    )
+    let packageCoveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+    try FileManager.default.createDirectory(
+      at: packageCoveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try
+      #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+      .write(to: packageCoveragePath, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+
+    let sharedRunRoot = directory.appendingPathComponent("successful-summary", isDirectory: true)
+    let subjectArtifactRoot = sharedRunRoot.appendingPathComponent("subjects/SymphonyServer", isDirectory: true)
+    try FileManager.default.createDirectory(at: subjectArtifactRoot, withIntermediateDirectories: true)
+    let summaryPath = sharedRunRoot.appendingPathComponent("summary.txt")
+    try "summary\n".write(to: summaryPath, atomically: true, encoding: .utf8)
+    let coverageJSON = #"""
+      {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Suite","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+      """#
+    try coverageJSON.write(
+      to: subjectArtifactRoot.appendingPathComponent("coverage.json"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let sharedSummary = SharedRunSummary(
+      command: .test,
+      runID: "successful-summary",
+      startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      endedAt: Date(timeIntervalSince1970: 1_700_000_060),
+      subjects: ["SymphonyServer"],
+      subjectResults: [
+        SubjectRunResult(
+          subject: "SymphonyServer",
+          outcome: .success,
+          artifactSet: SubjectArtifactSet(
+            subject: "SymphonyServer",
+            artifactRoot: subjectArtifactRoot,
+            summaryPath: subjectArtifactRoot.appendingPathComponent("summary.txt"),
+            indexPath: subjectArtifactRoot.appendingPathComponent("index.json"),
+            coverageTextPath: nil,
+            coverageJSONPath: subjectArtifactRoot.appendingPathComponent("coverage.json"),
+            resultBundlePath: nil,
+            logPath: subjectArtifactRoot.appendingPathComponent("process-stdout-stderr.txt"),
+            anomalies: []
+          )
+        )
+      ],
+      anomalies: []
+    )
+    try JSONEncoder().encode(sharedSummary).write(
+      to: sharedRunRoot.appendingPathComponent("summary.json")
+    )
+
+    let execution = try CommitHarness(
+      processRunner: CoverageCommandProcessRunner(
+        packageCoveragePath: packageCoveragePath.path,
+        coverageResult: CommandResult(exitStatus: 0, stdout: summaryPath.path, stderr: "")
+      ),
+      clientCoverageLoader: { _ in
+        CoverageReport(
+          coveredLines: 1,
+          executableLines: 1,
+          lineCoverage: 1,
+          includeTestTargets: false,
+          excludedTargets: [],
+          targets: []
+        )
+      },
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      )
+    ).execute(
+      workspace: workspace,
+      request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+    )
+
+    #expect(execution.report.serverCoverage.coveredLines == 1)
+    #expect(execution.report.serverCoverage.executableLines == 1)
+  }
+}
+
+@Test func commitHarnessCoverageSuiteUsesFirstSummaryPathLineWhenCLIAddsCoveragePreview() throws {
+  try withTemporaryDirectory { directory in
+    let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent(".git"),
+      withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+      at: repoRoot.appendingPathComponent("Sources"),
+      withIntermediateDirectories: true
+    )
+    let packageCoveragePath = repoRoot.appendingPathComponent(".build/coverage/package.json")
+    try FileManager.default.createDirectory(
+      at: packageCoveragePath.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try
+      #"{"data":[{"files":[{"filename":"__REPO__/Sources/Foo.swift","summary":{"lines":{"count":1,"covered":1}}}]}]}"#
+      .replacingOccurrences(of: "__REPO__", with: repoRoot.path)
+      .write(to: packageCoveragePath, atomically: true, encoding: .utf8)
+
+    let workspace = WorkspaceContext(
+      projectRoot: repoRoot,
+      buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+      xcodeWorkspacePath: nil,
+      xcodeProjectPath: nil
+    )
+
+    let sharedRunRoot = directory.appendingPathComponent("multiline-summary", isDirectory: true)
+    let subjectArtifactRoot = sharedRunRoot.appendingPathComponent("subjects/SymphonySwiftUIApp", isDirectory: true)
+    try FileManager.default.createDirectory(at: subjectArtifactRoot, withIntermediateDirectories: true)
+    let summaryPath = sharedRunRoot.appendingPathComponent("summary.txt")
+    try "summary\n".write(to: summaryPath, atomically: true, encoding: .utf8)
+    let coverageJSON = #"""
+      {"coveredLines":1,"executableLines":1,"lineCoverage":1,"includeTestTargets":false,"excludedTargets":[],"targets":[{"name":"Symphony.app","buildProductPath":null,"coveredLines":1,"executableLines":1,"lineCoverage":1,"files":[]}]}
+      """#
+    try coverageJSON.write(
+      to: subjectArtifactRoot.appendingPathComponent("coverage.json"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let sharedSummary = SharedRunSummary(
+      command: .test,
+      runID: "multiline-summary",
+      startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      endedAt: Date(timeIntervalSince1970: 1_700_000_060),
+      subjects: ["SymphonySwiftUIApp"],
+      subjectResults: [
+        SubjectRunResult(
+          subject: "SymphonySwiftUIApp",
+          outcome: .success,
+          artifactSet: SubjectArtifactSet(
+            subject: "SymphonySwiftUIApp",
+            artifactRoot: subjectArtifactRoot,
+            summaryPath: subjectArtifactRoot.appendingPathComponent("summary.txt"),
+            indexPath: subjectArtifactRoot.appendingPathComponent("index.json"),
+            coverageTextPath: subjectArtifactRoot.appendingPathComponent("coverage.txt"),
+            coverageJSONPath: subjectArtifactRoot.appendingPathComponent("coverage.json"),
+            resultBundlePath: nil,
+            logPath: subjectArtifactRoot.appendingPathComponent("process-stdout-stderr.txt"),
+            anomalies: []
+          )
+        )
+      ],
+      anomalies: []
+    )
+    try JSONEncoder().encode(sharedSummary).write(
+      to: sharedRunRoot.appendingPathComponent("summary.json")
+    )
+
+    let inspectionPath = subjectArtifactRoot.appendingPathComponent("coverage-inspection.txt").path
+    let previewOutput = [
+      summaryPath.path,
+      "",
+      "subject SymphonySwiftUIApp",
+      "coverage 100.00% (1/1)",
+      "inspection \(inspectionPath)",
+      "hotspots none",
+    ].joined(separator: "\n")
+
+    let execution = try CommitHarness(
+      processRunner: CoverageCommandProcessRunner(
+        packageCoveragePath: packageCoveragePath.path,
+        coverageResult: CommandResult(exitStatus: 0, stdout: previewOutput, stderr: "")
+      ),
+      clientCoverageLoader: { _ in
+        CoverageReport(
+          coveredLines: 1,
+          executableLines: 1,
+          lineCoverage: 1,
+          includeTestTargets: false,
+          excludedTargets: [],
+          targets: [
+            CoverageTargetReport(
+              name: "Symphony.app",
+              buildProductPath: nil,
+              coveredLines: 1,
+              executableLines: 1,
+              lineCoverage: 1,
+              files: []
+            )
+          ]
+        )
+      },
+      toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+        capabilities: .fullyAvailableForTests
+      )
+    ).execute(
+      workspace: workspace,
+      request: HarnessCommandRequest(minimumCoveragePercent: 0, json: false, currentDirectory: repoRoot)
+    )
+
+    #expect(try #require(execution.report.clientCoverage).coveredLines == 1)
+    #expect(execution.report.serverCoverage.coveredLines == 1)
   }
 }
 

@@ -319,7 +319,8 @@ public struct SymphonyEventPresentation: Equatable {
   public let showsRawJSON: Bool
 
   public init(event: AgentRawEvent) {
-    self.metadata = "\(event.provider) • #\(event.sequence.rawValue) • \(event.providerEventType)"
+    self.metadata =
+      "\(Self.displayMetadataToken(event.provider)) • #\(event.sequence.rawValue) • \(Self.displayMetadataToken(event.providerEventType))"
 
     switch event.normalizedKind {
     case .message:
@@ -580,5 +581,9 @@ public struct SymphonyEventPresentation: Equatable {
       return nil
     }
     return extractText(from: object)
+  }
+
+  private static func displayMetadataToken(_ value: String) -> String {
+    value.replacingOccurrences(of: "_", with: " ")
   }
 }

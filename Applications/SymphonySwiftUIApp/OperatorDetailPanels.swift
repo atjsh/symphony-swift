@@ -9,13 +9,24 @@ struct OperatorDetailView: View {
   var body: some View {
     Group {
       if model.selectedIssueID == nil {
-        ContentUnavailableView {
-          Label("No Issue Selected", systemImage: "sidebar.left")
-        } description: {
+        VStack(spacing: theme.blockSpacing) {
+          Image(systemName: "sidebar.left")
+            .font(.system(size: 36, weight: .semibold))
+            .foregroundStyle(theme.quietText)
+
+          Text("No Issue Selected")
+            .font(theme.summaryTitleFont)
+            .foregroundStyle(theme.bodyText)
+
           Text(
             "Choose an issue from the sidebar to inspect orchestration state, runs, sessions, and logs."
           )
+          .font(.body)
+          .foregroundStyle(theme.bodyText)
+          .multilineTextAlignment(.center)
+          .frame(maxWidth: 420)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.issueDetail {
         VStack(alignment: .leading, spacing: theme.sectionSpacing) {
           OperatorDetailSummaryView(
@@ -24,7 +35,6 @@ struct OperatorDetailView: View {
             detail: detail,
             selectRun: selectRun
           )
-          .accessibilityIdentifier("detail-summary")
 
           OperatorDetailTabBar(theme: theme, selection: $model.selectedDetailTab)
 
@@ -62,11 +72,9 @@ struct OperatorDetailView: View {
             ),
             compact: theme.compact
           )
-          .accessibilityIdentifier("issue-detail-section")
 
           if let runDetail = model.runDetail {
             RunOverviewPanel(theme: theme, runDetail: runDetail)
-              .accessibilityIdentifier("run-detail-section")
           } else {
             EmptyStatePanel(
               theme: theme,
@@ -74,7 +82,6 @@ struct OperatorDetailView: View {
               title: "No Run Selected",
               detail: "Select a run to inspect the latest attempt and its results."
             )
-            .accessibilityIdentifier("run-detail-section")
           }
         }
       }
@@ -102,6 +109,12 @@ private struct OperatorDetailSummaryView: View {
   let theme: OperatorTheme
   let detail: IssueDetail
   let selectRun: (RunID) -> Void
+
+  private var detailIdentifierDisplayText: String {
+    detail.issue.identifier.rawValue
+      .replacingOccurrences(of: "/", with: "/\u{200B}")
+      .replacingOccurrences(of: "#", with: "\u{200B}#")
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
@@ -131,10 +144,13 @@ private struct OperatorDetailSummaryView: View {
 
   private var summaryTextBlock: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text(detail.issue.identifier.rawValue)
+      Text(verbatim: detailIdentifierDisplayText)
         .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+        .foregroundStyle(theme.bodyText)
+        .lineLimit(2)
+        .minimumScaleFactor(0.75)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(detail.issue.identifier.rawValue)
 
       Text(detail.issue.title)
         .font(theme.summaryTitleFont)
@@ -165,6 +181,7 @@ private struct OperatorDetailSummaryView: View {
       )
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
+      .frame(minHeight: 44)
       .buttonStyle(.glass)
       .accessibilityIdentifier("latest-run-button")
     }
@@ -204,7 +221,13 @@ private struct OperatorDetailTabBar: View {
       )
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
-      .buttonStyle(.glassProminent)
+      .frame(minHeight: 44)
+      .buttonStyle(.glass)
+      .background(theme.selectedFill, in: Capsule())
+      .overlay(
+        Capsule()
+          .strokeBorder(theme.selectedStroke, lineWidth: 1.5)
+      )
       .accessibilityIdentifier("detail-tab-\(tab.rawValue)")
     } else {
       Button(
@@ -214,6 +237,7 @@ private struct OperatorDetailTabBar: View {
       )
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
+      .frame(minHeight: 44)
       .buttonStyle(.glass)
       .accessibilityIdentifier("detail-tab-\(tab.rawValue)")
     }
@@ -346,8 +370,8 @@ struct RecentSessionsPanel: View {
                   .bold()
                 Spacer()
                 Text("\(session.turnCount) turns")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(Color.primary)
               }
             }
           } else {
@@ -360,8 +384,8 @@ struct RecentSessionsPanel: View {
               Spacer()
 
               Text("\(session.turnCount) turns")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Color.primary)
             }
           }
 

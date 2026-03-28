@@ -30,7 +30,7 @@ public struct ArtifactManager {
       }
   }
 
-  public func recordXcodeExecution(
+  func recordXcodeExecution(
     workspace: WorkspaceContext,
     executionContext: ExecutionContext,
     command: BuildCommandFamily,
@@ -129,7 +129,7 @@ public struct ArtifactManager {
         in: artifactRoot, excluding: knownNames, createdAt: createdAt))
 
     let index = ArtifactIndex(
-      entries: entries, command: command, runID: executionContext.runID,
+      entries: entries, command: command.artifactCommand, runID: executionContext.runID,
       timestamp: executionContext.timestamp, anomalies: anomalies)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -142,7 +142,7 @@ public struct ArtifactManager {
     )
 
     let run = ArtifactRun(
-      command: command,
+      command: command.artifactCommand,
       runID: executionContext.runID,
       timestamp: executionContext.timestamp,
       artifactRoot: artifactRoot,
@@ -152,7 +152,7 @@ public struct ArtifactManager {
     return ArtifactRecord(run: run, anomalies: anomalies)
   }
 
-  public func recordSwiftPMExecution(
+  func recordSwiftPMExecution(
     workspace: WorkspaceContext,
     executionContext: ExecutionContext,
     command: BuildCommandFamily,
@@ -255,7 +255,7 @@ public struct ArtifactManager {
         in: artifactRoot, excluding: knownNames, createdAt: createdAt))
 
     let index = ArtifactIndex(
-      entries: entries, command: command, runID: executionContext.runID,
+      entries: entries, command: command.artifactCommand, runID: executionContext.runID,
       timestamp: executionContext.timestamp, anomalies: anomalies)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -268,7 +268,7 @@ public struct ArtifactManager {
     )
 
     let run = ArtifactRun(
-      command: command,
+      command: command.artifactCommand,
       runID: executionContext.runID,
       timestamp: executionContext.timestamp,
       artifactRoot: artifactRoot,

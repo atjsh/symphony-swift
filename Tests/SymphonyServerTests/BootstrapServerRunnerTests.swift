@@ -339,6 +339,41 @@ import Testing
   #expect(loadedWorkflow?.config.polling.intervalMS == 50)
 }
 
+@Test func bootstrapServerRunnerStartsInjectedOrchestratorUsingDefaultWorkflowLoader() throws {
+  let root = try makeTemporaryDirectory()
+  let databaseURL = root.appendingPathComponent("bootstrap-default-loader.sqlite3")
+  let workflowURL = root.appendingPathComponent("WORKFLOW.md")
+  try "---\npolling:\n  interval_ms: 50\n---\nResolve {{issue.title}}".write(
+    to: workflowURL,
+    atomically: true,
+    encoding: .utf8
+  )
+
+  let engine = RecordingBootstrapEngine()
+  var loadedWorkflow: WorkflowDefinition?
+
+  try BootstrapServerRunner.run(
+    componentName: "BootstrapDefaultLoader",
+    environment: [
+      BootstrapEnvironment.serverSQLitePathKey: databaseURL.path,
+      BootstrapEnvironment.workflowPathKey: workflowURL.path,
+    ],
+    output: { _ in },
+    keepAlive: {},
+    startServer: false,
+    startOrchestrator: true,
+    engineFactory: { workflow, _, _ in
+      loadedWorkflow = workflow
+      return engine
+    }
+  )
+
+  #expect(loadedWorkflow?.promptTemplate == "Resolve {{issue.title}}")
+  #expect(loadedWorkflow?.config.polling.intervalMS == 50)
+  #expect(engine.started)
+  #expect(engine.stopped)
+}
+
 @Test func bootstrapServerRunnerEmitsStructuredStartupAndShutdownLogs() async throws {
   let (_, logs) = try await withCapturedRuntimeLogs {
     try BootstrapServerRunner.run(

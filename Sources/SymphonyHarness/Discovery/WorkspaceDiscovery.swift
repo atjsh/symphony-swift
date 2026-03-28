@@ -139,26 +139,31 @@ public struct WorkspaceDiscovery: WorkspaceDiscovering {
   }
 
   private func validateNoExtraPackageManifests(in projectRoot: URL) throws {
-    let toolsRoot = projectRoot.appendingPathComponent("Tools", isDirectory: true)
-    guard fileManager.fileExists(atPath: toolsRoot.path) else {
-      return
-    }
-
     let enumerator = fileManager.enumerator(
-      at: toolsRoot,
+      at: projectRoot,
       includingPropertiesForKeys: [.isDirectoryKey],
       options: [.skipsHiddenFiles]
     )
+    let canonicalManifestPath =
+      projectRoot
+      .appendingPathComponent("Package.swift", isDirectory: false)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .path
 
     while let next = enumerator?.nextObject() as? URL {
       guard next.lastPathComponent == "Package.swift" else {
+        continue
+      }
+      let nextPath = next.resolvingSymlinksInPath().standardizedFileURL.path
+      guard nextPath != canonicalManifestPath else {
         continue
       }
 
       throw SymphonyHarnessError(
         code: "extra_package_manifest",
         message:
-          "Found an extra package manifest under Tools at \(next.path). The migration target allows only the root Package.swift."
+          "Found an extra package manifest at \(next.path). The migration target allows only the root Package.swift."
       )
     }
   }

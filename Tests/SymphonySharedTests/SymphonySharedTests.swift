@@ -75,6 +75,11 @@ import Testing
   }
 
   #expect(didThrow)
+
+  let inputOnly = try TokenUsage(inputTokens: 9)
+  #expect(inputOnly.inputTokens == 9)
+  #expect(inputOnly.outputTokens == nil)
+  #expect(inputOnly.totalTokens == nil)
 }
 
 @Test func agentRawEventPreservesRawJSONThroughCodableRoundTrip() throws {
@@ -96,4 +101,39 @@ import Testing
   #expect(decoded.rawJSON == rawJSON)
   #expect(decoded.sessionID.rawValue == "session-7")
   #expect(decoded.sequence.rawValue == 1)
+}
+
+@Test func agentRawEventNormalizedKindFallsBackToUnknownForMissingAndInvalidKinds() {
+  let missing = AgentRawEvent(
+    sessionID: SessionID("session-missing"),
+    provider: "codex",
+    sequence: EventSequence(0),
+    timestamp: "2026-03-24T12:00:01Z",
+    rawJSON: "{}",
+    providerEventType: "message",
+    normalizedEventKind: nil
+  )
+  #expect(missing.normalizedKind == .unknown)
+
+  let invalid = AgentRawEvent(
+    sessionID: SessionID("session-invalid"),
+    provider: "codex",
+    sequence: EventSequence(1),
+    timestamp: "2026-03-24T12:00:02Z",
+    rawJSON: "{}",
+    providerEventType: "message",
+    normalizedEventKind: "not_a_kind"
+  )
+  #expect(invalid.normalizedKind == .unknown)
+
+  let valid = AgentRawEvent(
+    sessionID: SessionID("session-valid"),
+    provider: "codex",
+    sequence: EventSequence(2),
+    timestamp: "2026-03-24T12:00:03Z",
+    rawJSON: "{}",
+    providerEventType: "message",
+    normalizedEventKind: "status"
+  )
+  #expect(valid.normalizedKind == .status)
 }

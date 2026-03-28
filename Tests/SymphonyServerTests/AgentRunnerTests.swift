@@ -409,6 +409,41 @@ struct AgentRunnerLifecycleTests {
     #expect(result.eventCount >= 1)
   }
 
+  @Test func codexCompletedTerminalOutcomeKeepsRunSucceeded() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput(
+      #"{"method":"thread/started","params":{"thread":{"id":"thread-completed"}}}"# + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/started","params":{"threadId":"thread-completed","turn":{"id":"turn-completed"}}}"#
+        + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/completed","params":{"turn_id":"turn-completed","outcome":"completed"}}"#
+        + "\n")
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.succeeded)
+    #expect(result.error == nil)
+    #expect(result.eventCount >= 1)
+  }
+
   @Test func codexReadTimeoutProducesTimedOutState() async throws {
     let wsManager = StubWorkspaceManager()
     let launcher = StubProcessLauncher()

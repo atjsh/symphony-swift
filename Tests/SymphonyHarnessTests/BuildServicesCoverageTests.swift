@@ -246,6 +246,22 @@ import Testing
     #expect(error.message == "boot failed")
   }
 
+  do {
+    try SimulatorResolver(
+      catalog: catalogStub,
+      processRunner: StubProcessRunner(results: [
+        "xcrun simctl bootstatus AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA -b":
+          StubProcessRunner.failure("not booted"),
+        "xcrun simctl boot AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA":
+          CommandResult(exitStatus: 1, stdout: "", stderr: ""),
+      ])
+    ).boot(resolved: bootDestination)
+    Issue.record("Expected empty-output boot failures to surface a fallback message.")
+  } catch let error as SymphonyHarnessError {
+    #expect(error.code == "simulator_boot_failed")
+    #expect(error.message == "Failed to boot simulator AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA.")
+  }
+
   let readyFailRunner = BootSequenceProcessRunner(
     responses: [
       StubProcessRunner.failure("bootstatus 1"),
@@ -285,6 +301,140 @@ import Testing
       "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
       "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
     ])
+}
+
+@Test func simulatorResolverDefaultSelectionFallsBackToFirstAvailableNonIPhoneDevice() throws {
+  let resolver = SimulatorResolver(
+    catalog: StubSimulatorCatalog(
+      devices: [
+        SimulatorDevice(
+          name: "iPad Air",
+          udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+          state: "Shutdown",
+          runtime: "iOS 18"
+        ),
+        SimulatorDevice(
+          name: "iPad mini",
+          udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+          state: "Shutdown",
+          runtime: "iOS 18"
+        ),
+      ]
+    ),
+    processRunner: StubProcessRunner()
+  )
+
+  let resolved = try resolver.resolve(DestinationSelector(platform: .iosSimulator))
+
+  #expect(resolved.simulatorName == "iPad Air")
+  #expect(resolved.simulatorUDID == "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")
+}
+
+@Test func simulatorResolverDefaultSelectionPrefersIPhoneOverEarlierNonPhoneDevices() throws {
+  let resolver = SimulatorResolver(
+    catalog: StubSimulatorCatalog(
+      devices: [
+        SimulatorDevice(
+          name: "iPad Air",
+          udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+          state: "Shutdown",
+          runtime: "iOS 18"
+        ),
+        SimulatorDevice(
+          name: "iPhone 17",
+          udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+          state: "Shutdown",
+          runtime: "iOS 18"
+        ),
+      ]
+    ),
+    processRunner: StubProcessRunner()
+  )
+
+  let resolved = try resolver.resolve(DestinationSelector(platform: .iosSimulator))
+
+  #expect(resolved.simulatorName == "iPhone 17")
+  #expect(resolved.simulatorUDID == "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")
+}
+
+@Test func simulatorResolverCoversAvailableDevicesAndApprovedValidationDestinations() throws {
+  let devices = [
+    SimulatorDevice(
+      name: "iPhone 17",
+      udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+      state: "Shutdown",
+      runtime: "iOS 18"
+    ),
+    SimulatorDevice(
+      name: "iPad Pro (M4)",
+      udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+      state: "Shutdown",
+      runtime: "iOS 18"
+    ),
+  ]
+  let resolver = SimulatorResolver(
+    catalog: StubSimulatorCatalog(devices: devices),
+    processRunner: StubProcessRunner()
+  )
+
+  #expect(try resolver.availableDevices() == devices)
+
+  let destinations = try resolver.approvedValidationDestinations()
+  #expect(destinations.map(\.simulatorName) == ["iPhone 17", "iPad Pro (M4)"])
+  #expect(destinations.map(\.xcodeDestination) == [
+    "platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+    "platform=iOS Simulator,id=BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+  ])
+}
+
+@Test func simulatorResolverValidationDestinationsRequireBothIPhoneAndIPad() throws {
+  do {
+    _ = try SimulatorResolver(
+      catalog: StubSimulatorCatalog(
+        devices: [
+          SimulatorDevice(
+            name: "iPad Pro (M4)",
+            udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+            state: "Shutdown",
+            runtime: "iOS 18"
+          )
+        ]
+      ),
+      processRunner: StubProcessRunner()
+    ).approvedValidationDestinations()
+    Issue.record("Expected missing iPhone validation destination to fail.")
+  } catch let error as SymphonyHarnessError {
+    #expect(error.code == "missing_iphone_validation_destination")
+  }
+
+  do {
+    _ = try SimulatorResolver(
+      catalog: StubSimulatorCatalog(
+        devices: [
+          SimulatorDevice(
+            name: "iPhone 17",
+            udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+            state: "Shutdown",
+            runtime: "iOS 18"
+          )
+        ]
+      ),
+      processRunner: StubProcessRunner()
+    ).approvedValidationDestinations()
+    Issue.record("Expected missing iPad validation destination to fail.")
+  } catch let error as SymphonyHarnessError {
+    #expect(error.code == "missing_ipad_validation_destination")
+  }
+
+  do {
+    _ = try SimulatorResolver(
+      catalog: StubSimulatorCatalog(devices: []),
+      processRunner: StubProcessRunner()
+    ).resolve(DestinationSelector(platform: .iosSimulator))
+    Issue.record("Expected empty simulator catalogs to fail default resolution.")
+  } catch let error as SymphonyHarnessError {
+    #expect(error.code == "missing_simulator")
+  }
 }
 
 @Test func doctorServiceSupportsProjectOnlySchemeDiscovery() throws {
@@ -764,6 +914,32 @@ import Testing
     #expect(error.code == "simulator_boot_failed")
     #expect(error.message == "Failed to confirm simulator boot.")
   }
+}
+
+@Test func simulatorResolverDefaultSelectionUsesDeterministicPhoneWhenNamesAreDuplicated() throws {
+  let devices = [
+    SimulatorDevice(
+      name: "iPhone 17", udid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB", state: "Shutdown",
+      runtime: "iOS 18"),
+    SimulatorDevice(
+      name: "iPhone 17", udid: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", state: "Shutdown",
+      runtime: "iOS 18"),
+    SimulatorDevice(
+      name: "iPad Pro (M4)", udid: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC", state: "Shutdown",
+      runtime: "iOS 18"),
+  ]
+
+  let resolver = SimulatorResolver(
+    catalog: StubSimulatorCatalog(devices: devices),
+    processRunner: StubProcessRunner()
+  )
+
+  let resolved = try resolver.resolve(DestinationSelector(platform: .iosSimulator))
+  #expect(resolved.simulatorName == "iPhone 17")
+  #expect(resolved.simulatorUDID == "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
+  #expect(
+    resolved.xcodeDestination
+      == "platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
 }
 
 @Test func endpointOverrideStoreFallsBackToPersistedHostAndPortWhenOnlySchemeOverrides() throws {

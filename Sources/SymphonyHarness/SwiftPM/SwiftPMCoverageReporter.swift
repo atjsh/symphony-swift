@@ -15,6 +15,22 @@ public struct SwiftPMCoverageReporter {
     artifactRoot: URL,
     showFiles: Bool
   ) throws -> CoverageArtifacts {
+    try exportCoverage(
+      coverageJSONPath: coverageJSONPath,
+      projectRoot: projectRoot,
+      artifactRoot: artifactRoot,
+      scope: .serverAggregate,
+      showFiles: showFiles
+    )
+  }
+
+  func exportCoverage(
+    coverageJSONPath: URL,
+    projectRoot: URL,
+    artifactRoot: URL,
+    scope: SwiftPMCoverageScope,
+    showFiles: Bool
+  ) throws -> CoverageArtifacts {
     guard fileManager.fileExists(atPath: coverageJSONPath.path) else {
       throw SymphonyHarnessError(
         code: "missing_swiftpm_coverage_json",
@@ -33,24 +49,14 @@ public struct SwiftPMCoverageReporter {
     }
 
     let resolvedRoot = projectRoot.resolvingSymlinksInPath()
-    let targetRoots = [
+    let targetRoots = scope.targetScopes.map { targetScope in
       (
-        targetName: "SymphonyServerCore",
-        rootPath: resolvedRoot.appendingPathComponent(
-          "Sources/SymphonyServerCore", isDirectory: true
-        ).path + "/"
-      ),
-      (
-        targetName: "SymphonyServer",
-        rootPath: resolvedRoot.appendingPathComponent("Sources/SymphonyServer", isDirectory: true)
-          .path + "/"
-      ),
-      (
-        targetName: "SymphonyServer",
-        rootPath: resolvedRoot.appendingPathComponent("Sources/SymphonyServerCLI", isDirectory: true)
-          .path + "/"
-      ),
-    ]
+        targetName: targetScope.targetName,
+        rootPaths: targetScope.relativeRoots.map {
+          resolvedRoot.appendingPathComponent($0, isDirectory: true).path + "/"
+        }
+      )
+    }
 
     let orderedTargetNames = targetRoots.reduce(into: [String]()) { names, targetRoot in
       if !names.contains(targetRoot.targetName) {
@@ -64,9 +70,11 @@ public struct SwiftPMCoverageReporter {
     }
 
     for file in export.data.flatMap(\.files) {
-      guard let targetRoot = targetRoots.first(where: { file.filename.hasPrefix($0.rootPath) }) else {
-        continue
-      }
+      guard
+        let targetRoot = targetRoots.first(where: { targetRoot in
+          targetRoot.rootPaths.contains { file.filename.hasPrefix($0) }
+        })
+      else { continue }
 
       let executableLines = file.summary.lines.count
       guard executableLines > 0 else {
@@ -114,7 +122,7 @@ public struct SwiftPMCoverageReporter {
       throw SymphonyHarnessError(
         code: "swiftpm_coverage_sources_missing",
         message:
-          "SwiftPM coverage did not include any first-party server files under Sources/SymphonyServerCore, Sources/SymphonyServer, or Sources/SymphonyServerCLI."
+          "SwiftPM coverage did not include any first-party \(scope.subjectDescription) files under \(scope.relativeRootsDescription)."
       )
     }
 
@@ -126,7 +134,7 @@ public struct SwiftPMCoverageReporter {
       lineCoverage: CoverageReporter.normalizedCoverage(
         coveredLines: coveredLines, executableLines: executableLines),
       includeTestTargets: false,
-      excludedTargets: ["SymphonyServerCoreTests", "SymphonyServerTests", "SymphonyServerCLITests"],
+      excludedTargets: scope.excludedTargets,
       targets: targets
     )
 
@@ -149,6 +157,115 @@ public struct SwiftPMCoverageReporter {
       textOutput: textOutput
     )
   }
+}
+
+enum SwiftPMCoverageScope: String, CaseIterable, Sendable {
+  case serverAggregate
+  case shared
+  case serverCore
+  case server
+  case serverCLI
+  case harness
+  case harnessCLI
+
+  static func subjectOwned(for subjectName: String) -> Self? {
+    switch subjectName {
+    case "SymphonyShared", "SymphonySharedTests":
+      return .shared
+    case "SymphonyServerCore", "SymphonyServerCoreTests":
+      return .serverCore
+    case "SymphonyServer", "SymphonyServerTests":
+      return .server
+    case "SymphonyServerCLI", "SymphonyServerCLITests":
+      return .serverCLI
+    case "SymphonyHarness", "SymphonyHarnessTests":
+      return .harness
+    case "SymphonyHarnessCLI", "SymphonyHarnessCLITests":
+      return .harnessCLI
+    default:
+      return nil
+    }
+  }
+
+  fileprivate var targetScopes: [SwiftPMCoverageTargetScope] {
+    switch self {
+    case .serverAggregate:
+      return [
+        SwiftPMCoverageTargetScope(
+          targetName: "SymphonyServerCore",
+          relativeRoots: ["Sources/SymphonyServerCore"]
+        ),
+        SwiftPMCoverageTargetScope(
+          targetName: "SymphonyServer",
+          relativeRoots: ["Sources/SymphonyServer", "Sources/SymphonyServerCLI"]
+        ),
+      ]
+    case .shared:
+      return [SwiftPMCoverageTargetScope(targetName: "SymphonyShared", relativeRoots: ["Sources/SymphonyShared"])]
+    case .serverCore:
+      return [SwiftPMCoverageTargetScope(targetName: "SymphonyServerCore", relativeRoots: ["Sources/SymphonyServerCore"])]
+    case .server:
+      return [SwiftPMCoverageTargetScope(targetName: "SymphonyServer", relativeRoots: ["Sources/SymphonyServer"])]
+    case .serverCLI:
+      return [SwiftPMCoverageTargetScope(targetName: "SymphonyServerCLI", relativeRoots: ["Sources/SymphonyServerCLI"])]
+    case .harness:
+      return [SwiftPMCoverageTargetScope(targetName: "SymphonyHarness", relativeRoots: ["Sources/SymphonyHarness"])]
+    case .harnessCLI:
+      return [
+        SwiftPMCoverageTargetScope(
+          targetName: "SymphonyHarnessCLI",
+          relativeRoots: ["Sources/SymphonyHarnessCLI", "Sources/harness"]
+        )
+      ]
+    }
+  }
+
+  fileprivate var excludedTargets: [String] {
+    switch self {
+    case .serverAggregate:
+      return ["SymphonyServerCoreTests", "SymphonyServerTests", "SymphonyServerCLITests"]
+    case .shared:
+      return ["SymphonySharedTests"]
+    case .serverCore:
+      return ["SymphonyServerCoreTests"]
+    case .server:
+      return ["SymphonyServerTests"]
+    case .serverCLI:
+      return ["SymphonyServerCLITests"]
+    case .harness:
+      return ["SymphonyHarnessTests"]
+    case .harnessCLI:
+      return ["SymphonyHarnessCLITests"]
+    }
+  }
+
+  fileprivate var subjectDescription: String {
+    switch self {
+    case .serverAggregate:
+      return "server"
+    case .shared:
+      return "SymphonyShared"
+    case .serverCore:
+      return "SymphonyServerCore"
+    case .server:
+      return "SymphonyServer"
+    case .serverCLI:
+      return "SymphonyServerCLI"
+    case .harness:
+      return "SymphonyHarness"
+    case .harnessCLI:
+      return "SymphonyHarnessCLI"
+    }
+  }
+
+  fileprivate var relativeRootsDescription: String {
+    targetScopes.flatMap(\.relativeRoots).joined(separator: ", ")
+  }
+}
+
+fileprivate struct SwiftPMCoverageTargetScope: Sendable {
+  let targetName: String
+  let relativeRoots: [String]
 }
 
 private struct RawPackageCoverageExport: Decodable {

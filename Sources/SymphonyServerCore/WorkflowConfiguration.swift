@@ -574,9 +574,7 @@ public enum WorkflowParser {
   private static func parseCodexProvider(_ value: Any?) -> CodexProviderConfig {
     guard let map = value as? [String: Any] else { return .defaults }
     let sessionApprovalPolicy = map["session_approval_policy"] as? String
-      ?? map["approval_policy"] as? String
     let sessionSandbox = codexSandboxValue(map["session_sandbox"])
-      ?? codexSandboxValue(map["thread_sandbox"])
     let turnApprovalPolicy = map["turn_approval_policy"] as? String ?? sessionApprovalPolicy
     return CodexProviderConfig(
       command: stringValue(map["command"], "codex app-server"),
@@ -636,7 +634,7 @@ public enum WorkflowParser {
     return defaultValue
   }
 
-  private static func codexSandboxValue(_ value: Any?) -> CodexSandboxValue? {
+  static func codexSandboxValue(_ value: Any?) -> CodexSandboxValue? {
     guard let value else { return nil }
 
     switch value {
