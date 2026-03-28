@@ -1,9 +1,8 @@
-**English** | [한국어](README-ko.md)
+# README
 
----
+This repository is designed with a focus on vibe coding.
 
-# [A Swift implementation of Symphony](https://github.com/atjsh/symphony-swift)
+**Notes**:
+- All contributions to this repository are vibe-coded, emphasizing creativity and innovation.
 
-Symphony turns project work into isolated, autonomous implementation runs, allowing teams to manage work instead of supervising coding agents.
-
-The `symphony-swift` aims to be a Swift-based implementation of [OpenAI's Symphony specification](https://github.com/openai/symphony).
+For more details on usage and features, please refer to the documentation.
