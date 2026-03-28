@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "3D447A8F-1714-4A74-8CBF-8DDEFF72D4B2",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:SymphonyApps.xcodeproj",
+      "identifier" : "2299CB2884BEEF9AA816D6F8",
+      "name" : "SymphonySwiftUIApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SymphonyApps.xcodeproj",
+        "identifier" : "13AD461CA49A2003317B8214",
+        "name" : "SymphonySwiftUIAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}

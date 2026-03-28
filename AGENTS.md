@@ -11,6 +11,10 @@ below as the required target contract for migration work.
 3. Implement only after the tests and type boundaries make the change explicit.
 4. Run the targeted validations for the touched area before asking for integration.
 
+## Swift CLI policy
+
+- Use quiet mode for all commands by default.
+
 ## Commit policy
 
 - Keep commit topics small and green.

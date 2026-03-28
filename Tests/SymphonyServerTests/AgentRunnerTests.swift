@@ -2,7 +2,8 @@ import Foundation
 import SymphonyShared
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 // MARK: - Test Helpers
 
@@ -148,7 +149,7 @@ private final class CollectingEventSink: AgentRunEventSink, @unchecked Sendable 
 @Suite("AgentRunResult")
 struct AgentRunResultTests {
   @Test func initAndEquality() throws {
-    let ctx = try makeRunContext()
+    let ctx = try makeRunContext(runID: "R_REDACTED")
     let result1 = AgentRunResult(
       context: ctx, sessionID: SessionID("S_1"), finalState: .succeeded,
       eventCount: 5, error: nil)
@@ -256,7 +257,7 @@ struct AgentRunnerLifecycleTests {
     launcher.setStubProcess(stubProcess)
 
     let issue = try makeIssue()
-    let ctx = try makeRunContext()
+    let ctx = try makeRunContext(runID: "R_REDACTED")
 
     let task = Task {
       await runner.executeRun(
@@ -341,6 +342,126 @@ struct AgentRunnerLifecycleTests {
     #expect(runner.activeRunCount == 0)
   }
 
+  @Test func codexFailedTerminalOutcomeDoesNotBecomeSucceeded() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput(
+      #"{"method":"thread/started","params":{"thread":{"id":"thread-failed"}}}"# + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/started","params":{"threadId":"thread-failed","turn":{"id":"turn-failed"}}}"#
+        + "\n")
+    stubProcess.simulateOutput(#"{"method":"turn/failed","params":{"turn_id":"turn-failed"}}"# + "\n")
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.failed)
+    #expect(result.error?.contains("failed") == true)
+    #expect(result.eventCount >= 1)
+  }
+
+  @Test func codexInterruptedTerminalOutcomeDoesNotBecomeSucceeded() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput(
+      #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupted"}}}"# + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/started","params":{"threadId":"thread-interrupted","turn":{"id":"turn-interrupted"}}}"#
+        + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/interrupted","params":{"turn_id":"turn-interrupted"}}"# + "\n")
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.failed)
+    #expect(result.error?.contains("interrupted") == true)
+    #expect(result.eventCount >= 1)
+  }
+
+  @Test func codexReadTimeoutProducesTimedOutState() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+    let config = WorkflowConfig(
+      providers: ProvidersConfig(
+        codex: CodexProviderConfig(turnTimeoutMS: 5_000, readTimeoutMS: 50, stallTimeoutMS: 0)))
+
+    let result = await runner.executeRun(
+      context: ctx, issue: issue, config: config, promptTemplate: "")
+
+    #expect(result.finalState == RunLifecycleState.timedOut)
+    #expect(result.error?.contains("readTimeout") == true)
+  }
+
+  @Test func codexTurnTimeoutProducesTimedOutState() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+    let config = WorkflowConfig(
+      providers: ProvidersConfig(
+        codex: CodexProviderConfig(turnTimeoutMS: 50, readTimeoutMS: 5_000, stallTimeoutMS: 0)))
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: config, promptTemplate: "")
+    }
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    stubProcess.simulateOutput(
+      #"{"method":"thread/started","params":{"thread":{"id":"thread-timeout"}}}"# + "\n")
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.timedOut)
+    #expect(result.error?.contains("turnTimeout") == true)
+  }
+
   @Test func workspaceFailureReturnsEarlyWithFailed() async throws {
     let wsManager = StubWorkspaceManager()
     wsManager.setEnsureError(
@@ -388,7 +509,12 @@ struct AgentRunnerLifecycleTests {
     }
 
     #expect(result.finalState == .failed)
-    let failureLog = try #require(logs.first { $0.json["event"] as? String == "agent_run_failed" })
+    let failureLog = try #require(
+      logs.first {
+        $0.json["event"] as? String == "agent_run_failed"
+          && $0.json["run_id"] as? String == ctx.runID.rawValue
+          && $0.json["state"] as? String == RunLifecycleState.preparingWorkspace.rawValue
+      })
     #expect(failureLog.json["issue_id"] as? String == ctx.issueID.rawValue)
     #expect(failureLog.json["issue_identifier"] as? String == ctx.issueIdentifier.rawValue)
     #expect(failureLog.json["run_id"] as? String == ctx.runID.rawValue)
@@ -521,6 +647,78 @@ struct AgentRunnerCancelTests {
 
     let result = await task.value
     #expect(result.context == ctx)
+  }
+
+  @Test func cancelActiveCodexRunUsesNativeInterruptWhenTurnIsKnown() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    while runner.activeRunCount == 0 {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    stubProcess.simulateOutput(
+      #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupt"}}}"# + "\n")
+    stubProcess.simulateOutput(
+      #"{"method":"turn/started","params":{"threadId":"thread-interrupt","turn":{"id":"turn-interrupt"}}}"#
+        + "\n")
+
+    try await Task.sleep(nanoseconds: 50_000_000)
+    try await runner.cancelRun(runID: ctx.runID)
+    #expect(stubProcess.interruptCount == 1)
+    #expect(stubProcess.terminationCount == 0)
+
+    stubProcess.simulateOutput(
+      #"{"method":"turn/interrupted","params":{"turn_id":"turn-interrupt"}}"# + "\n")
+    stubProcess.simulateTermination(exitCode: 0)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.failed)
+    #expect(result.error?.contains("interrupted") == true)
+  }
+
+  @Test func cancelActiveCodexRunFallsBackToTerminateBeforeTurnIsKnown() async throws {
+    let wsManager = StubWorkspaceManager()
+    let launcher = StubProcessLauncher()
+    let sink = CollectingEventSink()
+    let runner = AgentRunner(
+      workspaceManager: wsManager, processLauncher: launcher, eventSink: sink)
+
+    let stubProcess = StubLaunchedProcess()
+    launcher.setStubProcess(stubProcess)
+
+    let issue = try makeIssue()
+    let ctx = try makeRunContext()
+
+    let task = Task {
+      await runner.executeRun(
+        context: ctx, issue: issue, config: .defaults, promptTemplate: "")
+    }
+
+    while runner.activeRunCount == 0 {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    try await runner.cancelRun(runID: ctx.runID)
+    #expect(stubProcess.interruptCount == 0)
+    #expect(stubProcess.terminationCount == 1)
+
+    let result = await task.value
+    #expect(result.finalState == RunLifecycleState.failed)
   }
 }
 

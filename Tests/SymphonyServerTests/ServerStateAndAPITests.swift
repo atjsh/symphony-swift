@@ -2,7 +2,8 @@ import Foundation
 import SymphonyShared
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 @Test func sqliteStorePersistsProviderNeutralStateAndReplaysLogsByCursor() throws {
   let databaseURL = try makeTemporaryDirectory().appendingPathComponent("symphony.sqlite3")
@@ -83,7 +84,7 @@ import Testing
   do {
     _ = try SQLiteServerStateStore(databaseURL: URL(fileURLWithPath: "/dev/null"))
     Issue.record("Expected /dev/null to fail during schema installation.")
-  } catch let error as SymphonyRuntimeError {
+  } catch let error as SymphonyServerError {
     #expect(String(describing: error).contains("unable to open database file"))
   }
 
@@ -91,7 +92,7 @@ import Testing
   do {
     _ = try SQLiteServerStateStore(databaseURL: missingParentURL)
     Issue.record("Expected a missing parent directory to fail during SQLite open.")
-  } catch let error as SymphonyRuntimeError {
+  } catch let error as SymphonyServerError {
     #expect(
       String(describing: error).contains(
         "Failed to open SQLite database at \(missingParentURL.path)."))
@@ -480,14 +481,14 @@ import Testing
   do {
     _ = try store.diagnostics.decodeIssueSnapshot(rawSnapshot: nil)
     Issue.record("Expected NULL snapshots to fail decoding.")
-  } catch let error as SymphonyRuntimeError {
+  } catch let error as SymphonyServerError {
     #expect(error == .encoding("Missing JSON snapshot in SQLite row."))
   }
 
   do {
     _ = try store.diagnostics.decodeIssueSnapshot(rawSnapshot: "{")
     Issue.record("Expected malformed snapshots to fail decoding.")
-  } catch let error as SymphonyRuntimeError {
+  } catch let error as SymphonyServerError {
     #expect(error == .encoding("Failed to decode JSON snapshot."))
   }
 
@@ -500,7 +501,7 @@ import Testing
   do {
     _ = try store.issues()
     Issue.record("Expected closed stores to reject queries.")
-  } catch let error as SymphonyRuntimeError {
+  } catch let error as SymphonyServerError {
     #expect(String(describing: error).contains("SQLite database is closed"))
   }
 }

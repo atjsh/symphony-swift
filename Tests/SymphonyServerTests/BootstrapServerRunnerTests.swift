@@ -4,7 +4,8 @@ import Foundation
 import SymphonyShared
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 @Test func bootstrapServerRunnerEventObserverPublishesToLiveLogHub() async throws {
   let hub = LiveLogHub()
@@ -143,7 +144,7 @@ import Testing
   let syncWaitStarted = DispatchSemaphore(value: 0)
   let syncWaitFinished = DispatchSemaphore(value: 0)
   let syncWaitError = LockedErrorBox()
-  DispatchQueue.global().async {
+  let worker = Thread {
     syncWaitStarted.signal()
     do {
       try syncSignal.wait()
@@ -152,11 +153,13 @@ import Testing
     }
     syncWaitFinished.signal()
   }
+  worker.qualityOfService = .userInitiated
+  worker.start()
   #expect(syncWaitStarted.wait(timeout: .now() + 1) == .success)
-  Thread.sleep(forTimeInterval: 0.05)
-  #expect(syncWaitFinished.wait(timeout: .now() + 0.05) == .timedOut)
+  Thread.sleep(forTimeInterval: 0.2)
+  #expect(syncWaitFinished.wait(timeout: .now() + 0.2) == .timedOut)
   syncSignal.ready()
-  #expect(syncWaitFinished.wait(timeout: .now() + 1) == .success)
+  #expect(syncWaitFinished.wait(timeout: .now() + 2) == .success)
   #expect(syncWaitError.error == nil)
   try syncSignal.wait()
 
@@ -850,7 +853,7 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
 }
 
 @Test func builtServerExecutableStartsAndExitsWhenRequested() throws {
-  let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
+  let executable = builtProductsDirectory().appendingPathComponent("symphony-server")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
 
   let process = Process()
@@ -875,7 +878,7 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
 }
 
 @Test func builtServerExecutableServesHealthEndpointUntilTerminated() async throws {
-  let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
+  let executable = builtProductsDirectory().appendingPathComponent("symphony-server")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
   let port = try availableLoopbackPort()
 
@@ -921,7 +924,7 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
 }
 
 @Test func builtServerExecutablePrintsFailureAndExitsForInvalidSQLitePath() throws {
-  let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
+  let executable = builtProductsDirectory().appendingPathComponent("symphony-server")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
 
   let invalidDatabaseURL = FileManager.default.temporaryDirectory.appendingPathComponent(

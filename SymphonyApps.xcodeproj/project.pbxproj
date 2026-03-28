@@ -8,15 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */; };
-		241A176C72B8A402FBBEF6C1 /* SymphonyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F381ACE864C406E51967E02E /* SymphonyUITests.swift */; };
+		01C4D3F56CF4C0001391B1DF /* OperatorDetailPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */; };
+		0F5B6A3A7CCEACD3839D2841 /* OperatorLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAE6C42750DF5BBE3225F41 /* OperatorLogsView.swift */; };
+		241A176C72B8A402FBBEF6C1 /* SymphonySwiftUIAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F381ACE864C406E51967E02E /* SymphonySwiftUIAppUITests.swift */; };
+		3C472B714F6FF84D0F4D0E5A /* SymphonyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CF5B1152EACBDC314F98A /* SymphonyClient.swift */; };
 		49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41F51113E5586F70F705846 /* ContentView.swift */; };
-		7F6E325ACB967DFC0D24F8B5 /* SymphonyClientUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5B1CD12A22B7B5FFEAA78774 /* SymphonyClientUI */; };
+		492ECFA96F252528D82248FC /* OperatorEndpointEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAEBD13FC4C24CE3BE183839 /* OperatorEndpointEditorView.swift */; };
+		7F6E325ACB967DFC0D24F8B5 /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = 5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */; };
 		84CDF85991F873055D37432D /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = C54C30BB7AB11734C99F6D60 /* SymphonyShared */; };
+		86FB88D1A64671070AE62FB8 /* SymphonyOperatorRootViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7413C25F6EF6F0AA19872A47 /* SymphonyOperatorRootViewTests.swift */; };
 		9C2A0986441B0D9C13702106 /* SymphonyOperatorModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D880A8D055B9530E178CE171 /* SymphonyOperatorModelTests.swift */; };
 		A5EB66BF435A82DF797E81AF /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = 4C68215C3CE80F18F246B0B0 /* SymphonyShared */; };
+		A706E6A79B5DC2925EECF67E /* OperatorSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F72E595B055B5D80EB0CFB4 /* OperatorSidebarView.swift */; };
 		AAF190A8574D962B997162F9 /* BootstrapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */; };
 		BA5FDBCE8465CF58C7F9CCF5 /* BootstrapSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */; };
-		C45294D9DCCA2247107643E5 /* SymphonyClientUI in Frameworks */ = {isa = PBXBuildFile; productRef = FDBDF0E5C31E95A6CDEB61F2 /* SymphonyClientUI */; };
+		BBC86475FAF155C0816101D3 /* OperatorSharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5070C9ACB897C84B4FBE52E /* OperatorSharedViews.swift */; };
+		C45294D9DCCA2247107643E5 /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */; };
+		D9B084ED9FD8626179A2DDF7 /* OperatorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF36373ED8119CD4F137AE9 /* OperatorTheme.swift */; };
+		DE706FFC72E9B1DAE0ACE9CE /* SymphonyOperatorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69D4AD42D035F94C057B8B70 /* SymphonyOperatorModel.swift */; };
+		E0B3BEB361BF934701B4764E /* TestingCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D26CC0E9592213AC70C68F /* TestingCompatibility.swift */; };
+		EC0636751AFDD63B7B1E2DC1 /* SymphonyClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D5224D820126640C250758B /* SymphonyClientTests.swift */; };
+		EDF92FD4E44F272335D63792 /* OperatorPresentationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A4759F4E31ED5B92125999 /* OperatorPresentationState.swift */; };
+		E31783D128595861621E489E /* SymphonyOperatorRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24D2F88D67C4AF9F90A523B /* SymphonyOperatorRootView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,28 +38,41 @@
 			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 2299CB2884BEEF9AA816D6F8;
-			remoteInfo = Symphony;
+			remoteInfo = SymphonySwiftUIApp;
 		};
 		C06066C147D616984F81FD92 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 2299CB2884BEEF9AA816D6F8;
-			remoteInfo = Symphony;
+			remoteInfo = SymphonySwiftUIApp;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1D5224D820126640C250758B /* SymphonyClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyClientTests.swift; sourceTree = "<group>"; };
 		6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupportTests.swift; sourceTree = "<group>"; };
-		706D16BB2EDD06B285EE65B4 /* SymphonyUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonySwiftUIAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorDetailPanels.swift; sourceTree = "<group>"; };
+		7413C25F6EF6F0AA19872A47 /* SymphonyOperatorRootViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorRootViewTests.swift; sourceTree = "<group>"; };
 		77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyApp.swift; sourceTree = "<group>"; };
-		97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		806CF5B1152EACBDC314F98A /* SymphonyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyClient.swift; sourceTree = "<group>"; };
+		90A4759F4E31ED5B92125999 /* OperatorPresentationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorPresentationState.swift; sourceTree = "<group>"; };
+		97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonySwiftUIAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupport.swift; sourceTree = "<group>"; };
+		A5070C9ACB897C84B4FBE52E /* OperatorSharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorSharedViews.swift; sourceTree = "<group>"; };
+		A9D26CC0E9592213AC70C68F /* TestingCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestingCompatibility.swift; sourceTree = "<group>"; };
+		BAEBD13FC4C24CE3BE183839 /* OperatorEndpointEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorEndpointEditorView.swift; sourceTree = "<group>"; };
 		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C24D2F88D67C4AF9F90A523B /* SymphonyOperatorRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorRootView.swift; sourceTree = "<group>"; };
 		D41F51113E5586F70F705846 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		DDAE6C42750DF5BBE3225F41 /* OperatorLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorLogsView.swift; sourceTree = "<group>"; };
 		D880A8D055B9530E178CE171 /* SymphonyOperatorModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorModelTests.swift; sourceTree = "<group>"; };
-		F381ACE864C406E51967E02E /* SymphonyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyUITests.swift; sourceTree = "<group>"; };
+		EEF36373ED8119CD4F137AE9 /* OperatorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorTheme.swift; sourceTree = "<group>"; };
+		5F72E595B055B5D80EB0CFB4 /* OperatorSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorSidebarView.swift; sourceTree = "<group>"; };
+		F381ACE864C406E51967E02E /* SymphonySwiftUIAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonySwiftUIAppUITests.swift; sourceTree = "<group>"; };
 		FC72EB26FCE346CEC8C6A5F0 /* symphony-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "symphony-swift"; path = .; sourceTree = SOURCE_ROOT; };
+		69D4AD42D035F94C057B8B70 /* SymphonyOperatorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,7 +88,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C45294D9DCCA2247107643E5 /* SymphonyClientUI in Frameworks */,
+				C45294D9DCCA2247107643E5 /* SymphonyShared in Frameworks */,
 				84CDF85991F873055D37432D /* SymphonyShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,7 +97,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7F6E325ACB967DFC0D24F8B5 /* SymphonyClientUI in Frameworks */,
+				7F6E325ACB967DFC0D24F8B5 /* SymphonyShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,9 +107,9 @@
 		09E819F80D1870A7F25E53C8 /* Applications */ = {
 			isa = PBXGroup;
 			children = (
-				E9EBDE2FA6B8050169009581 /* Symphony */,
-				E55126918B907B93F4719E52 /* SymphonyTests */,
-				ECA6159E86D40365C55C150F /* SymphonyUITests */,
+				E9EBDE2FA6B8050169009581 /* SymphonySwiftUIApp */,
+				E55126918B907B93F4719E52 /* SymphonySwiftUIAppTests */,
+				ECA6159E86D40365C55C150F /* SymphonySwiftUIAppUITests */,
 			);
 			path = Applications;
 			sourceTree = "<group>";
@@ -101,8 +127,8 @@
 			isa = PBXGroup;
 			children = (
 				BB3BDD964B47278C650FADD7 /* Symphony.app */,
-				97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */,
-				706D16BB2EDD06B285EE65B4 /* SymphonyUITests.xctest */,
+				97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */,
+				706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -115,39 +141,52 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
-		E55126918B907B93F4719E52 /* SymphonyTests */ = {
+		E55126918B907B93F4719E52 /* SymphonySwiftUIAppTests */ = {
 			isa = PBXGroup;
 			children = (
 				6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */,
+				1D5224D820126640C250758B /* SymphonyClientTests.swift */,
 				D880A8D055B9530E178CE171 /* SymphonyOperatorModelTests.swift */,
+				7413C25F6EF6F0AA19872A47 /* SymphonyOperatorRootViewTests.swift */,
+				A9D26CC0E9592213AC70C68F /* TestingCompatibility.swift */,
 			);
-			path = SymphonyTests;
+			path = SymphonySwiftUIAppTests;
 			sourceTree = "<group>";
 		};
-		E9EBDE2FA6B8050169009581 /* Symphony */ = {
+		E9EBDE2FA6B8050169009581 /* SymphonySwiftUIApp */ = {
 			isa = PBXGroup;
 			children = (
 				9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */,
 				D41F51113E5586F70F705846 /* ContentView.swift */,
+				710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */,
+				BAEBD13FC4C24CE3BE183839 /* OperatorEndpointEditorView.swift */,
+				DDAE6C42750DF5BBE3225F41 /* OperatorLogsView.swift */,
+				90A4759F4E31ED5B92125999 /* OperatorPresentationState.swift */,
+				A5070C9ACB897C84B4FBE52E /* OperatorSharedViews.swift */,
+				5F72E595B055B5D80EB0CFB4 /* OperatorSidebarView.swift */,
+				EEF36373ED8119CD4F137AE9 /* OperatorTheme.swift */,
 				77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */,
+				806CF5B1152EACBDC314F98A /* SymphonyClient.swift */,
+				69D4AD42D035F94C057B8B70 /* SymphonyOperatorModel.swift */,
+				C24D2F88D67C4AF9F90A523B /* SymphonyOperatorRootView.swift */,
 			);
-			path = Symphony;
+			path = SymphonySwiftUIApp;
 			sourceTree = "<group>";
 		};
-		ECA6159E86D40365C55C150F /* SymphonyUITests */ = {
+		ECA6159E86D40365C55C150F /* SymphonySwiftUIAppUITests */ = {
 			isa = PBXGroup;
 			children = (
-				F381ACE864C406E51967E02E /* SymphonyUITests.swift */,
+				F381ACE864C406E51967E02E /* SymphonySwiftUIAppUITests.swift */,
 			);
-			path = SymphonyUITests;
+			path = SymphonySwiftUIAppUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0B018AD9F48103DB6D8603F4 /* SymphonyUITests */ = {
+		0B018AD9F48103DB6D8603F4 /* SymphonySwiftUIAppUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 978775F3776F0A25435A98CB /* Build configuration list for PBXNativeTarget "SymphonyUITests" */;
+			buildConfigurationList = 978775F3776F0A25435A98CB /* Build configuration list for PBXNativeTarget "SymphonySwiftUIAppUITests" */;
 			buildPhases = (
 				D9EFB6988FF35D1F473AFD38 /* Sources */,
 				6C62CBA0E7D7B4F818C1B908 /* Frameworks */,
@@ -157,17 +196,17 @@
 			dependencies = (
 				9974D558463B36AA3C3B5B3B /* PBXTargetDependency */,
 			);
-			name = SymphonyUITests;
+			name = SymphonySwiftUIAppUITests;
 			packageProductDependencies = (
 				4C68215C3CE80F18F246B0B0 /* SymphonyShared */,
 			);
-			productName = SymphonyUITests;
-			productReference = 706D16BB2EDD06B285EE65B4 /* SymphonyUITests.xctest */;
+			productName = SymphonySwiftUIAppUITests;
+			productReference = 706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		13AD461CA49A2003317B8214 /* SymphonyTests */ = {
+		13AD461CA49A2003317B8214 /* SymphonySwiftUIAppTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonyTests" */;
+			buildConfigurationList = 8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonySwiftUIAppTests" */;
 			buildPhases = (
 				351FB117AD4D9B7412D0C8A2 /* Sources */,
 				74693E0C7D816559CA106716 /* Frameworks */,
@@ -177,16 +216,16 @@
 			dependencies = (
 				F414D936B4DADECD086FAEB0 /* PBXTargetDependency */,
 			);
-			name = SymphonyTests;
+			name = SymphonySwiftUIAppTests;
 			packageProductDependencies = (
-				FDBDF0E5C31E95A6CDEB61F2 /* SymphonyClientUI */,
+				FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */,
 				C54C30BB7AB11734C99F6D60 /* SymphonyShared */,
 			);
-			productName = SymphonyTests;
-			productReference = 97B3808013853F93DBBD1B9A /* SymphonyTests.xctest */;
+			productName = SymphonySwiftUIAppTests;
+			productReference = 97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		2299CB2884BEEF9AA816D6F8 /* Symphony */ = {
+		2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D26DD97709F46D95D8A2AFC8 /* Build configuration list for PBXNativeTarget "Symphony" */;
 			buildPhases = (
@@ -197,9 +236,9 @@
 			);
 			dependencies = (
 			);
-			name = Symphony;
+			name = SymphonySwiftUIApp;
 			packageProductDependencies = (
-				5B1CD12A22B7B5FFEAA78774 /* SymphonyClientUI */,
+				5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */,
 			);
 			productName = Symphony;
 			productReference = BB3BDD964B47278C650FADD7 /* Symphony.app */;
@@ -244,9 +283,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2299CB2884BEEF9AA816D6F8 /* Symphony */,
-				13AD461CA49A2003317B8214 /* SymphonyTests */,
-				0B018AD9F48103DB6D8603F4 /* SymphonyUITests */,
+				2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */,
+				13AD461CA49A2003317B8214 /* SymphonySwiftUIAppTests */,
+				0B018AD9F48103DB6D8603F4 /* SymphonySwiftUIAppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -257,7 +296,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA5FDBCE8465CF58C7F9CCF5 /* BootstrapSupportTests.swift in Sources */,
+				EC0636751AFDD63B7B1E2DC1 /* SymphonyClientTests.swift in Sources */,
 				9C2A0986441B0D9C13702106 /* SymphonyOperatorModelTests.swift in Sources */,
+				86FB88D1A64671070AE62FB8 /* SymphonyOperatorRootViewTests.swift in Sources */,
+				E0B3BEB361BF934701B4764E /* TestingCompatibility.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -267,7 +309,17 @@
 			files = (
 				AAF190A8574D962B997162F9 /* BootstrapSupport.swift in Sources */,
 				49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */,
+				01C4D3F56CF4C0001391B1DF /* OperatorDetailPanels.swift in Sources */,
+				492ECFA96F252528D82248FC /* OperatorEndpointEditorView.swift in Sources */,
+				0F5B6A3A7CCEACD3839D2841 /* OperatorLogsView.swift in Sources */,
+				EDF92FD4E44F272335D63792 /* OperatorPresentationState.swift in Sources */,
+				BBC86475FAF155C0816101D3 /* OperatorSharedViews.swift in Sources */,
+				A706E6A79B5DC2925EECF67E /* OperatorSidebarView.swift in Sources */,
+				D9B084ED9FD8626179A2DDF7 /* OperatorTheme.swift in Sources */,
 				05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */,
+				3C472B714F6FF84D0F4D0E5A /* SymphonyClient.swift in Sources */,
+				DE706FFC72E9B1DAE0ACE9CE /* SymphonyOperatorModel.swift in Sources */,
+				E31783D128595861621E489E /* SymphonyOperatorRootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,7 +327,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				241A176C72B8A402FBBEF6C1 /* SymphonyUITests.swift in Sources */,
+				241A176C72B8A402FBBEF6C1 /* SymphonySwiftUIAppUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,12 +336,12 @@
 /* Begin PBXTargetDependency section */
 		9974D558463B36AA3C3B5B3B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 2299CB2884BEEF9AA816D6F8 /* Symphony */;
+			target = 2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */;
 			targetProxy = AB8650FE4D4512ED4E736D60 /* PBXContainerItemProxy */;
 		};
 		F414D936B4DADECD086FAEB0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 2299CB2884BEEF9AA816D6F8 /* Symphony */;
+			target = 2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */;
 			targetProxy = C06066C147D616984F81FD92 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -308,7 +360,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
-				PRODUCT_NAME = SymphonyTests;
+				PRODUCT_NAME = SymphonySwiftUIAppTests;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -332,14 +384,14 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
-				PRODUCT_NAME = SymphonyUITests;
+				PRODUCT_NAME = SymphonySwiftUIAppUITests;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Symphony;
+				TEST_TARGET_NAME = SymphonySwiftUIApp;
 			};
 			name = Debug;
 		};
@@ -356,14 +408,14 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.uitests;
-				PRODUCT_NAME = SymphonyUITests;
+				PRODUCT_NAME = SymphonySwiftUIAppUITests;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Symphony;
+				TEST_TARGET_NAME = SymphonySwiftUIApp;
 			};
 			name = Release;
 		};
@@ -508,6 +560,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+				PRODUCT_MODULE_NAME = SymphonySwiftUIApp;
 				PRODUCT_NAME = Symphony;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -531,7 +584,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.tests;
-				PRODUCT_NAME = SymphonyTests;
+				PRODUCT_NAME = SymphonySwiftUIAppTests;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -563,6 +616,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony;
+				PRODUCT_MODULE_NAME = SymphonySwiftUIApp;
 				PRODUCT_NAME = Symphony;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -585,7 +639,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonyTests" */ = {
+		8EA4D53991A8F363EEFB3DB0 /* Build configuration list for PBXNativeTarget "SymphonySwiftUIAppTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F29221511996AF509CFF8AD1 /* Debug */,
@@ -594,7 +648,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		978775F3776F0A25435A98CB /* Build configuration list for PBXNativeTarget "SymphonyUITests" */ = {
+		978775F3776F0A25435A98CB /* Build configuration list for PBXNativeTarget "SymphonySwiftUIAppUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				32923A35E372C7B33224BA12 /* Debug */,
@@ -626,17 +680,17 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = SymphonyShared;
 		};
-		5B1CD12A22B7B5FFEAA78774 /* SymphonyClientUI */ = {
+		5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = SymphonyClientUI;
+			productName = SymphonyShared;
 		};
 		C54C30BB7AB11734C99F6D60 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SymphonyShared;
 		};
-		FDBDF0E5C31E95A6CDEB61F2 /* SymphonyClientUI */ = {
+		FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = SymphonyClientUI;
+			productName = SymphonyShared;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

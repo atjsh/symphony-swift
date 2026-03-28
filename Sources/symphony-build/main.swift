@@ -1,3 +1,0 @@
-import SymphonyBuildCLI
-
-SymphonyBuildCommand.main()

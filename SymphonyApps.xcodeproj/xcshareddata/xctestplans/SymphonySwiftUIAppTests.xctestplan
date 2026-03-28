@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "7B7B7226-27B9-4F3F-8B3A-0B0E64527001",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:SymphonyApps.xcodeproj",
+        "identifier" : "13AD461CA49A2003317B8214",
+        "name" : "SymphonySwiftUIAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}

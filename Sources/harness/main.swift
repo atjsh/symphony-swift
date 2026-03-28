@@ -1,0 +1,3 @@
+import SymphonyHarnessCLI
+
+SymphonyHarnessCommand.main()

@@ -1,6 +1,7 @@
 import Foundation
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 private actor RuntimeLogCaptureCoordinator {
   private var isActive = false

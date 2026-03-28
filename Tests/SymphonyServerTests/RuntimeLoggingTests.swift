@@ -1,6 +1,7 @@
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 @Test func runtimeLoggerEmitsStructuredJSONLinesWithContext() async throws {
   let (_, logs) = try await withCapturedRuntimeLogs {

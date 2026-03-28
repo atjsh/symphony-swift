@@ -2,7 +2,8 @@ import Foundation
 import Synchronization
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 @testable import SymphonyShared
 
 // MARK: - OrchestratorEngine Tests

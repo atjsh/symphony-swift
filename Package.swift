@@ -9,12 +9,12 @@ let package = Package(
   ],
   products: [
     .library(name: "SymphonyShared", targets: ["SymphonyShared"]),
-    .library(name: "SymphonyRuntime", targets: ["SymphonyRuntime"]),
-    .library(name: "SymphonyClientUI", targets: ["SymphonyClientUI"]),
-    .library(name: "SymphonyBuildCore", targets: ["SymphonyBuildCore"]),
-    .library(name: "SymphonyBuildCLI", targets: ["SymphonyBuildCLI"]),
-    .executable(name: "SymphonyServer", targets: ["SymphonyServer"]),
-    .executable(name: "symphony-build", targets: ["symphony-build"]),
+    .library(name: "SymphonyServerCore", targets: ["SymphonyServerCore"]),
+    .library(name: "SymphonyServer", targets: ["SymphonyServer"]),
+    .library(name: "SymphonyHarness", targets: ["SymphonyHarness"]),
+    .library(name: "SymphonyHarnessCLI", targets: ["SymphonyHarnessCLI"]),
+    .executable(name: "symphony-server", targets: ["SymphonyServerCLI"]),
+    .executable(name: "harness", targets: ["harness"]),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -29,52 +29,66 @@ let package = Package(
       path: "Sources/SymphonyShared"
     ),
     .target(
-      name: "SymphonyRuntime",
+      name: "SymphonyServerCore",
       dependencies: [
         "SymphonyShared",
-        .product(name: "Hummingbird", package: "hummingbird"),
-        .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
         .product(name: "Yams", package: "Yams"),
       ],
-      path: "Sources/SymphonyRuntime"
+      path: "Sources/SymphonyServerCore"
     ),
     .target(
-      name: "SymphonyClientUI",
-      dependencies: ["SymphonyShared"],
-      path: "Sources/SymphonyClientUI"
-    ),
-    .target(
-      name: "SymphonyBuildCore",
-      dependencies: ["SymphonyShared"],
-      path: "Sources/SymphonyBuildCore"
-    ),
-    .target(
-      name: "SymphonyBuildCLI",
-      dependencies: [
-        "SymphonyBuildCore",
-        .product(name: "ArgumentParser", package: "swift-argument-parser"),
-      ],
-      path: "Sources/SymphonyBuildCLI"
-    ),
-    .executableTarget(
       name: "SymphonyServer",
-      dependencies: ["SymphonyRuntime"],
+      dependencies: [
+        "SymphonyShared",
+        "SymphonyServerCore",
+        .product(name: "Hummingbird", package: "hummingbird"),
+        .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
+      ],
       path: "Sources/SymphonyServer"
     ),
+    .target(
+      name: "SymphonyHarness",
+      dependencies: ["SymphonyShared"],
+      path: "Sources/SymphonyHarness"
+    ),
+    .target(
+      name: "SymphonyHarnessCLI",
+      dependencies: [
+        "SymphonyHarness",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Sources/SymphonyHarnessCLI"
+    ),
     .executableTarget(
-      name: "symphony-build",
-      dependencies: ["SymphonyBuildCLI"],
-      path: "Sources/symphony-build"
+      name: "harness",
+      dependencies: ["SymphonyHarnessCLI"],
+      path: "Sources/harness"
+    ),
+    .executableTarget(
+      name: "SymphonyServerCLI",
+      dependencies: ["SymphonyServer"],
+      path: "Sources/SymphonyServerCLI"
+    ),
+    .testTarget(
+      name: "SymphonyServerCoreTests",
+      dependencies: ["SymphonyServerCore", "SymphonyShared"],
+      path: "Tests/SymphonyServerCoreTests"
     ),
     .testTarget(
       name: "SymphonyServerTests",
       dependencies: [
-        "SymphonyRuntime",
         "SymphonyServer",
+        "SymphonyServerCore",
+        "SymphonyShared",
         .product(name: "HummingbirdTesting", package: "hummingbird"),
         .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
       ],
       path: "Tests/SymphonyServerTests"
+    ),
+    .testTarget(
+      name: "SymphonyServerCLITests",
+      dependencies: ["SymphonyServerCLI", "SymphonyServer", "SymphonyServerCore", "SymphonyShared"],
+      path: "Tests/SymphonyServerCLITests"
     ),
     .testTarget(
       name: "SymphonySharedTests",
@@ -82,19 +96,14 @@ let package = Package(
       path: "Tests/SymphonySharedTests"
     ),
     .testTarget(
-      name: "SymphonyClientUITests",
-      dependencies: ["SymphonyClientUI", "SymphonyShared"],
-      path: "Tests/SymphonyClientUITests"
+      name: "SymphonyHarnessTests",
+      dependencies: ["SymphonyHarness", "SymphonyShared"],
+      path: "Tests/SymphonyHarnessTests"
     ),
     .testTarget(
-      name: "SymphonyBuildCoreTests",
-      dependencies: ["SymphonyBuildCore", "SymphonyShared"],
-      path: "Tests/SymphonyBuildCoreTests"
-    ),
-    .testTarget(
-      name: "SymphonyBuildCLITests",
-      dependencies: ["SymphonyBuildCLI", "SymphonyBuildCore", "SymphonyShared"],
-      path: "Tests/SymphonyBuildCLITests"
+      name: "SymphonyHarnessCLITests",
+      dependencies: ["SymphonyHarnessCLI", "SymphonyHarness", "SymphonyShared"],
+      path: "Tests/SymphonyHarnessCLITests"
     ),
   ]
 )

@@ -3,7 +3,47 @@ import SymphonyShared
 import Synchronization
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
+
+private func makeIssue(
+  id: String = "issue-1",
+  owner: String = "org",
+  repo: String = "repo",
+  number: Int = 1,
+  title: String = "Fix bug"
+) throws -> SymphonyShared.Issue {
+  SymphonyShared.Issue(
+    id: IssueID(id),
+    identifier: try IssueIdentifier(validating: "\(owner)/\(repo)#\(number)"),
+    repository: "\(owner)/\(repo)",
+    number: number,
+    title: title,
+    description: "Description",
+    priority: nil,
+    state: "In Progress",
+    issueState: "OPEN",
+    projectItemID: nil,
+    url: "https://github.com/\(owner)/\(repo)/issues/\(number)",
+    labels: [],
+    blockedBy: [],
+    createdAt: nil,
+    updatedAt: nil
+  )
+}
+
+private final class ErrorCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _error: Error?
+
+  func record(_ error: Error) {
+    lock.withLock { _error = error }
+  }
+
+  var value: Error? {
+    lock.withLock { _error }
+  }
+}
 
 // MARK: - ProviderAdapterError Tests
 
@@ -23,6 +63,9 @@ import Testing
   #expect(
     ProviderAdapterError.turnTimeout(sessionID: SessionID("s"), turnTimeoutMS: 200)
       == .turnTimeout(sessionID: SessionID("s"), turnTimeoutMS: 200))
+  #expect(
+    ProviderAdapterError.readTimeout(sessionID: SessionID("s"), readTimeoutMS: 300)
+      == .readTimeout(sessionID: SessionID("s"), readTimeoutMS: 300))
   #expect(ProviderAdapterError.unsupportedProvider(.codex) == .unsupportedProvider(.codex))
 }
 
@@ -132,6 +175,30 @@ import Testing
   _ = stream
 }
 
+@Test func codexAdapterStartSessionIncludesIssueTitleContext() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let issue = try makeIssue(title: "Plumb the title")
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-title"),
+    issue: issue,
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-title"}}}"# + "\n")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  #expect(turnStartParams["title"] as? String == "\(issue.identifier.rawValue): \(issue.title)")
+}
+
 @Test func codexAdapterStartSessionWithEmptyPromptDoesNotWriteInput() async throws {
   let stubLauncher = StubProcessLauncher()
   let stubProcess = StubLaunchedProcess()
@@ -176,14 +243,55 @@ import Testing
   }
 }
 
-@Test func codexAdapterContinueSessionThrows() async {
-  let adapter = CodexAdapter(config: .defaults)
-  do {
-    _ = try await adapter.continueSession(sessionID: SessionID("s1"), guidance: "continue")
-    #expect(Bool(false), "Should have thrown")
-  } catch {
-    #expect(error is ProviderAdapterError)
+@Test func codexAdapterContinueSessionReusesExistingThreadAndPreservesSequence() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  let initialStream = try await adapter.startSession(
+    sessionID: SessionID("s-live"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+  _ = initialStream
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-live"}}}"# + "\n")
+
+  let recordedAfterStart = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedAfterStart.count == 4)
+  let initialTurnStart = try #require(recordedAfterStart.last)
+  let initialTurnStartParams = try #require(initialTurnStart["params"] as? [String: Any])
+  #expect(initialTurnStartParams["threadId"] as? String == "thread-live")
+
+  let continuationStream = try await adapter.continueSession(
+    sessionID: SessionID("s-live"),
+    guidance: "keep going"
+  )
+
+  let recordedAfterContinuation = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  #expect(recordedAfterContinuation.count == 5)
+  let continuationTurnStart = try #require(recordedAfterContinuation.last)
+  let continuationTurnStartParams = try #require(
+    continuationTurnStart["params"] as? [String: Any])
+  #expect(continuationTurnStartParams["threadId"] as? String == "thread-live")
+  #expect(try firstInputObject(from: continuationTurnStartParams)["text"] as? String == "keep going")
+
+  stubProcess.simulateOutput(
+    #"{"method":"turn/started","params":{"threadId":"thread-live","turn":{"id":"turn-2"}}}"#
+      + "\n")
+  stubProcess.simulateOutput(#"{"type":"message","content":"continued"}"# + "\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var continuationEvents: [AgentRawEvent] = []
+  for try await event in continuationStream {
+    continuationEvents.append(event)
   }
+
+  #expect(continuationEvents.map(\.providerEventType) == ["turn/started", "message"])
+  #expect(continuationEvents.map(\.sequence.rawValue) == [1, 2])
 }
 
 @Test func codexAdapterCancelSessionThrowsWhenNoSession() async {
@@ -194,6 +302,50 @@ import Testing
   } catch {
     #expect(error is ProviderAdapterError)
   }
+}
+
+@Test func codexAdapterCancelSessionSendsNativeInterruptWhenThreadAndTurnKnown() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-interrupt"),
+    issue: try makeIssue(title: "Interrupt me"),
+    workspacePath: "/tmp",
+    prompt: "test",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupt"}}}"# + "\n")
+  stubProcess.simulateOutput(
+    #"{"method":"turn/started","params":{"threadId":"thread-interrupt","turn":{"id":"turn-interrupt"}}}"#
+      + "\n")
+
+  try await adapter.cancelSession(sessionID: SessionID("s-interrupt"))
+  #expect(stubProcess.interruptCount == 1)
+  #expect(stubProcess.terminationCount == 0)
+}
+
+@Test func codexAdapterCancelSessionFallsBackToTerminateWithoutTurnIdentity() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let adapter = CodexAdapter(config: .defaults, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-fallback"),
+    issue: try makeIssue(title: "Fallback"),
+    workspacePath: "/tmp",
+    prompt: "test",
+    environment: [:]
+  )
+
+  try await adapter.cancelSession(sessionID: SessionID("s-fallback"))
+  #expect(stubProcess.interruptCount == 0)
+  #expect(stubProcess.terminationCount == 1)
 }
 
 @Test func codexAdapterStartsTurnAfterThreadStartResponse() async throws {
@@ -280,8 +432,9 @@ import Testing
   stubLauncher.setStubProcess(stubProcess)
 
   let config = CodexProviderConfig(
-    approvalPolicy: "never",
-    threadSandbox: "workspace-write",
+    sessionApprovalPolicy: "never",
+    sessionSandbox: "workspace-write",
+    turnApprovalPolicy: "never",
     turnSandboxPolicy: "danger-full-access"
   )
   let adapter = CodexAdapter(config: config, processLauncher: stubLauncher)
@@ -306,6 +459,112 @@ import Testing
   #expect(turnStartParams["sandboxPolicy"] as? String == "danger-full-access")
 }
 
+@Test func codexAdapterMapsObjectShapedSandboxPoliciesIntoCurrentProtocol() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let config = CodexProviderConfig(
+    sessionSandbox: [
+      "mode": "workspace-write",
+      "network_access": false,
+    ],
+    turnSandboxPolicy: [
+      "mode": "danger-full-access",
+      "writable_roots": ["/tmp/output"],
+    ]
+  )
+  let adapter = CodexAdapter(config: config, processLauncher: stubLauncher)
+  _ = try await adapter.startSession(
+    sessionID: SessionID("s-object-config"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(#"{"id":2,"result":{"thread":{"id":"thread-object-config"}}}"# + "\n")
+
+  let recordedMessages = try stubProcess.recordedInputStrings.map(parseJSONObject)
+  let threadStart = try #require(recordedMessages.dropFirst(2).first)
+  let threadStartParams = try #require(threadStart["params"] as? [String: Any])
+  let threadSandbox = try #require(threadStartParams["sandbox"] as? [String: Any])
+  #expect(threadSandbox["mode"] as? String == "workspace-write")
+  #expect(threadSandbox["network_access"] as? Bool == false)
+
+  let turnStart = try #require(recordedMessages.last)
+  let turnStartParams = try #require(turnStart["params"] as? [String: Any])
+  let turnSandbox = try #require(turnStartParams["sandboxPolicy"] as? [String: Any])
+  #expect(turnSandbox["mode"] as? String == "danger-full-access")
+  #expect(turnSandbox["writable_roots"] as? [String] == ["/tmp/output"])
+}
+
+@Test func codexAdapterReadTimeoutFailsStream() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let config = CodexProviderConfig(turnTimeoutMS: 5_000, readTimeoutMS: 50)
+  let adapter = CodexAdapter(config: config, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-read-timeout"),
+    issue: try makeIssue(title: "Read timeout"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  let errorCapture = ErrorCapture()
+  let consumer = Task { @Sendable in
+    do {
+      for try await _ in stream {}
+    } catch {
+      errorCapture.record(error)
+    }
+  }
+
+  try await Task.sleep(nanoseconds: 250_000_000)
+  consumer.cancel()
+  _ = await consumer.result
+
+  let timeoutError = try #require(errorCapture.value as? ProviderAdapterError)
+  #expect(timeoutError == .readTimeout(sessionID: SessionID("s-read-timeout"), readTimeoutMS: 50))
+}
+
+@Test func codexAdapterTurnTimeoutFailsStream() async throws {
+  let stubLauncher = StubProcessLauncher()
+  let stubProcess = StubLaunchedProcess()
+  stubLauncher.setStubProcess(stubProcess)
+
+  let config = CodexProviderConfig(turnTimeoutMS: 50, readTimeoutMS: 5_000)
+  let adapter = CodexAdapter(config: config, processLauncher: stubLauncher)
+  let stream = try await adapter.startSession(
+    sessionID: SessionID("s-turn-timeout"),
+    issue: try makeIssue(title: "Turn timeout"),
+    workspacePath: "/tmp/workspace",
+    prompt: "Fix the bug",
+    environment: [:]
+  )
+
+  stubProcess.simulateOutput(
+    #"{"method":"thread/started","params":{"thread":{"id":"thread-timeout"}}}"# + "\n")
+
+  let errorCapture = ErrorCapture()
+  let consumer = Task { @Sendable in
+    do {
+      for try await _ in stream {}
+    } catch {
+      errorCapture.record(error)
+    }
+  }
+
+  try await Task.sleep(nanoseconds: 250_000_000)
+  consumer.cancel()
+  _ = await consumer.result
+
+  let timeoutError = try #require(errorCapture.value as? ProviderAdapterError)
+  #expect(timeoutError == .turnTimeout(sessionID: SessionID("s-turn-timeout"), turnTimeoutMS: 50))
+}
+
 @Test func codexAdapterMakeEventStream() async throws {
   let stubProcess = StubLaunchedProcess()
   let adapter = CodexAdapter(config: .defaults)
@@ -325,6 +584,25 @@ import Testing
   #expect(events[0].providerEventType == "message")
   #expect(events[0].normalizedKind == .message)
   #expect(events[0].sequence == EventSequence(0))
+}
+
+@Test func codexAdapterBuffersPartialStdoutLinesBeforeParsing() async throws {
+  let stubProcess = StubLaunchedProcess()
+  let adapter = CodexAdapter(config: .defaults)
+
+  let stream = adapter.makeEventStream(from: stubProcess, sessionID: SessionID("s-buffer"))
+  stubProcess.simulateOutput(#"{"type":"mes"#)
+  stubProcess.simulateOutput(#"sage"}"# + "\n")
+  stubProcess.simulateTermination(exitCode: 0)
+
+  var events: [AgentRawEvent] = []
+  for try await event in stream {
+    events.append(event)
+  }
+
+  #expect(events.count == 1)
+  #expect(events[0].providerEventType == "message")
+  #expect(events[0].normalizedKind == .message)
 }
 
 @Test func codexAdapterMakeEventStreamSuppressesSuccessfulJSONRPCResponses() async throws {
@@ -1046,6 +1324,36 @@ import Testing
 @Test func eventKindInferenceCodexApprovalRequest() {
   let kind = EventKindInference.infer(from: "{\"type\": \"approval_request\"}", provider: .codex)
   #expect(kind == .approvalRequest)
+}
+
+@Test func eventKindInferenceCodexFileChangePermissionInputAndUnsupportedToolRequests() {
+  let fileChange = EventKindInference.infer(
+    from:
+      #"{"method":"item/fileChange/requestApproval","params":{"request":{"kind":"file_change"}}}"#,
+    provider: .codex
+  )
+  #expect(fileChange == .approvalRequest)
+
+  let permission = EventKindInference.infer(
+    from:
+      #"{"method":"turn/permissionRequired","params":{"permission":{"kind":"shell"}}}"#,
+    provider: .codex
+  )
+  #expect(permission == .approvalRequest)
+
+  let inputRequired = EventKindInference.infer(
+    from:
+      #"{"method":"item/started","params":{"item":{"type":"userInputRequired","prompt":"Need confirmation"}}}"#,
+    provider: .codex
+  )
+  #expect(inputRequired == .approvalRequest)
+
+  let unsupportedTool = EventKindInference.infer(
+    from:
+      #"{"type":"unsupported_tool","params":{"tool":{"kind":"dynamic"}}}"#,
+    provider: .codex
+  )
+  #expect(unsupportedTool == .approvalRequest)
 }
 
 @Test func eventKindInferenceCodexError() {

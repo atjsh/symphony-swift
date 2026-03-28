@@ -2,7 +2,8 @@ import Foundation
 import SymphonyShared
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 @Suite("SQLiteAgentRunEventSink")
 struct SQLiteAgentRunEventSinkTests {

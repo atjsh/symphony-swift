@@ -1,7 +1,8 @@
 import Foundation
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 @testable import SymphonyShared
 
 // MARK: - Stub GraphQL Transport Tests

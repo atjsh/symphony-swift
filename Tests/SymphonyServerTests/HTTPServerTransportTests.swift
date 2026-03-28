@@ -3,7 +3,8 @@ import Foundation
 import SymphonyShared
 import Testing
 
-@testable import SymphonyRuntime
+@testable import SymphonyServer
+@testable import SymphonyServerCore
 
 @Test func inProcessServerServesHTTPRoutesAndWebSocketBacklog() async throws {
   let fixture = try makeWebSocketFixture(persistSecondEvent: true, observeWrites: true)
@@ -215,10 +216,10 @@ import Testing
         path: "/api/v1/logs/stream",
         initialCursor: nil
       ) { _ in
-        throw SymphonyRuntimeError.encoding("writer failed")
+        throw SymphonyServerError.encoding("writer failed")
       }
       Issue.record("Expected streamLogEvents to rethrow writer failures.")
-    } catch let error as SymphonyRuntimeError {
+    } catch let error as SymphonyServerError {
       #expect(error == .encoding("writer failed"))
     }
   }
@@ -705,7 +706,7 @@ private func makeWebSocketFixture(persistSecondEvent: Bool, observeWrites: Bool 
 }
 
 private func launchServer(fixture: WebSocketFixture) throws -> LaunchedServer {
-  let executable = builtProductsDirectory().appendingPathComponent("SymphonyServer")
+  let executable = builtProductsDirectory().appendingPathComponent("symphony-server")
   #expect(FileManager.default.isExecutableFile(atPath: executable.path))
 
   let endpoint = BootstrapServerEndpoint(
@@ -816,7 +817,7 @@ private final class WebSocketProbe: @unchecked Sendable {
     case .string(let string):
       return Data(string.utf8)
     @unknown default:
-      throw SymphonyRuntimeError.encoding("Unsupported websocket message payload.")
+      throw SymphonyServerError.encoding("Unsupported websocket message payload.")
     }
   }
 }
