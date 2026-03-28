@@ -341,11 +341,18 @@ struct ProviderBadge: View {
   let theme: OperatorTheme
   let label: String
 
+  private var badgeFont: Font {
+    #if os(macOS)
+      .subheadline.weight(.semibold)
+    #else
+      .footnote.weight(.semibold)
+    #endif
+  }
+
   var body: some View {
     Text(label.replacingOccurrences(of: "_", with: " ").uppercased())
-      .font(.footnote.weight(.semibold))
+      .font(badgeFont)
       .lineLimit(2)
-      .minimumScaleFactor(0.85)
       .multilineTextAlignment(.center)
       .fixedSize(horizontal: false, vertical: true)
       .padding(.horizontal, 9)
@@ -364,10 +371,18 @@ struct MetricChip: View {
   let label: String
   let value: String
 
+  private var labelFont: Font {
+    #if os(macOS)
+      .footnote.weight(.medium)
+    #else
+      .caption
+    #endif
+  }
+
   var body: some View {
     HStack(spacing: 6) {
       Text(label)
-        .font(.caption)
+        .font(labelFont)
         .foregroundStyle(Color.primary)
         .lineLimit(1)
       Text(value)
@@ -429,15 +444,67 @@ struct EmptyStatePanel: View {
   var detail: String? = nil
 
   var body: some View {
-    ContentUnavailableView {
-      Label(title, systemImage: systemImage)
-    } description: {
-      if let detail {
-        Text(detail)
-      }
-    }
+    OperatorEmptyStateContent(
+      theme: theme,
+      systemImage: systemImage,
+      title: title,
+      detail: detail
+    )
     .frame(maxWidth: .infinity)
     .operatorPanel(theme)
+  }
+}
+
+struct OperatorEmptyStateContent<Actions: View>: View {
+  let theme: OperatorTheme
+  let systemImage: String
+  let title: String
+  let detail: String?
+  let actions: Actions
+
+  init(
+    theme: OperatorTheme,
+    systemImage: String,
+    title: String,
+    detail: String? = nil,
+    @ViewBuilder actions: () -> Actions = { EmptyView() }
+  ) {
+    self.theme = theme
+    self.systemImage = systemImage
+    self.title = title
+    self.detail = detail
+    self.actions = actions()
+  }
+
+  var body: some View {
+    VStack(spacing: theme.sectionSpacing) {
+      Image(systemName: systemImage)
+        .font(.system(size: theme.compact ? 28 : 34, weight: .regular))
+        .foregroundStyle(theme.quietText)
+        .accessibilityHidden(true)
+
+      VStack(spacing: 6) {
+        Text(title)
+          .font(theme.summaryTitleFont)
+          .foregroundStyle(theme.bodyText)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+
+        if let detail {
+          Text(detail)
+            .font(.body)
+            .foregroundStyle(theme.quietText)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      actions
+    }
+    .frame(maxWidth: 420)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, theme.pagePadding)
+    .accessibilityElement(children: .contain)
   }
 }
 

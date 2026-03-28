@@ -10,8 +10,13 @@
 		05A08197F3C20C8E521DF417 /* SymphonyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */; };
 		01C4D3F56CF4C0001391B1DF /* OperatorDetailPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */; };
 		0F5B6A3A7CCEACD3839D2841 /* OperatorLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAE6C42750DF5BBE3225F41 /* OperatorLogsView.swift */; };
+		11AA22BB33CC44DD55EE66FF /* LocalServerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF77AA88BB99CC00DD11EE /* LocalServerSupport.swift */; };
 		241A176C72B8A402FBBEF6C1 /* SymphonySwiftUIAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F381ACE864C406E51967E02E /* SymphonySwiftUIAppUITests.swift */; };
+		22BB33CC44DD55EE66FF77AA /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77AA88BB99CC00DD11EE22FF /* main.swift */; };
+		33CC44DD55EE66FF77AA88BB /* SymphonyServer in Frameworks */ = {isa = PBXBuildFile; productRef = 2233445566778899AABBCCDD /* SymphonyServer */; };
+		3DD44EE55FF66778899AABB /* SymphonyServerCore in Frameworks */ = {isa = PBXBuildFile; productRef = 55AA66BB77CC88DD99EE00FF /* SymphonyServerCore */; };
 		3C472B714F6FF84D0F4D0E5A /* SymphonyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CF5B1152EACBDC314F98A /* SymphonyClient.swift */; };
+		44DD55EE66FF77AA88BB99CC /* SymphonyLocalServerHelper in Embed Local Server Helper */ = {isa = PBXBuildFile; fileRef = 88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41F51113E5586F70F705846 /* ContentView.swift */; };
 		492ECFA96F252528D82248FC /* OperatorEndpointEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAEBD13FC4C24CE3BE183839 /* OperatorEndpointEditorView.swift */; };
 		7F6E325ACB967DFC0D24F8B5 /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = 5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */; };
@@ -33,6 +38,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		55EE66FF77AA88BB99CC00DD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BBCCDDEEFF00112233445566;
+			remoteInfo = SymphonyLocalServerHelper;
+		};
 		AB8650FE4D4512ED4E736D60 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
@@ -52,11 +64,14 @@
 /* Begin PBXFileReference section */
 		1D5224D820126640C250758B /* SymphonyClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyClientTests.swift; sourceTree = "<group>"; };
 		6507C4D8864B718C3F7CEF9D /* BootstrapSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupportTests.swift; sourceTree = "<group>"; };
+		66FF77AA88BB99CC00DD11EE /* LocalServerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalServerSupport.swift; sourceTree = "<group>"; };
 		706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonySwiftUIAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorDetailPanels.swift; sourceTree = "<group>"; };
 		7413C25F6EF6F0AA19872A47 /* SymphonyOperatorRootViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorRootViewTests.swift; sourceTree = "<group>"; };
 		77A53142A3FAEF3A51C08295 /* SymphonyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyApp.swift; sourceTree = "<group>"; };
+		77AA88BB99CC00DD11EE22FF /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		806CF5B1152EACBDC314F98A /* SymphonyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyClient.swift; sourceTree = "<group>"; };
+		88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SymphonyLocalServerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		90A4759F4E31ED5B92125999 /* OperatorPresentationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorPresentationState.swift; sourceTree = "<group>"; };
 		97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SymphonySwiftUIAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapSupport.swift; sourceTree = "<group>"; };
@@ -74,6 +89,20 @@
 		FC72EB26FCE346CEC8C6A5F0 /* symphony-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "symphony-swift"; path = .; sourceTree = SOURCE_ROOT; };
 		69D4AD42D035F94C057B8B70 /* SymphonyOperatorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyOperatorModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CCDDEEFF0011223344556677 /* Embed Local Server Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				44DD55EE66FF77AA88BB99CC /* SymphonyLocalServerHelper in Embed Local Server Helper */,
+			);
+			name = "Embed Local Server Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		6C62CBA0E7D7B4F818C1B908 /* Frameworks */ = {
@@ -97,7 +126,16 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3DD44EE55FF66778899AABB /* SymphonyServerCore in Frameworks */,
 				7F6E325ACB967DFC0D24F8B5 /* SymphonyShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		99CC00DD11EE22FF33AA44BB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33CC44DD55EE66FF77AA88BB /* SymphonyServer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,6 +145,7 @@
 		09E819F80D1870A7F25E53C8 /* Applications */ = {
 			isa = PBXGroup;
 			children = (
+				AABBCCDDEEFF001122334455 /* SymphonyLocalServerHelper */,
 				E9EBDE2FA6B8050169009581 /* SymphonySwiftUIApp */,
 				E55126918B907B93F4719E52 /* SymphonySwiftUIAppTests */,
 				ECA6159E86D40365C55C150F /* SymphonySwiftUIAppUITests */,
@@ -127,6 +166,7 @@
 			isa = PBXGroup;
 			children = (
 				BB3BDD964B47278C650FADD7 /* Symphony.app */,
+				88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */,
 				97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */,
 				706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */,
 			);
@@ -158,6 +198,7 @@
 			children = (
 				9CE25530EE07C02B6ED9C249 /* BootstrapSupport.swift */,
 				D41F51113E5586F70F705846 /* ContentView.swift */,
+				66FF77AA88BB99CC00DD11EE /* LocalServerSupport.swift */,
 				710EC468488759027E3AD8D8 /* OperatorDetailPanels.swift */,
 				BAEBD13FC4C24CE3BE183839 /* OperatorEndpointEditorView.swift */,
 				DDAE6C42750DF5BBE3225F41 /* OperatorLogsView.swift */,
@@ -171,6 +212,14 @@
 				C24D2F88D67C4AF9F90A523B /* SymphonyOperatorRootView.swift */,
 			);
 			path = SymphonySwiftUIApp;
+			sourceTree = "<group>";
+		};
+		AABBCCDDEEFF001122334455 /* SymphonyLocalServerHelper */ = {
+			isa = PBXGroup;
+			children = (
+				77AA88BB99CC00DD11EE22FF /* main.swift */,
+			);
+			path = SymphonyLocalServerHelper;
 			sourceTree = "<group>";
 		};
 		ECA6159E86D40365C55C150F /* SymphonySwiftUIAppUITests */ = {
@@ -231,18 +280,40 @@
 			buildPhases = (
 				5B5D61BB6DDE3ADDF81D5FA3 /* Sources */,
 				BF8266663C0352E7516D33FF /* Frameworks */,
+				CCDDEEFF0011223344556677 /* Embed Local Server Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				EEFF00112233445566778899 /* PBXTargetDependency */,
 			);
 			name = SymphonySwiftUIApp;
 			packageProductDependencies = (
+				55AA66BB77CC88DD99EE00FF /* SymphonyServerCore */,
 				5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */,
 			);
 			productName = Symphony;
 			productReference = BB3BDD964B47278C650FADD7 /* Symphony.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BBCCDDEEFF00112233445566 /* SymphonyLocalServerHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 112233445566778899AABBCC /* Build configuration list for PBXNativeTarget "SymphonyLocalServerHelper" */;
+			buildPhases = (
+				DDEEFF001122334455667788 /* Sources */,
+				99CC00DD11EE22FF33AA44BB /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SymphonyLocalServerHelper;
+			packageProductDependencies = (
+				2233445566778899AABBCCDD /* SymphonyServer */,
+			);
+			productName = SymphonyLocalServerHelper;
+			productReference = 88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -261,7 +332,11 @@
 						DevelopmentTeam = "";
 					};
 					2299CB2884BEEF9AA816D6F8 = {
-						DevelopmentTeam = D3GFBGHCB7;
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					BBCCDDEEFF00112233445566 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -284,6 +359,7 @@
 			projectRoot = "";
 			targets = (
 				2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */,
+				BBCCDDEEFF00112233445566 /* SymphonyLocalServerHelper */,
 				13AD461CA49A2003317B8214 /* SymphonySwiftUIAppTests */,
 				0B018AD9F48103DB6D8603F4 /* SymphonySwiftUIAppUITests */,
 			);
@@ -309,6 +385,7 @@
 			files = (
 				AAF190A8574D962B997162F9 /* BootstrapSupport.swift in Sources */,
 				49C63D6DD980D48BFD6B485E /* ContentView.swift in Sources */,
+				11AA22BB33CC44DD55EE66FF /* LocalServerSupport.swift in Sources */,
 				01C4D3F56CF4C0001391B1DF /* OperatorDetailPanels.swift in Sources */,
 				492ECFA96F252528D82248FC /* OperatorEndpointEditorView.swift in Sources */,
 				0F5B6A3A7CCEACD3839D2841 /* OperatorLogsView.swift in Sources */,
@@ -320,6 +397,14 @@
 				3C472B714F6FF84D0F4D0E5A /* SymphonyClient.swift in Sources */,
 				DE706FFC72E9B1DAE0ACE9CE /* SymphonyOperatorModel.swift in Sources */,
 				E31783D128595861621E489E /* SymphonyOperatorRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DDEEFF001122334455667788 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				22BB33CC44DD55EE66FF77AA /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,6 +423,11 @@
 			isa = PBXTargetDependency;
 			target = 2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */;
 			targetProxy = AB8650FE4D4512ED4E736D60 /* PBXContainerItemProxy */;
+		};
+		EEFF00112233445566778899 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BBCCDDEEFF00112233445566 /* SymphonyLocalServerHelper */;
+			targetProxy = 55EE66FF77AA88BB99CC00DD /* PBXContainerItemProxy */;
 		};
 		F414D936B4DADECD086FAEB0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -627,6 +717,40 @@
 			};
 			name = Release;
 		};
+		2233445566778899AABBCC01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.local-server-helper;
+				PRODUCT_NAME = SymphonyLocalServerHelper;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		2233445566778899AABBCC02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atjsh.symphony.local-server-helper;
+				PRODUCT_NAME = SymphonyLocalServerHelper;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -666,6 +790,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		112233445566778899AABBCC /* Build configuration list for PBXNativeTarget "SymphonyLocalServerHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2233445566778899AABBCC01 /* Debug */,
+				2233445566778899AABBCC02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -683,6 +816,14 @@
 		5B1CD12A22B7B5FFEAA78774 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SymphonyShared;
+		};
+		2233445566778899AABBCCDD /* SymphonyServer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SymphonyServer;
+		};
+		55AA66BB77CC88DD99EE00FF /* SymphonyServerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SymphonyServerCore;
 		};
 		C54C30BB7AB11734C99F6D60 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;

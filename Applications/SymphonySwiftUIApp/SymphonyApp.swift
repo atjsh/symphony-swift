@@ -24,7 +24,19 @@ struct SymphonyApp: App {
       scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
 
     let client = Self.resolveClient(arguments: ProcessInfo.processInfo.arguments, environment: environment)
-    model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+    #if os(macOS)
+      let localServerServices =
+        BootstrapEnvironment.isUITesting(arguments: ProcessInfo.processInfo.arguments, environment: environment)
+        ? LocalServerServices.uiTesting(environmentProvider: { environment })
+        : LocalServerServices.live(environmentProvider: { environment })
+      model = SymphonyOperatorModel(
+        client: client,
+        initialEndpoint: sharedEndpoint,
+        localServerServices: localServerServices
+      )
+    #else
+      model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+    #endif
 
     Self.emitStartupLogsIfNeeded(environment: environment)
   }
@@ -39,18 +51,34 @@ struct SymphonyApp: App {
       scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
 
     let client = Self.resolveClient(arguments: arguments, environment: environment)
-    model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+    #if os(macOS)
+      let localServerServices =
+        BootstrapEnvironment.isUITesting(arguments: arguments, environment: environment)
+        ? LocalServerServices.uiTesting(environmentProvider: { environment })
+        : LocalServerServices.live(environmentProvider: { environment })
+      model = SymphonyOperatorModel(
+        client: client,
+        initialEndpoint: sharedEndpoint,
+        localServerServices: localServerServices
+      )
+    #else
+      model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+    #endif
 
     Self.emitStartupLogsIfNeeded(environment: environment, output: startupOutput)
   }
 
-  nonisolated static func emitStartupLogsIfNeeded(environment: [String: String]) {
+  nonisolated static func emitStartupLogsIfNeeded(
+    environment: [String: String],
+    terminateApplication: Bool = true
+  ) {
     if BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: environment) {
       let state = BootstrapStartupState.current(componentName: "Symphony", environment: environment)
       for line in state.startupLogLines {
         defaultStartupOutput(line)
       }
       #if canImport(AppKit)
+        guard terminateApplication else { return }
         DispatchQueue.main.async {
           NSApp.terminate(nil)
         }
@@ -60,7 +88,8 @@ struct SymphonyApp: App {
 
   nonisolated static func emitStartupLogsIfNeeded(
     environment: [String: String],
-    output: @escaping @Sendable (String) -> Void
+    output: @escaping @Sendable (String) -> Void,
+    terminateApplication: Bool = true
   ) {
     if BootstrapKeepAlivePolicy.shouldExitAfterStartup(environment: environment) {
       let state = BootstrapStartupState.current(componentName: "Symphony", environment: environment)
@@ -68,6 +97,7 @@ struct SymphonyApp: App {
         output(line)
       }
       #if canImport(AppKit)
+        guard terminateApplication else { return }
         DispatchQueue.main.async {
           NSApp.terminate(nil)
         }

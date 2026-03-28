@@ -2,21 +2,29 @@ import Foundation
 import SwiftUI
 import SymphonyShared
 
+#if canImport(AppKit)
+  import AppKit
+#endif
+
 struct OperatorTheme {
   let compact: Bool
 
-  var pagePadding: CGFloat { compact ? 12 : 18 }
-  var sectionSpacing: CGFloat { compact ? 12 : 16 }
-  var blockSpacing: CGFloat { compact ? 10 : 12 }
+  var pagePadding: CGFloat { compact ? 12 : defaultSpacing(14, regular: 16) }
+  var sectionSpacing: CGFloat { compact ? 12 : defaultSpacing(12, regular: 14) }
+  var blockSpacing: CGFloat { compact ? 10 : defaultSpacing(10, regular: 12) }
   var controlSpacing: CGFloat { compact ? 8 : 10 }
-  var panelPadding: CGFloat { compact ? 12 : 16 }
+  var panelPadding: CGFloat { compact ? 12 : defaultSpacing(12, regular: 14) }
   var itemPadding: CGFloat { compact ? 10 : 12 }
   var rowSpacing: CGFloat { compact ? 8 : 10 }
-  var panelCornerRadius: CGFloat { compact ? 14 : 18 }
-  var itemCornerRadius: CGFloat { compact ? 10 : 14 }
+  var panelCornerRadius: CGFloat { compact ? 12 : platformMetric(macOS: 10, default: 16) }
+  var itemCornerRadius: CGFloat { compact ? 10 : platformMetric(macOS: 8, default: 12) }
   var iconSize: CGFloat { compact ? 18 : 20 }
-  var summaryTitleFont: Font { compact ? .title3.weight(.semibold) : .title2.weight(.bold) }
-  var sectionTitleFont: Font { compact ? .title3.weight(.semibold) : .headline.weight(.bold) }
+  var summaryTitleFont: Font {
+    compact ? .title3.weight(.semibold) : platformFont(macOS: .title3.weight(.semibold), default: .title2.weight(.bold))
+  }
+  var sectionTitleFont: Font {
+    compact ? .title3.weight(.semibold) : platformFont(macOS: .headline.weight(.semibold), default: .headline.weight(.bold))
+  }
 
   var bodyText: Color { .primary }
   var quietText: Color { .secondary }
@@ -26,12 +34,70 @@ struct OperatorTheme {
   var successTint: Color { .green }
   var warningTint: Color { .orange }
   var errorTint: Color { .red }
-  var badgeFill: Color { .primary.opacity(0.05) }
-  var badgeBorder: Color { .secondary.opacity(0.16) }
+  var badgeFill: Color {
+    #if os(macOS)
+      .primary.opacity(0.12)
+    #else
+      .primary.opacity(0.05)
+    #endif
+  }
+  var badgeBorder: Color {
+    #if os(macOS)
+      .primary.opacity(0.18)
+    #else
+      .secondary.opacity(0.16)
+    #endif
+  }
   var selectedFill: Color { .accentColor.opacity(0.12) }
   var selectedStroke: Color { .accentColor.opacity(0.28) }
-  var panelStroke: Color { .secondary.opacity(0.18) }
-  var insetStroke: Color { .secondary.opacity(0.12) }
+  var panelFill: Color {
+    #if os(macOS)
+      Color(nsColor: .controlBackgroundColor)
+    #else
+      Color.primary.opacity(0.04)
+    #endif
+  }
+  var insetFill: Color {
+    #if os(macOS)
+      Color(nsColor: .controlColor)
+    #else
+      Color.primary.opacity(0.03)
+    #endif
+  }
+  var panelStroke: Color {
+    #if os(macOS)
+      Color(nsColor: .separatorColor).opacity(0.4)
+    #else
+      .secondary.opacity(0.18)
+    #endif
+  }
+  var insetStroke: Color {
+    #if os(macOS)
+      Color(nsColor: .separatorColor).opacity(0.18)
+    #else
+      .secondary.opacity(0.12)
+    #endif
+  }
+
+  private func defaultSpacing(_ macOS: CGFloat, regular: CGFloat) -> CGFloat {
+    platformMetric(macOS: macOS, default: regular)
+  }
+
+  private func platformMetric(macOS: CGFloat, default: CGFloat) -> CGFloat {
+    #if os(macOS)
+      macOS
+    #else
+      `default`
+    #endif
+  }
+
+  private func platformFont(macOS: Font, default: Font) -> Font {
+    #if os(macOS)
+      macOS
+    #else
+      `default`
+    #endif
+  }
 }
 
 enum OperatorSummaryActionPlacement: Equatable {
@@ -40,6 +106,7 @@ enum OperatorSummaryActionPlacement: Equatable {
 }
 
 enum OperatorChoiceControlPresentation: Equatable {
+  case segmented
   case glassBar
   case scrolling
 }
@@ -59,7 +126,14 @@ func operatorSummaryActionPlacement(isCompact: Bool) -> OperatorSummaryActionPla
 }
 
 func operatorChoiceControlPresentation(isCompact: Bool) -> OperatorChoiceControlPresentation {
-  isCompact ? .scrolling : .glassBar
+  if isCompact {
+    return .scrolling
+  }
+  #if os(macOS)
+    return .segmented
+  #else
+    return .glassBar
+  #endif
 }
 
 func operatorIssueRowMetadataPlacement(isCompact: Bool) -> OperatorIssueRowMetadataPlacement {
@@ -151,18 +225,13 @@ func statusSymbol(_ state: String) -> String {
   return "circle.fill"
 }
 
-extension ShapeStyle where Self == Material {
-  fileprivate static var operatorPanelMaterial: Material { .regularMaterial }
-  fileprivate static var operatorInsetMaterial: Material { .thinMaterial }
-}
-
 extension View {
   func operatorPanel(_ theme: OperatorTheme) -> some View {
     self
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(theme.panelPadding)
       .background(
-        .operatorPanelMaterial, in: RoundedRectangle(cornerRadius: theme.panelCornerRadius)
+        theme.panelFill, in: RoundedRectangle(cornerRadius: theme.panelCornerRadius)
       )
       .overlay(
         RoundedRectangle(cornerRadius: theme.panelCornerRadius)
@@ -173,7 +242,7 @@ extension View {
   func operatorInset(_ theme: OperatorTheme) -> some View {
     self
       .background(
-        .operatorInsetMaterial, in: RoundedRectangle(cornerRadius: theme.itemCornerRadius)
+        theme.insetFill, in: RoundedRectangle(cornerRadius: theme.itemCornerRadius)
       )
       .overlay(
         RoundedRectangle(cornerRadius: theme.itemCornerRadius)
@@ -191,5 +260,36 @@ extension View {
         RoundedRectangle(cornerRadius: theme.itemCornerRadius)
           .strokeBorder(isSelected ? theme.selectedStroke : .clear, lineWidth: 1)
       )
+  }
+
+  @ViewBuilder
+  func operatorProminentActionButton() -> some View {
+    #if os(macOS)
+      self
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+    #else
+      self.buttonStyle(.glassProminent)
+    #endif
+  }
+
+  @ViewBuilder
+  func operatorSecondaryActionButton() -> some View {
+    #if os(macOS)
+      self
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    #else
+      self.buttonStyle(.glass)
+    #endif
+  }
+
+  @ViewBuilder
+  func operatorChoiceControlSizing() -> some View {
+    #if os(macOS)
+      self.controlSize(.small)
+    #else
+      self
+    #endif
   }
 }
