@@ -5,4 +5,5 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 echo "[harness] pre-commit: running just validate" >&2
-just validate
+just preflight-swiftpm
+just preflight-app
