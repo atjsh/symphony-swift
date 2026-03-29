@@ -82,16 +82,27 @@ import Testing
   #expect(hostStateSource.contains("import SQLite3"))
 }
 
-@Test func serverCLIEntryPointRemainsThinWrapperAroundBootstrapRunner() throws {
+@Test func serverCLIEntryPointRemainsThinWrapperAroundSharedExecutableSupport() throws {
   let repoRoot = currentRepositoryRoot()
   let cliContents = try String(
     contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyServerCLI/main.swift"),
     encoding: .utf8
   )
+  let sharedExecutableContents = try String(
+    contentsOf: repoRoot.appendingPathComponent(
+      "Sources/SymphonyServer/ServerExecutableSupport.swift"
+    ),
+    encoding: .utf8
+  )
 
-  #expect(cliContents.contains("try BootstrapServerRunner.run("))
-  #expect(cliContents.contains("BootstrapKeepAlivePolicy.shouldExitAfterStartup"))
-  #expect(cliContents.contains("BootstrapKeepAlivePolicy.makeKeepAlive"))
+  #expect(cliContents.contains("SymphonyServerExecutable.main()"))
+  #expect(cliContents.contains("SymphonyServerExecutable.main("))
+  #expect(!cliContents.contains("BootstrapKeepAlivePolicy.shouldExitAfterStartup"))
+  #expect(!cliContents.contains("try BootstrapServerRunner.run("))
+
+  #expect(sharedExecutableContents.contains("try BootstrapServerRunner.run("))
+  #expect(sharedExecutableContents.contains("BootstrapKeepAlivePolicy.shouldExitAfterStartup"))
+  #expect(sharedExecutableContents.contains("BootstrapKeepAlivePolicy.makeKeepAlive"))
 }
 
 private func currentRepositoryRoot() -> URL {
