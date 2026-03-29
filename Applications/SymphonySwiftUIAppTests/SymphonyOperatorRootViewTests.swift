@@ -971,6 +971,26 @@ struct SymphonyOperatorRootViewTests {
     #endif
   }
 
+  @Test func EndpointEditorMacOSMinimumHeightsStayWithinShortDisplayBudget() {
+    #if os(macOS)
+      #expect(OperatorEndpointEditorView.workflowAuthoringMinimumSize.height <= 620)
+      #expect(OperatorEndpointEditorView.connectionFormMinimumSize.height <= 560)
+    #endif
+
+    #expect(ServerEditorMode.localServer.id == "localServer")
+    #expect(ServerEditorMode.existingServer.id == "existingServer")
+    #expect(ServerEditorMode.localServer.title == "Local Server")
+    #expect(ServerEditorMode.existingServer.title == "Existing Server")
+  }
+
+  @Test func ServerEditorActionPresentsSheetForSelectedMode() {
+    let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+    let view = SymphonyOperatorRootView(model: model)
+
+    view.makeServerEditorAction(mode: .existingServer)()
+    view.makeServerEditorAction(mode: .localServer)()
+  }
+
   @Test func SidebarSelectionHelperAndRenderedStatesCoverSelectionRowsAndStatusBranches() throws {
     let theme = OperatorTheme(compact: false)
     let compactTheme = OperatorTheme(compact: true)
@@ -1068,6 +1088,18 @@ struct SymphonyOperatorRootViewTests {
         ))
 
       let idleModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: idleModel,
+              theme: theme,
+              openServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
       render(
         host(
           AnyView(
@@ -1200,6 +1232,14 @@ struct SymphonyOperatorRootViewTests {
 
     operatorSetDetailTab(selection: binding, tab: .logs)
     XCTAssertEqual(selection, .logs)
+
+    render(
+      host(
+        AnyView(makeOperatorDetailSegmentedTabPicker(selection: binding)),
+        width: 420,
+        height: 80
+      )
+    )
   }
 
   @Test func LogsAndThemeHelpersCoverFilterActionsTimelineStatesAndSelectionBackground() throws {
@@ -1235,6 +1275,13 @@ struct SymphonyOperatorRootViewTests {
     XCTAssertEqual(filter, .tools)
     makeLogFilterAction(selection: filterBinding, filter: .alerts)()
     XCTAssertEqual(filter, .alerts)
+    render(
+      host(
+        AnyView(makeOperatorLogFilterSegmentedPicker(selection: filterBinding)),
+        width: 420,
+        height: 80
+      )
+    )
 
     let messageEvent = makeEvent(
       sequence: 1,
@@ -1393,6 +1440,24 @@ struct SymphonyOperatorRootViewTests {
         ))
       render(
         host(
+          AnyView(
+            LogEventRow(
+              theme: regularTheme,
+              event: supplementalEvent,
+              presentation: SymphonyEventPresentation(
+                rowStyle: .supplemental,
+                title: "",
+                detail: "Detail-only accessibility label",
+                metadata: "claude_code • #6 • provider_custom",
+                showsRawJSON: true
+              ),
+              isLast: true
+            )),
+          width: 720,
+          height: 240
+        ))
+      render(
+        host(
           AnyView(Text("Selected").operatorSelectionBackground(regularTheme, isSelected: true)),
           width: 240,
           height: 100
@@ -1448,6 +1513,89 @@ struct SymphonyOperatorRootViewTests {
         height: 720
       )
     )
+  }
+
+  @Test func MacOSLocalServerSummaryStatesAndEditorActionCoverRemainingBranches() throws {
+    #if os(macOS)
+      let workflowURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString
+      ).appendingPathComponent("WORKFLOW.md")
+      try FileManager.default.createDirectory(
+        at: workflowURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try "Resolve {{issue.title}}".write(to: workflowURL, atomically: true, encoding: .utf8)
+
+      let localModel = SymphonyOperatorModel(
+        client: PassiveSymphonyAPIClient(),
+        localServerServices: LocalServerServices(
+          manager: UITestingLocalServerManager(),
+          profileStore: InMemoryLocalServerProfileStore(
+            profile: LocalServerProfile(workflowPath: workflowURL.path)
+          ),
+          secretStore: InMemoryLocalServerSecretStore(),
+          workflowSelector: StubWorkflowSelector(selectedURL: workflowURL),
+          workflowSaver: UITestingWorkflowFileSaver(environmentProvider: { [:] }),
+          variableScanner: WorkflowEnvironmentVariableScanner(),
+          helperLocator: StubHelperLocator(
+            url: URL(fileURLWithPath: "/tmp/SymphonyLocalServerHelper")
+          ),
+          environmentProvider: { [:] }
+        )
+      )
+      localModel.localServerWorkflowPath = workflowURL.path
+      let theme = OperatorTheme(compact: false)
+
+      localModel.localServerLaunchState = .starting
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: localModel,
+              theme: theme,
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+
+      localModel.localServerLaunchState = .running
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: localModel,
+              theme: theme,
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+
+      localModel.localServerLaunchState = .failed
+      localModel.localServerFailure = "Launch failed"
+      render(
+        host(
+          AnyView(
+            OperatorSidebarView(
+              model: localModel,
+              theme: theme,
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
+              selectIssue: { _ in }
+            )),
+          width: 420,
+          height: 900
+        ))
+
+      let rootView = SymphonyOperatorRootView(model: localModel)
+      rootView.makeServerEditorAction(mode: .localServer)()
+      rootView.makeServerEditorAction(mode: .existingServer)()
+    #endif
   }
 
   @Test func SharedHelperViewsRenderDetailSelectionAndFlowRowsOnIOS() throws {

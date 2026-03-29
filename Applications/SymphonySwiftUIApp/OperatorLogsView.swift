@@ -35,31 +35,37 @@ private struct OperatorLogFilterBar: View {
   @Binding var selection: OperatorLogFilter
 
   var body: some View {
-    if operatorChoiceControlPresentation(isCompact: theme.compact) == .segmented {
-      Picker("Log Filter", selection: $selection) {
-        ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
-          Text(filter.title).tag(filter)
-        }
+    #if os(macOS)
+      if theme.compact {
+        scrollingFilterBar
+      } else {
+        makeOperatorLogFilterSegmentedPicker(selection: $selection)
       }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .operatorChoiceControlSizing()
-      .accessibilityIdentifier("log-filter-picker")
-    } else if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
-      GlassEffectContainer(spacing: theme.controlSpacing) {
+    #else
+      if theme.compact {
+        scrollingFilterBar
+      } else {
+        glassFilterBar
+      }
+    #endif
+  }
+
+  private var glassFilterBar: some View {
+    GlassEffectContainer(spacing: theme.controlSpacing) {
+      ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
+        filterButton(for: filter)
+      }
+    }
+  }
+
+  private var scrollingFilterBar: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: theme.controlSpacing) {
         ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
           filterButton(for: filter)
         }
       }
-    } else {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: theme.controlSpacing) {
-          ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
-            filterButton(for: filter)
-          }
-        }
-        .padding(.vertical, 2)
-      }
+      .padding(.vertical, 2)
     }
   }
 
@@ -109,6 +115,19 @@ private struct OperatorLogFilterBar: View {
         .fixedSize(horizontal: true, vertical: false)
     }
   }
+}
+
+@MainActor
+func makeOperatorLogFilterSegmentedPicker(selection: Binding<OperatorLogFilter>) -> some View {
+  Picker("Log Filter", selection: selection) {
+    ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
+      Text(filter.title).tag(filter)
+    }
+  }
+  .pickerStyle(.segmented)
+  .labelsHidden()
+  .operatorChoiceControlSizing()
+  .accessibilityIdentifier("log-filter-picker")
 }
 
 struct OperatorLogFilterPalette {

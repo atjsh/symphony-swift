@@ -239,31 +239,37 @@ private struct OperatorDetailTabBar: View {
   @Binding var selection: OperatorDetailTab
 
   var body: some View {
-    if operatorChoiceControlPresentation(isCompact: theme.compact) == .segmented {
-      Picker("Detail Tab", selection: $selection) {
-        ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
-          Text(tab.title).tag(tab)
-        }
+    #if os(macOS)
+      if theme.compact {
+        scrollingTabBar
+      } else {
+        makeOperatorDetailSegmentedTabPicker(selection: $selection)
       }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .operatorChoiceControlSizing()
-      .accessibilityIdentifier("detail-tab-picker")
-    } else if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
-      GlassEffectContainer(spacing: theme.controlSpacing) {
+    #else
+      if theme.compact {
+        scrollingTabBar
+      } else {
+        glassTabBar
+      }
+    #endif
+  }
+
+  private var glassTabBar: some View {
+    GlassEffectContainer(spacing: theme.controlSpacing) {
+      ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
+        tabButton(for: tab)
+      }
+    }
+  }
+
+  private var scrollingTabBar: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: theme.controlSpacing) {
         ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
           tabButton(for: tab)
         }
       }
-    } else {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: theme.controlSpacing) {
-          ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
-            tabButton(for: tab)
-          }
-        }
-        .padding(.vertical, 2)
-      }
+      .padding(.vertical, 2)
     }
   }
 
@@ -298,6 +304,19 @@ private struct OperatorDetailTabBar: View {
       .accessibilityIdentifier("detail-tab-\(tab.rawValue)")
     }
   }
+}
+
+@MainActor
+func makeOperatorDetailSegmentedTabPicker(selection: Binding<OperatorDetailTab>) -> some View {
+  Picker("Detail Tab", selection: selection) {
+    ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
+      Text(tab.title).tag(tab)
+    }
+  }
+  .pickerStyle(.segmented)
+  .labelsHidden()
+  .operatorChoiceControlSizing()
+  .accessibilityIdentifier("detail-tab-picker")
 }
 
 @MainActor

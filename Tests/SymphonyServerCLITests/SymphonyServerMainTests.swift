@@ -26,7 +26,7 @@ struct SymphonyServerMainTests {
       output: { emittedOutput.append($0) },
       errorOutput: { emittedErrors.append($0) },
       exit: { code in exitCode = code },
-      runner: { environment, output, keepAlive, startServer in
+      runner: { _, environment, output, keepAlive, startServer in
         capturedEnvironment = environment
         output("[SymphonyServer] started")
         keepAlive()
@@ -62,7 +62,7 @@ struct SymphonyServerMainTests {
       output: { _ in },
       errorOutput: { emittedErrors.append($0) },
       exit: { code in exitCode = code },
-      runner: { _, _, _, _ in
+      runner: { _, _, _, _, _ in
         throw StartupFailure.failed
       }
     )
@@ -108,7 +108,7 @@ struct SymphonyServerMainTests {
       exit: { code in
         exitCode = code
       },
-      runner: { environment, output, keepAlive, startServer in
+      runner: { _, environment, output, keepAlive, startServer in
         capturedEnvironment = environment
         output("[SymphonyServer] started")
         keepAlive()
@@ -140,7 +140,7 @@ struct SymphonyServerMainTests {
       exit: { code in
         exitCode = code
       },
-      runner: { _, _, _, _ in
+      runner: { _, _, _, _, _ in
         throw StartupFailure.failed
       }
     )
@@ -207,6 +207,82 @@ struct SymphonyServerMainTests {
     #expect(process.terminationStatus == 1)
     #expect(transcript.contains("[SymphonyServer] failed to start:"))
     #expect(transcript.contains(invalidDatabaseURL.path))
+  }
+
+  @Test func sharedExecutableSupportsCustomComponentName() {
+    var capturedComponentName: String?
+    var emittedOutput = [String]()
+    var emittedErrors = [String]()
+    var exitCode: Int32?
+
+    SymphonyServerExecutable.main(
+      componentName: "SymphonyLocalServerHelper",
+      environment: [:],
+      output: { emittedOutput.append($0) },
+      errorOutput: { emittedErrors.append($0) },
+      exit: { exitCode = $0 },
+      runner: { componentName, _, output, keepAlive, startServer in
+        capturedComponentName = componentName
+        output("[\(componentName)] started")
+        keepAlive()
+        #expect(startServer)
+      }
+    )
+
+    #expect(capturedComponentName == "SymphonyLocalServerHelper")
+    #expect(emittedOutput == ["[SymphonyLocalServerHelper] started"])
+    #expect(emittedErrors.isEmpty)
+    #expect(exitCode == nil)
+  }
+
+  @Test func sharedExecutableUsesCustomComponentNameForFailures() {
+    var emittedErrors = [String]()
+    var exitCode: Int32?
+
+    SymphonyServerExecutable.main(
+      componentName: "SymphonyLocalServerHelper",
+      environment: [:],
+      output: { _ in },
+      errorOutput: { emittedErrors.append($0) },
+      exit: { exitCode = $0 },
+      runner: { _, _, _, _, _ in
+        throw POSIXError(.EIO)
+      }
+    )
+
+    #expect(emittedErrors.count == 1)
+    #expect(emittedErrors[0].contains("[SymphonyLocalServerHelper] failed to start:"))
+    #expect(exitCode == 1)
+  }
+
+  @MainActor @Test func sharedExecutableRuntimeHooksAreMutable() {
+    let originalHooks = SymphonyServerExecutable.runtimeHooks
+    defer { SymphonyServerExecutable.runtimeHooks = originalHooks }
+
+    var capturedComponentName: String?
+    var emittedOutput = [String]()
+
+    SymphonyServerExecutable.runtimeHooks = .init(
+      environment: { ["SYMPHONY_SERVER_HOST": "127.0.0.1"] },
+      output: { emittedOutput.append($0) },
+      errorOutput: { _ in },
+      exit: { _ in },
+      runner: { componentName, environment, output, keepAlive, startServer in
+        capturedComponentName = componentName
+        #expect(environment["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+        #expect(startServer)
+        output("[\(componentName)] started")
+        keepAlive()
+      }
+    )
+
+    let reloadedHooks = SymphonyServerExecutable.runtimeHooks
+    #expect(reloadedHooks.environment()["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+
+    SymphonyServerExecutable.main(componentName: "SymphonyLocalServerHelper")
+
+    #expect(capturedComponentName == "SymphonyLocalServerHelper")
+    #expect(emittedOutput == ["[SymphonyLocalServerHelper] started"])
   }
 }
 

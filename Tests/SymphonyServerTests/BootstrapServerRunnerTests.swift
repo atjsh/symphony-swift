@@ -221,6 +221,36 @@ import Testing
   #expect(state.description.contains("[WorkerServer] endpoint=https://worker.example.com:8443"))
 }
 
+@MainActor @Test func sharedExecutableRuntimeHooksCanBeReplaced() {
+  let originalHooks = SymphonyServerExecutable.runtimeHooks
+  defer { SymphonyServerExecutable.runtimeHooks = originalHooks }
+
+  var capturedComponentName: String?
+  var emittedOutput = [String]()
+
+  SymphonyServerExecutable.runtimeHooks = .init(
+    environment: { ["SYMPHONY_SERVER_HOST": "127.0.0.1"] },
+    output: { emittedOutput.append($0) },
+    errorOutput: { _ in },
+    exit: { _ in },
+    runner: { componentName, environment, output, keepAlive, startServer in
+      capturedComponentName = componentName
+      #expect(environment["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+      #expect(startServer)
+      output("[\(componentName)] started")
+      keepAlive()
+    }
+  )
+
+  let reloadedHooks = SymphonyServerExecutable.runtimeHooks
+  #expect(reloadedHooks.environment()["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+
+  SymphonyServerExecutable.main(componentName: "SymphonyLocalServerHelper")
+
+  #expect(capturedComponentName == "SymphonyLocalServerHelper")
+  #expect(emittedOutput == ["[SymphonyLocalServerHelper] started"])
+}
+
 @Test func bootstrapEnvironmentWorkflowURLPrefersExplicitPath() throws {
   let explicitWorkflow = try makeTemporaryDirectory().appendingPathComponent("custom-workflow.md")
   try "---\nagent:\n  default_provider: codex\n---\nResolve it".write(
