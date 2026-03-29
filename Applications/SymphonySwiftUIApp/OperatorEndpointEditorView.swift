@@ -226,7 +226,7 @@ struct OperatorEndpointEditorView: View {
                     text: workflowBinding(\.trackerRepositoryAllowlistText),
                     identifier: "workflow-tracker-allowlist",
                     footer: "One repository per line or comma-separated.",
-                    minHeight: 88
+                    idealHeight: 88
                   )
                   workflowTextField(
                     "Status Field Name",
@@ -238,21 +238,21 @@ struct OperatorEndpointEditorView: View {
                     text: workflowBinding(\.trackerActiveStatesText),
                     identifier: "workflow-tracker-active-states",
                     footer: "One state per line.",
-                    minHeight: 72
+                    idealHeight: 72
                   )
                   workflowTextEditor(
                     "Terminal States",
                     text: workflowBinding(\.trackerTerminalStatesText),
                     identifier: "workflow-tracker-terminal-states",
                     footer: "One state per line.",
-                    minHeight: 72
+                    idealHeight: 72
                   )
                   workflowTextEditor(
                     "Blocked States",
                     text: workflowBinding(\.trackerBlockedStatesText),
                     identifier: "workflow-tracker-blocked-states",
                     footer: "One state per line.",
-                    minHeight: 72
+                    idealHeight: 72
                   )
                 }
 
@@ -332,7 +332,7 @@ struct OperatorEndpointEditorView: View {
                       text: workflowBinding(\.agentMaxConcurrentAgentsByStateText),
                       identifier: "workflow-agent-state-limits",
                       footer: "Use “State: 2” or “State=2” per line.",
-                      minHeight: 88
+                      idealHeight: 88
                     )
                   }
 
@@ -356,7 +356,7 @@ struct OperatorEndpointEditorView: View {
                       text: workflowBinding(\.codexSessionSandbox),
                       identifier: "workflow-provider-codex-session-sandbox",
                       footer: "Enter a single value or multiline YAML.",
-                      minHeight: 88
+                      idealHeight: 88
                     )
                     workflowTextField(
                       "Turn Approval Policy",
@@ -368,7 +368,7 @@ struct OperatorEndpointEditorView: View {
                       text: workflowBinding(\.codexTurnSandboxPolicy),
                       identifier: "workflow-provider-codex-turn-sandbox",
                       footer: "Enter a single value or multiline YAML.",
-                      minHeight: 88
+                      idealHeight: 88
                     )
                     workflowTextField(
                       "Turn Timeout (ms)",
@@ -407,14 +407,14 @@ struct OperatorEndpointEditorView: View {
                       text: workflowBinding(\.claudeAllowedToolsText),
                       identifier: "workflow-provider-claude-allowed-tools",
                       footer: "One tool per line.",
-                      minHeight: 88
+                      idealHeight: 88
                     )
                     workflowTextEditor(
                       "Disallowed Tools",
                       text: workflowBinding(\.claudeDisallowedToolsText),
                       identifier: "workflow-provider-claude-disallowed-tools",
                       footer: "One tool per line.",
-                      minHeight: 88
+                      idealHeight: 88
                     )
                     workflowTextField(
                       "Turn Timeout (ms)",
@@ -503,7 +503,7 @@ struct OperatorEndpointEditorView: View {
                     text: workflowBinding(\.promptBody),
                     identifier: "workflow-prompt-body",
                     footer: "Supported placeholders include {{issue.title}}, {{issue.identifier}}, and {{issue.repository}}.",
-                    minHeight: 220
+                    idealHeight: 220
                   )
                 }
               }
@@ -644,7 +644,7 @@ struct OperatorEndpointEditorView: View {
                 .textSelection(.enabled)
                 .accessibilityIdentifier("local-server-transcript")
             }
-            .frame(minHeight: 120)
+            .frame(idealHeight: 120)
           } header: {
             Text("Launch Transcript")
           }
@@ -902,7 +902,7 @@ struct OperatorEndpointEditorView: View {
       text: Binding<String>,
       identifier: String,
       footer: String,
-      minHeight: CGFloat
+      idealHeight: CGFloat
     ) -> some View {
       VStack(alignment: .leading, spacing: 6) {
         Text(title)
@@ -910,7 +910,7 @@ struct OperatorEndpointEditorView: View {
           .foregroundStyle(.secondary)
         TextEditor(text: text)
           .font(.body)
-          .frame(minHeight: minHeight)
+          .frame(idealHeight: idealHeight)
           .padding(6)
           .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
