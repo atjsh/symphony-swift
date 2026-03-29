@@ -971,12 +971,7 @@ struct SymphonyOperatorRootViewTests {
     #endif
   }
 
-  @Test func EndpointEditorMacOSMinimumHeightsStayWithinShortDisplayBudget() {
-    #if os(macOS)
-      #expect(OperatorEndpointEditorView.workflowAuthoringMinimumSize.height <= 620)
-      #expect(OperatorEndpointEditorView.connectionFormMinimumSize.height <= 560)
-    #endif
-
+  @Test func EndpointEditorModeMetadataRemainsStable() {
     #expect(ServerEditorMode.localServer.id == "localServer")
     #expect(ServerEditorMode.existingServer.id == "existingServer")
     #expect(ServerEditorMode.localServer.title == "Local Server")

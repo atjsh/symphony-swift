@@ -24,9 +24,6 @@ struct OperatorEndpointEditorView: View {
   @State private var draftHost: String
   @State private var draftPort: String
   #if os(macOS)
-    static let workflowAuthoringMinimumSize = CGSize(width: 1040, height: 620)
-    static let connectionFormMinimumSize = CGSize(width: 680, height: 560)
-
     @State private var selectedMode: ServerEditorMode
     @State private var isTrackerExpanded = true
     @State private var isRuntimeExpanded = false
@@ -90,10 +87,7 @@ struct OperatorEndpointEditorView: View {
         && model.localWorkflowWizardStep == .workflow
       {
         workflowAuthoringRoot
-          .frame(
-            minWidth: Self.workflowAuthoringMinimumSize.width,
-            minHeight: Self.workflowAuthoringMinimumSize.height
-          )
+          .frame(minWidth: 1040)
       } else {
         Form {
           macOSConnectionTypePicker
@@ -103,10 +97,7 @@ struct OperatorEndpointEditorView: View {
             existingServerSections
           }
         }
-        .frame(
-          minWidth: Self.connectionFormMinimumSize.width,
-          minHeight: Self.connectionFormMinimumSize.height
-        )
+        .frame(minWidth: 680)
       }
     #else
       Form {
