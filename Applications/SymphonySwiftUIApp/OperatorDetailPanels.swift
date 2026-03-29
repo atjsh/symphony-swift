@@ -5,27 +5,41 @@ struct OperatorDetailView: View {
   @ObservedObject var model: SymphonyOperatorModel
   let theme: OperatorTheme
   let selectRun: (RunID) -> Void
+  #if os(macOS)
+    let openLocalServerEditor: () -> Void
+    let openExistingServerEditor: () -> Void
+  #endif
+
+  #if os(macOS)
+    init(
+      model: SymphonyOperatorModel,
+      theme: OperatorTheme,
+      selectRun: @escaping (RunID) -> Void,
+      openLocalServerEditor: @escaping () -> Void = {},
+      openExistingServerEditor: @escaping () -> Void = {}
+    ) {
+      self.model = model
+      self.theme = theme
+      self.selectRun = selectRun
+      self.openLocalServerEditor = openLocalServerEditor
+      self.openExistingServerEditor = openExistingServerEditor
+    }
+  #else
+    init(
+      model: SymphonyOperatorModel,
+      theme: OperatorTheme,
+      selectRun: @escaping (RunID) -> Void
+    ) {
+      self.model = model
+      self.theme = theme
+      self.selectRun = selectRun
+    }
+  #endif
 
   var body: some View {
     Group {
       if model.selectedIssueID == nil {
-        VStack(spacing: theme.blockSpacing) {
-          Image(systemName: "sidebar.left")
-            .font(.system(size: 36, weight: .semibold))
-            .foregroundStyle(theme.quietText)
-
-          Text("No Issue Selected")
-            .font(theme.summaryTitleFont)
-            .foregroundStyle(theme.bodyText)
-
-          Text(
-            "Choose an issue from the sidebar to inspect orchestration state, runs, sessions, and logs."
-          )
-          .font(.body)
-          .foregroundStyle(theme.bodyText)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: 420)
-        }
+        detailEmptyState
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let detail = model.issueDetail {
         VStack(alignment: .leading, spacing: theme.sectionSpacing) {
@@ -54,6 +68,38 @@ struct OperatorDetailView: View {
     .operatorDetailTitleDisplayPreference(
       operatorDetailNavigationTitleDisplayPreference(isCompact: theme.compact)
     )
+  }
+
+  @ViewBuilder
+  private var detailEmptyState: some View {
+    OperatorEmptyStateContent(
+      theme: theme,
+      systemImage: "sidebar.left",
+      title: "No Issue Selected",
+      detail: "Choose an issue from the sidebar to inspect orchestration state, runs, sessions, and logs."
+    ) {
+      #if os(macOS)
+        if model.hasLocalServerSupport && model.health == nil {
+          VStack(spacing: 10) {
+            Button(
+              "Start Local Server",
+              systemImage: "play.circle",
+              action: openLocalServerEditor
+            )
+            .operatorProminentActionButton()
+            .accessibilityIdentifier("empty-start-local-server-button")
+
+            Button(
+              "Use Existing Server",
+              systemImage: "slider.horizontal.3",
+              action: openExistingServerEditor
+            )
+            .operatorSecondaryActionButton()
+            .accessibilityIdentifier("empty-existing-server-button")
+          }
+        }
+      #endif
+    }
   }
 
   @ViewBuilder
@@ -182,7 +228,7 @@ private struct OperatorDetailSummaryView: View {
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
       .frame(minHeight: 44)
-      .buttonStyle(.glass)
+      .operatorSecondaryActionButton()
       .accessibilityIdentifier("latest-run-button")
     }
   }
@@ -193,7 +239,17 @@ private struct OperatorDetailTabBar: View {
   @Binding var selection: OperatorDetailTab
 
   var body: some View {
-    if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
+    if operatorChoiceControlPresentation(isCompact: theme.compact) == .segmented {
+      Picker("Detail Tab", selection: $selection) {
+        ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
+          Text(tab.title).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .operatorChoiceControlSizing()
+      .accessibilityIdentifier("detail-tab-picker")
+    } else if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
       GlassEffectContainer(spacing: theme.controlSpacing) {
         ForEach(OperatorDetailTab.allCases, id: \.rawValue) { tab in
           tabButton(for: tab)

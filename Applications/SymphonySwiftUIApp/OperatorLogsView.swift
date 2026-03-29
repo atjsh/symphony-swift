@@ -35,7 +35,17 @@ private struct OperatorLogFilterBar: View {
   @Binding var selection: OperatorLogFilter
 
   var body: some View {
-    if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
+    if operatorChoiceControlPresentation(isCompact: theme.compact) == .segmented {
+      Picker("Log Filter", selection: $selection) {
+        ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
+          Text(filter.title).tag(filter)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .operatorChoiceControlSizing()
+      .accessibilityIdentifier("log-filter-picker")
+    } else if operatorChoiceControlPresentation(isCompact: theme.compact) == .glassBar {
       GlassEffectContainer(spacing: theme.controlSpacing) {
         ForEach(OperatorLogFilter.allCases, id: \.rawValue) { filter in
           filterButton(for: filter)
@@ -109,7 +119,7 @@ struct OperatorLogFilterPalette {
 
 func operatorLogFilterPalette() -> OperatorLogFilterPalette {
   OperatorLogFilterPalette(
-    selectedFill: Color(red: 0.0, green: 0.28, blue: 0.72),
+    selectedFill: .accentColor,
     unselectedFill: Color.primary.opacity(0.04),
     unselectedStroke: Color.primary.opacity(0.14)
   )
@@ -166,6 +176,13 @@ struct LogEventRow: View {
   let presentation: SymphonyEventPresentation
   let isLast: Bool
 
+  private var accessibilityLabel: String {
+    if presentation.title.isEmpty {
+      return presentation.detail
+    }
+    return "\(presentation.title). \(presentation.detail)"
+  }
+
   var body: some View {
     HStack(alignment: .top, spacing: theme.blockSpacing) {
       TimelineMarker(
@@ -185,7 +202,10 @@ struct LogEventRow: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .accessibilityElement(children: .contain)
+    .accessibilityRepresentation {
+      Text(accessibilityLabel)
+        .accessibilityValue(presentation.metadata)
+    }
   }
 
   private var markerTint: Color {
@@ -214,6 +234,7 @@ struct LogEventRow: View {
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
+    .accessibilityHidden(true)
   }
 
   private var toolContent: some View {
@@ -227,6 +248,7 @@ struct LogEventRow: View {
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
+    .accessibilityHidden(true)
   }
 
   private var compactContent: some View {
@@ -257,6 +279,7 @@ struct LogEventRow: View {
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
+    .accessibilityHidden(true)
   }
 
   private var calloutContent: some View {
@@ -276,6 +299,7 @@ struct LogEventRow: View {
       RoundedRectangle(cornerRadius: theme.itemCornerRadius)
         .strokeBorder(markerTint.opacity(0.22), lineWidth: 1)
     )
+    .accessibilityHidden(true)
   }
 
   private var supplementalContent: some View {
@@ -296,6 +320,7 @@ struct LogEventRow: View {
     }
     .padding(theme.itemPadding)
     .operatorInset(theme)
+    .accessibilityHidden(true)
   }
 }
 
@@ -319,6 +344,7 @@ private struct TimelineMarker: View {
     }
     .frame(width: 14)
     .padding(.top, 4)
+    .accessibilityHidden(true)
   }
 
   private var markerSymbol: String {

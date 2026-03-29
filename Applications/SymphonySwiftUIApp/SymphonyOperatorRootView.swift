@@ -6,6 +6,7 @@ public struct SymphonyOperatorRootView: View {
   @ObservedObject var model: SymphonyOperatorModel
   @State private var isEndpointEditorPresented = false
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @State private var serverEditorMode: ServerEditorMode = .localServer
   private let compactOverride: Bool?
 
   #if os(iOS)
@@ -49,17 +50,33 @@ public struct SymphonyOperatorRootView: View {
       OperatorSidebarView(
         model: model,
         theme: theme,
-        openServerEditor: makePresentationAction(for: $isEndpointEditorPresented),
+        openLocalServerEditor: makeServerEditorAction(mode: .localServer),
+        openExistingServerEditor: makeServerEditorAction(mode: .existingServer),
         selectIssue: makeIssueSelectionHandler()
       )
     } detail: {
-      OperatorDetailView(
-        model: model,
-        theme: theme,
-        selectRun: makeRunSelectionHandler()
-      )
+      #if os(macOS)
+        OperatorDetailView(
+          model: model,
+          theme: theme,
+          selectRun: makeRunSelectionHandler(),
+          openLocalServerEditor: makeServerEditorAction(mode: .localServer),
+          openExistingServerEditor: makeServerEditorAction(mode: .existingServer)
+        )
+      #else
+        OperatorDetailView(
+          model: model,
+          theme: theme,
+          selectRun: makeRunSelectionHandler()
+        )
+      #endif
     }
     .navigationSplitViewStyle(.balanced)
+    .searchable(
+      text: $model.issueSearchText,
+      placement: .sidebar,
+      prompt: "Search issues"
+    )
     .toolbar {
       #if os(iOS)
         if isCompact, model.selectedIssueID != nil, columnVisibility == .detailOnly {
@@ -89,7 +106,7 @@ public struct SymphonyOperatorRootView: View {
           Button(
             "Server",
             systemImage: "slider.horizontal.3",
-            action: makePresentationAction(for: $isEndpointEditorPresented)
+            action: makeServerEditorAction(mode: .localServer)
           )
           .accessibilityIdentifier("server-editor-button")
         }
@@ -103,6 +120,17 @@ extension SymphonyOperatorRootView {
   @MainActor
   func makePresentationAction(for isPresented: Binding<Bool>) -> () -> Void {
     { isPresented.wrappedValue = true }
+  }
+
+  @MainActor
+  func makeServerEditorAction(mode: ServerEditorMode) -> () -> Void {
+    {
+      serverEditorMode = mode
+      #if os(macOS)
+        model.prepareLocalServerEditor(mode: mode)
+      #endif
+      isEndpointEditorPresented = true
+    }
   }
 
   func makeConnectAction() -> () -> Void {
@@ -161,7 +189,11 @@ extension SymphonyOperatorRootView {
   }
 
   func makeEndpointEditorView() -> OperatorEndpointEditorView {
-    OperatorEndpointEditorView(model: model)
+    #if os(macOS)
+      OperatorEndpointEditorView(model: model, initialMode: serverEditorMode)
+    #else
+      OperatorEndpointEditorView(model: model)
+    #endif
   }
 }
 

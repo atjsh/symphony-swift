@@ -4,8 +4,38 @@ import SymphonyShared
 struct OperatorSidebarView: View {
   @ObservedObject var model: SymphonyOperatorModel
   let theme: OperatorTheme
-  let openServerEditor: () -> Void
+  let openLocalServerEditor: () -> Void
+  let openExistingServerEditor: () -> Void
   let selectIssue: (IssueSummary) -> Void
+
+  init(
+    model: SymphonyOperatorModel,
+    theme: OperatorTheme,
+    openLocalServerEditor: @escaping () -> Void,
+    openExistingServerEditor: @escaping () -> Void,
+    selectIssue: @escaping (IssueSummary) -> Void
+  ) {
+    self.model = model
+    self.theme = theme
+    self.openLocalServerEditor = openLocalServerEditor
+    self.openExistingServerEditor = openExistingServerEditor
+    self.selectIssue = selectIssue
+  }
+
+  init(
+    model: SymphonyOperatorModel,
+    theme: OperatorTheme,
+    openServerEditor: @escaping () -> Void,
+    selectIssue: @escaping (IssueSummary) -> Void
+  ) {
+    self.init(
+      model: model,
+      theme: theme,
+      openLocalServerEditor: openServerEditor,
+      openExistingServerEditor: openServerEditor,
+      selectIssue: selectIssue
+    )
+  }
 
   private var issueSelection: Binding<IssueID?> {
     operatorSidebarIssueSelectionBinding(model: model, selectIssue: selectIssue)
@@ -32,32 +62,23 @@ struct OperatorSidebarView: View {
         .accessibilityIdentifier("issue-row-\(issue.issueID.rawValue)")
       }
     }
+    #if os(macOS)
+      .environment(\.defaultMinListRowHeight, 60)
+    #endif
     .accessibilityIdentifier("issue-list")
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: theme.sectionSpacing) {
-      TextField("Filter Issues", text: $model.issueSearchText)
-        .font(.body)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.white.opacity(0.96))
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(theme.insetStroke, lineWidth: 1)
-        )
-        .accessibilityIdentifier("sidebar-search")
-
       OperatorServerStatusSummaryView(
         theme: theme,
+        model: model,
         health: model.health,
         connectionError: model.connectionError,
         host: model.host,
         portText: model.portText,
-        openServerEditor: openServerEditor
+        openLocalServerEditor: openLocalServerEditor,
+        openExistingServerEditor: openExistingServerEditor
       )
 
       if theme.compact {
@@ -118,21 +139,26 @@ func operatorSidebarIssueSelectionBinding(
 @MainActor
 func makeOperatorServerStatusSummaryView(
   theme: OperatorTheme,
+  model: SymphonyOperatorModel,
   health: HealthResponse?,
   connectionError: String?,
   host: String,
   portText: String,
-  openServerEditor: @escaping () -> Void
+  openLocalServerEditor: @escaping () -> Void,
+  openExistingServerEditor: @escaping () -> Void
 ) -> some View {
   OperatorServerStatusSummaryView(
     theme: theme,
+    model: model,
     health: health,
     connectionError: connectionError,
     host: host,
     portText: portText,
-    openServerEditor: openServerEditor
+    openLocalServerEditor: openLocalServerEditor,
+    openExistingServerEditor: openExistingServerEditor
   )
 }
+
 
 @MainActor
 func makeOperatorIssueSidebarRow(theme: OperatorTheme, issue: IssueSummary, isSelected: Bool)
@@ -143,16 +169,28 @@ func makeOperatorIssueSidebarRow(theme: OperatorTheme, issue: IssueSummary, isSe
 
 private struct OperatorServerStatusSummaryView: View {
   let theme: OperatorTheme
+  @ObservedObject var model: SymphonyOperatorModel
   let health: HealthResponse?
   let connectionError: String?
   let host: String
   let portText: String
-  let openServerEditor: () -> Void
+  let openLocalServerEditor: () -> Void
+  let openExistingServerEditor: () -> Void
 
   @ViewBuilder
   private var serverActionLabel: some View {
-    Text("Server")
-      .font(.body.weight(.semibold))
+    #if os(macOS)
+      if model.hasLocalServerSupport && health == nil {
+        Text("Start Local Server")
+          .font(.body.weight(.semibold))
+      } else {
+        Text("Server")
+          .font(.body.weight(.semibold))
+      }
+    #else
+      Text("Server")
+        .font(.body.weight(.semibold))
+    #endif
   }
 
   private var statusText: String {
@@ -162,6 +200,26 @@ private struct OperatorServerStatusSummaryView: View {
       }
       return "Connected to \(health.trackerKind.capitalized)"
     }
+    #if os(macOS)
+      if model.hasLocalServerSupport {
+        switch model.localServerLaunchState {
+        case .validating:
+          return "Validating local setup"
+        case .starting:
+          return "Starting local server"
+        case .waitingForHealth:
+          return "Waiting for health"
+        case .running:
+          return "Local server running"
+        case .failed:
+          return "Local server failed"
+        case .needsSetup:
+          return "Local setup required"
+        case .idle:
+          break
+        }
+      }
+    #endif
     if connectionError != nil {
       return "Connection failed"
     }
@@ -169,6 +227,17 @@ private struct OperatorServerStatusSummaryView: View {
   }
 
   private var statusDetail: String {
+    #if os(macOS)
+      if let localServerFailure = model.localServerFailure, health == nil {
+        return localServerFailure
+      }
+      if model.hasLocalServerSupport,
+        health == nil,
+        !model.localServerWorkflowPath.isEmpty
+      {
+        return model.localServerWorkflowPath
+      }
+    #endif
     if let connectionError {
       return connectionError
     }
@@ -179,16 +248,54 @@ private struct OperatorServerStatusSummaryView: View {
     if let health {
       return "Connected to \(health.trackerKind.capitalized)"
     }
+    #if os(macOS)
+      if model.hasLocalServerSupport {
+        return statusText
+      }
+    #endif
     if connectionError != nil {
       return "Connection failed"
     }
     return "Not connected"
   }
 
+  private var localServerIsRunning: Bool {
+    #if os(macOS)
+      model.hasLocalServerSupport && model.localServerLaunchState == .running
+    #else
+      false
+    #endif
+  }
+
+  private var localServerIsStarting: Bool {
+    #if os(macOS)
+      model.hasLocalServerSupport
+        && (model.localServerLaunchState == .starting
+          || model.localServerLaunchState == .waitingForHealth
+          || model.localServerLaunchState == .validating)
+    #else
+      false
+    #endif
+  }
+
+  private var localServerDidFail: Bool {
+    #if os(macOS)
+      model.hasLocalServerSupport && model.localServerLaunchState == .failed
+    #else
+      false
+    #endif
+  }
+
   private var statusColor: Color {
     if health != nil {
       theme.successTint
+    } else if localServerIsRunning {
+      theme.successTint
+    } else if localServerIsStarting {
+      theme.warningTint
     } else if connectionError != nil {
+      theme.errorTint
+    } else if localServerDidFail {
       theme.errorTint
     } else {
       theme.warningTint
@@ -199,7 +306,7 @@ private struct OperatorServerStatusSummaryView: View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: health != nil ? "server.rack" : "bolt.horizontal.circle")
-          .font(.title3)
+          .font(.title3.weight(.semibold))
           .foregroundStyle(statusColor)
           .accessibilityHidden(true)
 
@@ -210,26 +317,53 @@ private struct OperatorServerStatusSummaryView: View {
             .minimumScaleFactor(0.8)
             .fixedSize(horizontal: false, vertical: true)
             .layoutPriority(1)
-            .accessibilityLabel(statusAccessibilityText)
           Text(statusDetail)
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(Color.primary)
+            .font(.footnote)
+            .foregroundStyle(theme.quietText)
+            .lineLimit(3)
             .fixedSize(horizontal: false, vertical: true)
             .layoutPriority(1)
         }
       }
+      .accessibilityElement(children: .combine)
+      .accessibilityAddTraits(.isStaticText)
+      .accessibilityLabel(statusAccessibilityText)
+      .accessibilityValue(statusDetail)
 
-      Button(action: openServerEditor) {
+      Divider()
+
+      Button(
+        action: {
+          #if os(macOS)
+            if model.hasLocalServerSupport && health == nil {
+              openLocalServerEditor()
+            } else {
+              openExistingServerEditor()
+            }
+          #else
+            openExistingServerEditor()
+          #endif
+        }
+      ) {
         serverActionLabel
           .foregroundStyle(theme.bodyText)
-          .lineLimit(2)
-          .minimumScaleFactor(0.8)
-          .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .frame(maxWidth: .infinity)
       }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("Configure Server")
-        .accessibilityIdentifier("server-editor-summary-button")
+      .operatorProminentActionButton()
+      .accessibilityLabel("Configure Server")
+      .accessibilityIdentifier("server-editor-summary-button")
+
+      #if os(macOS)
+        if model.hasLocalServerSupport && health == nil {
+          Button(action: openExistingServerEditor) {
+            Text("Use Existing Server")
+              .frame(maxWidth: .infinity)
+          }
+          .operatorSecondaryActionButton()
+          .accessibilityLabel("Use Existing Server")
+          .accessibilityIdentifier("existing-server-summary-button")
+        }
+      #endif
     }
     .operatorPanel(theme)
   }
@@ -257,11 +391,23 @@ private struct IssueSidebarRow: View {
   private var issueIdentifierLabel: some View {
     Text(verbatim: issueIdentifierDisplayText)
       .font(.caption.monospaced())
-      .foregroundStyle(.secondary)
+      .foregroundStyle(theme.quietText)
       .lineLimit(2)
       .minimumScaleFactor(0.75)
       .fixedSize(horizontal: false, vertical: true)
       .accessibilityLabel(issue.identifier.rawValue)
+  }
+
+  private var accessibilityValue: String {
+    [
+      issue.identifier.rawValue,
+      formatState(issue.state),
+      issue.issueState,
+      issue.currentProvider?.replacingOccurrences(of: "_", with: " "),
+      issue.priority.map { "Priority \($0)" },
+    ]
+    .compactMap { $0 }
+    .joined(separator: ", ")
   }
 
   var body: some View {
@@ -287,7 +433,7 @@ private struct IssueSidebarRow: View {
       }
 
       Text(issue.title)
-        .font(.body)
+        .font(.callout)
         .lineLimit(3)
         .minimumScaleFactor(0.85)
         .multilineTextAlignment(.leading)
@@ -304,6 +450,10 @@ private struct IssueSidebarRow: View {
     .padding(.vertical, 4)
     .padding(.horizontal, 2)
     .contentShape(Rectangle())
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(issue.title)
+    .accessibilityValue(accessibilityValue)
+    .accessibilityHint("Opens issue details")
     .operatorSelectionBackground(theme, isSelected: isSelected)
   }
 }

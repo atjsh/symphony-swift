@@ -321,11 +321,11 @@ struct SymphonyOperatorRootViewTests {
     XCTAssertFalse(recentSessionHasVisibleTokenUsage(try TokenUsage()))
 
     #if canImport(AppKit)
-      let theme = OperatorTheme(compact: true)
+      let compactTheme = OperatorTheme(compact: true)
       let intrinsicMetricsHost = NSHostingView(
         rootView: AnyView(
           MetricsStrip(
-            theme: theme,
+            theme: compactTheme,
             metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
           )
         )
@@ -763,11 +763,15 @@ struct SymphonyOperatorRootViewTests {
     }
   }
 
-  @Test func CompactLayoutPoliciesPreferStackingInlineTitlesAndScrollableControls() {
+  @Test func CompactLayoutPoliciesPreferStackingInlineTitlesAndPlatformNativeChoiceControls() {
     #expect(operatorSummaryActionPlacement(isCompact: true) == .stacked)
     #expect(operatorSummaryActionPlacement(isCompact: false) == .trailing)
     #expect(operatorChoiceControlPresentation(isCompact: true) == .scrolling)
-    #expect(operatorChoiceControlPresentation(isCompact: false) == .glassBar)
+    #if os(macOS)
+      #expect(operatorChoiceControlPresentation(isCompact: false) == .segmented)
+    #else
+      #expect(operatorChoiceControlPresentation(isCompact: false) == .glassBar)
+    #endif
     #expect(operatorIssueRowMetadataPlacement(isCompact: true) == .stacked)
     #expect(operatorIssueRowMetadataPlacement(isCompact: false) == .trailing)
     #expect(operatorDetailNavigationTitleDisplayPreference(isCompact: true) == .inline)
@@ -864,7 +868,8 @@ struct SymphonyOperatorRootViewTests {
             OperatorSidebarView(
               model: model,
               theme: compactTheme,
-              openServerEditor: {},
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
               selectIssue: { _ in }
             )
           ),
@@ -908,6 +913,62 @@ struct SymphonyOperatorRootViewTests {
 
     XCTAssertEqual(model.host, "example.com")
     XCTAssertEqual(model.portText, "9443")
+
+    #if os(macOS)
+      let workflowURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString
+      ).appendingPathComponent("WORKFLOW.md")
+      try FileManager.default.createDirectory(
+        at: workflowURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try "Resolve {{issue.title}}".write(to: workflowURL, atomically: true, encoding: .utf8)
+
+      let localManager = UITestingLocalServerManager()
+      let localModel = SymphonyOperatorModel(
+        client: client,
+        localServerServices: LocalServerServices(
+          manager: localManager,
+          profileStore: InMemoryLocalServerProfileStore(
+            profile: LocalServerProfile(workflowPath: workflowURL.path)
+          ),
+          secretStore: InMemoryLocalServerSecretStore(),
+          workflowSelector: StubWorkflowSelector(selectedURL: workflowURL),
+          workflowSaver: UITestingWorkflowFileSaver(environmentProvider: { [:] }),
+          variableScanner: WorkflowEnvironmentVariableScanner(),
+          helperLocator: StubHelperLocator(
+            url: URL(fileURLWithPath: "/tmp/SymphonyLocalServerHelper")
+          ),
+          environmentProvider: { [:] }
+        )
+      )
+      render(
+        host(
+          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          width: 700,
+          height: 620
+        )
+      )
+
+      let localStartAction = makeLocalServerStartAction(
+        model: localModel,
+        draftHost: "localhost",
+        draftPort: "8080"
+      ) {
+        dismissCount += 1
+      }
+      localStartAction()
+
+      try await waitUntil {
+        localModel.localServerLaunchState == .running && dismissCount == 3
+      }
+
+      let localStopAction = makeLocalServerStopAction(model: localModel)
+      localStopAction()
+      try await waitUntil {
+        localModel.localServerLaunchState == .idle
+      }
+    #endif
   }
 
   @Test func SidebarSelectionHelperAndRenderedStatesCoverSelectionRowsAndStatusBranches() throws {
@@ -940,7 +1001,8 @@ struct SymphonyOperatorRootViewTests {
             OperatorSidebarView(
               model: connectedModel,
               theme: theme,
-              openServerEditor: {},
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
               selectIssue: { _ in }
             )),
           width: 420,
@@ -952,11 +1014,13 @@ struct SymphonyOperatorRootViewTests {
           AnyView(
             makeOperatorServerStatusSummaryView(
               theme: theme,
+              model: connectedModel,
               health: connectedModel.health,
               connectionError: nil,
               host: connectedModel.host,
               portText: connectedModel.portText,
-              openServerEditor: {}
+              openLocalServerEditor: {},
+              openExistingServerEditor: {}
             )),
           width: 420,
           height: 180
@@ -995,7 +1059,8 @@ struct SymphonyOperatorRootViewTests {
             OperatorSidebarView(
               model: failedModel,
               theme: theme,
-              openServerEditor: {},
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
               selectIssue: { _ in }
             )),
           width: 420,
@@ -1009,7 +1074,8 @@ struct SymphonyOperatorRootViewTests {
             OperatorSidebarView(
               model: idleModel,
               theme: theme,
-              openServerEditor: {},
+              openLocalServerEditor: {},
+              openExistingServerEditor: {},
               selectIssue: { _ in }
             )),
           width: 420,
@@ -1349,10 +1415,12 @@ struct SymphonyOperatorRootViewTests {
 
     render(
       host(
-        SymphonyOperatorRootView(
-          model: compactModel,
-          initialColumnVisibility: .detailOnly,
-          compactOverride: true
+        AnyView(
+          SymphonyOperatorRootView(
+            model: compactModel,
+            initialColumnVisibility: .detailOnly,
+            compactOverride: true
+          )
         ),
         width: 320,
         height: 720
@@ -1436,7 +1504,11 @@ struct SymphonyOperatorRootViewTests {
       #expect(flowSize.height > 0)
     #endif
 
-    #expect(detailLineTextSelectionEnabled(for: true) == false)
+    #if os(iOS)
+      #expect(detailLineTextSelectionEnabled(for: true) == false)
+    #else
+      #expect(detailLineTextSelectionEnabled(for: true) == true)
+    #endif
     #expect(
       operatorIssueRowMetadataPlacement(isCompact: false, prefersAccessibilityLayout: true) == .stacked
     )
