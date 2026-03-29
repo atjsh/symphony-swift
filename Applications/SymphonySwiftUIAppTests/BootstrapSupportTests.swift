@@ -407,6 +407,33 @@ struct BootstrapSupportTests {
       let locator = BundledLocalServerHelperLocator(bundle: bundle)
       #expect(try locator.helperURL() == helperURL)
     }
+
+    @Test func bundledLocalServerHelperStartsAndExitsWhenRequested() throws {
+      let helperURL = try BundledLocalServerHelperLocator(bundle: .main).helperURL()
+      #expect(FileManager.default.isExecutableFile(atPath: helperURL.path))
+
+      let process = Process()
+      let output = Pipe()
+      process.executableURL = helperURL
+      var environment = ProcessInfo.processInfo.environment
+      environment[BootstrapKeepAlivePolicy.exitAfterStartupKey] = "1"
+      environment[BootstrapEnvironment.serverSchemeKey] = "https"
+      environment[BootstrapEnvironment.serverHostKey] = "helper.example.com"
+      environment[BootstrapEnvironment.serverPortKey] = "9443"
+      process.environment = environment
+      process.standardOutput = output
+      process.standardError = output
+      try process.run()
+      process.waitUntilExit()
+
+      let transcript = String(
+        decoding: output.fileHandleForReading.readDataToEndOfFile(),
+        as: UTF8.self
+      )
+      #expect(process.terminationStatus == 0)
+      #expect(transcript.contains("[SymphonyLocalServerHelper] starting"))
+      #expect(transcript.contains("[SymphonyLocalServerHelper] endpoint=https://helper.example.com:9443"))
+    }
   #endif
 }
 

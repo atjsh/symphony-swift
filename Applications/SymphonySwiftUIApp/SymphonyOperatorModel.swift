@@ -837,6 +837,20 @@ public struct SymphonyEventPresentation: Equatable {
   public let metadata: String
   public let showsRawJSON: Bool
 
+  init(
+    rowStyle: RowStyle,
+    title: String,
+    detail: String,
+    metadata: String,
+    showsRawJSON: Bool
+  ) {
+    self.rowStyle = rowStyle
+    self.title = title
+    self.detail = detail
+    self.metadata = metadata
+    self.showsRawJSON = showsRawJSON
+  }
+
   public init(event: AgentRawEvent) {
     self.metadata =
       "\(Self.displayMetadataToken(event.provider)) • #\(event.sequence.rawValue) • \(Self.displayMetadataToken(event.providerEventType))"

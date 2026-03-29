@@ -75,14 +75,14 @@ public struct CoverageReporter {
       }
       return true
     }
+    let includedTargets = clientCompatibleTargets(from: filteredTargets, product: product)
     let excludedTargets = rawReport.targets
       .filter { candidate in
-        !filteredTargets.contains(where: {
+        !includedTargets.contains(where: {
           $0.name == candidate.name && $0.buildProductPath == candidate.buildProductPath
         })
       }
       .map(\.name)
-    let includedTargets = filteredTargets
     guard !includedTargets.isEmpty else {
       throw SymphonyHarnessError(
         code: "coverage_targets_missing",
@@ -180,6 +180,35 @@ public struct CoverageReporter {
   private func percentage(_ coverage: Double) -> String {
     String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), coverage * 100)
   }
+
+  private func clientCompatibleTargets(
+    from targets: [RawCoverageTarget],
+    product: ProductKind
+  ) -> [RawCoverageTarget] {
+    guard product == .client else {
+      return targets
+    }
+    guard
+      let appBuildProductsRoot = targets
+        .first(where: \.isClientApplicationBinary)?
+        .buildProductsRoot
+    else {
+      return targets
+    }
+
+    return targets.filter { target in
+      guard !target.isTestBundle, !target.isSwiftPackageProduct else {
+        return true
+      }
+      guard !target.isClientApplicationBinary else {
+        return true
+      }
+      guard let targetBuildProductsRoot = target.buildProductsRoot else {
+        return true
+      }
+      return targetBuildProductsRoot == appBuildProductsRoot
+    }
+  }
 }
 
 private struct RawCoverageReport: Decodable {
@@ -197,6 +226,22 @@ private struct RawCoverageTarget: Decodable {
     name.hasSuffix(".xctest") || buildProductPath?.contains(".xctest/") == true
   }
   var isSwiftPackageProduct: Bool { buildProductPath?.contains("/PackageFrameworks/") == true }
+  var isClientApplicationBinary: Bool {
+    name.hasSuffix(".app") || buildProductPath?.contains(".app") == true
+  }
+  var buildProductsRoot: String? {
+    guard let buildProductPath else {
+      return nil
+    }
+    let components = URL(fileURLWithPath: buildProductPath).standardizedFileURL.pathComponents
+    guard let buildIndex = components.lastIndex(of: "Build"),
+      buildIndex + 2 < components.count,
+      components[buildIndex + 1] == "Products"
+    else {
+      return nil
+    }
+    return NSString.path(withComponents: Array(components[0...buildIndex + 2]))
+  }
 }
 
 private struct RawCoverageFile: Decodable {

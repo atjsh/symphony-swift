@@ -511,6 +511,164 @@ import Testing
   }
 }
 
+@Test func coverageReporterExcludesPlatformMismatchedClientTargets() throws {
+  try withTemporaryDirectory { directory in
+    let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+    let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+    let json = #"""
+      {
+        "targets": [
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug-iphonesimulator/Symphony.app/Symphony",
+            "coveredLines": 5,
+            "executableLines": 5,
+            "files": [
+              { "coveredLines": 5, "executableLines": 5, "name": "ContentView.swift", "path": "/tmp/ContentView.swift" }
+            ],
+            "name": "Symphony.app"
+          },
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug/SymphonyLocalServerHelper",
+            "coveredLines": 0,
+            "executableLines": 1,
+            "files": [
+              { "coveredLines": 0, "executableLines": 1, "name": "main.swift", "path": "/tmp/main.swift" }
+            ],
+            "name": "SymphonyLocalServerHelper"
+          }
+        ]
+      }
+      """#
+
+    let artifacts = try CoverageReporter(
+      processRunner: StubProcessRunner(results: [
+        "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json)
+      ])
+    ).export(
+      resultBundlePath: resultBundlePath,
+      artifactRoot: artifactRoot,
+      product: .client,
+      includeTestTargets: false,
+      showFiles: true
+    )
+
+    #expect(artifacts.report.targets.map(\.name) == ["Symphony.app"])
+    #expect(artifacts.report.excludedTargets == ["SymphonyLocalServerHelper"])
+    #expect(artifacts.report.coveredLines == 5)
+    #expect(artifacts.report.executableLines == 5)
+  }
+}
+
+@Test func coverageReporterKeepsClientTargetsSharingBuildProductsRoot() throws {
+  try withTemporaryDirectory { directory in
+    let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+    let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+    let json = #"""
+      {
+        "targets": [
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug/Symphony.app/Contents/MacOS/Symphony",
+            "coveredLines": 5,
+            "executableLines": 5,
+            "files": [
+              { "coveredLines": 5, "executableLines": 5, "name": "ContentView.swift", "path": "/tmp/ContentView.swift" }
+            ],
+            "name": "Symphony.app"
+          },
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug/SymphonyLocalServerHelper",
+            "coveredLines": 1,
+            "executableLines": 1,
+            "files": [
+              { "coveredLines": 1, "executableLines": 1, "name": "main.swift", "path": "/tmp/main.swift" }
+            ],
+            "name": "SymphonyLocalServerHelper"
+          }
+        ]
+      }
+      """#
+
+    let artifacts = try CoverageReporter(
+      processRunner: StubProcessRunner(results: [
+        "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json)
+      ])
+    ).export(
+      resultBundlePath: resultBundlePath,
+      artifactRoot: artifactRoot,
+      product: .client,
+      includeTestTargets: false,
+      showFiles: true
+    )
+
+    #expect(artifacts.report.targets.map(\.name) == ["Symphony.app", "SymphonyLocalServerHelper"])
+    #expect(artifacts.report.excludedTargets.isEmpty)
+    #expect(artifacts.report.coveredLines == 6)
+    #expect(artifacts.report.executableLines == 6)
+  }
+}
+
+@Test func coverageReporterRetainsIncludedTestBundlesAndPathlessClientTargets() throws {
+  try withTemporaryDirectory { directory in
+    let resultBundlePath = directory.appendingPathComponent("result.xcresult")
+    let artifactRoot = directory.appendingPathComponent("artifacts", isDirectory: true)
+    let json = #"""
+      {
+        "targets": [
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug-iphonesimulator/Symphony.app/Symphony",
+            "coveredLines": 5,
+            "executableLines": 5,
+            "files": [
+              { "coveredLines": 5, "executableLines": 5, "name": "ContentView.swift", "path": "/tmp/ContentView.swift" }
+            ],
+            "name": "Symphony.app"
+          },
+          {
+            "buildProductPath": "/tmp/Build/Products/Debug-iphonesimulator/Symphony.app/PlugIns/SymphonySwiftUIAppTests.xctest/SymphonySwiftUIAppTests",
+            "coveredLines": 2,
+            "executableLines": 2,
+            "files": [
+              { "coveredLines": 2, "executableLines": 2, "name": "Test.swift", "path": "/tmp/Test.swift" }
+            ],
+            "name": "SymphonySwiftUIAppTests.xctest"
+          },
+          {
+            "buildProductPath": null,
+            "coveredLines": 1,
+            "executableLines": 1,
+            "files": [
+              { "coveredLines": 1, "executableLines": 1, "name": "main.swift", "path": "/tmp/main.swift" }
+            ],
+            "name": "DetachedHelper"
+          }
+        ]
+      }
+      """#
+
+    let artifacts = try CoverageReporter(
+      processRunner: StubProcessRunner(results: [
+        "xcrun xccov view --report --json \(resultBundlePath.path)": StubProcessRunner.success(json)
+      ])
+    ).export(
+      resultBundlePath: resultBundlePath,
+      artifactRoot: artifactRoot,
+      product: .client,
+      includeTestTargets: true,
+      showFiles: true
+    )
+
+    #expect(
+      artifacts.report.targets.map(\.name) == [
+        "Symphony.app",
+        "SymphonySwiftUIAppTests.xctest",
+        "DetachedHelper",
+      ])
+    #expect(artifacts.report.excludedTargets.isEmpty)
+    #expect(artifacts.report.coveredLines == 8)
+    #expect(artifacts.report.executableLines == 8)
+  }
+}
+
 @Test func swiftPMCoverageReporterCoversFailuresAndGroupedOutput() throws {
   try withTemporaryDirectory { directory in
     let repoRoot = directory.appendingPathComponent("repo", isDirectory: true)

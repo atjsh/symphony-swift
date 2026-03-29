@@ -259,47 +259,40 @@ private struct OperatorServerStatusSummaryView: View {
     return "Not connected"
   }
 
-  private var localServerIsRunning: Bool {
-    #if os(macOS)
-      model.hasLocalServerSupport && model.localServerLaunchState == .running
-    #else
-      false
-    #endif
-  }
+  private var statusColor: Color {
+    if health != nil {
+      return theme.successTint
+    }
 
-  private var localServerIsStarting: Bool {
     #if os(macOS)
-      model.hasLocalServerSupport
+      if model.hasLocalServerSupport && model.localServerLaunchState == .running {
+        return theme.successTint
+      }
+      if model.hasLocalServerSupport
         && (model.localServerLaunchState == .starting
           || model.localServerLaunchState == .waitingForHealth
           || model.localServerLaunchState == .validating)
-    #else
-      false
+      {
+        return theme.warningTint
+      }
+      if model.hasLocalServerSupport && model.localServerLaunchState == .failed {
+        return theme.errorTint
+      }
     #endif
-  }
 
-  private var localServerDidFail: Bool {
-    #if os(macOS)
-      model.hasLocalServerSupport && model.localServerLaunchState == .failed
-    #else
-      false
-    #endif
-  }
-
-  private var statusColor: Color {
-    if health != nil {
-      theme.successTint
-    } else if localServerIsRunning {
-      theme.successTint
-    } else if localServerIsStarting {
-      theme.warningTint
-    } else if connectionError != nil {
-      theme.errorTint
-    } else if localServerDidFail {
-      theme.errorTint
-    } else {
-      theme.warningTint
+    if connectionError != nil {
+      return theme.errorTint
     }
+    return theme.warningTint
+  }
+
+  private var primaryServerEditorAction: () -> Void {
+    #if os(macOS)
+      if model.hasLocalServerSupport && health == nil {
+        return openLocalServerEditor
+      }
+    #endif
+    return openExistingServerEditor
   }
 
   var body: some View {
@@ -332,19 +325,7 @@ private struct OperatorServerStatusSummaryView: View {
 
       Divider()
 
-      Button(
-        action: {
-          #if os(macOS)
-            if model.hasLocalServerSupport && health == nil {
-              openLocalServerEditor()
-            } else {
-              openExistingServerEditor()
-            }
-          #else
-            openExistingServerEditor()
-          #endif
-        }
-      ) {
+      Button(action: primaryServerEditorAction) {
         serverActionLabel
           .foregroundStyle(theme.bodyText)
           .frame(maxWidth: .infinity)

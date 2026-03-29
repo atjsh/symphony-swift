@@ -254,6 +254,36 @@ struct SymphonyServerMainTests {
     #expect(emittedErrors[0].contains("[SymphonyLocalServerHelper] failed to start:"))
     #expect(exitCode == 1)
   }
+
+  @MainActor @Test func sharedExecutableRuntimeHooksAreMutable() {
+    let originalHooks = SymphonyServerExecutable.runtimeHooks
+    defer { SymphonyServerExecutable.runtimeHooks = originalHooks }
+
+    var capturedComponentName: String?
+    var emittedOutput = [String]()
+
+    SymphonyServerExecutable.runtimeHooks = .init(
+      environment: { ["SYMPHONY_SERVER_HOST": "127.0.0.1"] },
+      output: { emittedOutput.append($0) },
+      errorOutput: { _ in },
+      exit: { _ in },
+      runner: { componentName, environment, output, keepAlive, startServer in
+        capturedComponentName = componentName
+        #expect(environment["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+        #expect(startServer)
+        output("[\(componentName)] started")
+        keepAlive()
+      }
+    )
+
+    let reloadedHooks = SymphonyServerExecutable.runtimeHooks
+    #expect(reloadedHooks.environment()["SYMPHONY_SERVER_HOST"] == "127.0.0.1")
+
+    SymphonyServerExecutable.main(componentName: "SymphonyLocalServerHelper")
+
+    #expect(capturedComponentName == "SymphonyLocalServerHelper")
+    #expect(emittedOutput == ["[SymphonyLocalServerHelper] started"])
+  }
 }
 
 private func captureStandardOutput(_ operation: () -> Void) throws -> String {
