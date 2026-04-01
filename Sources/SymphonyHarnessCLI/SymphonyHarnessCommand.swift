@@ -8,6 +8,7 @@ protocol SymphonyHarnessTooling {
   func run(_ request: ExecutionRequest) throws -> String
   func validate(_ request: ExecutionRequest) throws -> String
   func doctor(_ request: DoctorCommandRequest) throws -> String
+  func materializeGoEnry(_ request: GoEnryMaterializationRequest) throws -> String
 }
 
 extension SymphonyHarnessTool: SymphonyHarnessTooling {}
@@ -73,6 +74,7 @@ public struct SymphonyHarnessCommand: ParsableCommand {
       Run.self,
       Validate.self,
       Doctor.self,
+      MaterializeGoEnry.self,
     ]
   )
 
@@ -204,6 +206,19 @@ extension SymphonyHarnessCommand {
         )
       )
       CLIContext.emit(output)
+    }
+  }
+
+  struct MaterializeGoEnry: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      commandName: "materialize-go-enry",
+      abstract: "Build the go-enry C archive and header used by SymphonyServer.")
+
+    mutating func run() throws {
+      CLIContext.emit(
+        try CLIContext.makeTool().materializeGoEnry(
+          GoEnryMaterializationRequest(currentDirectory: CLIContext.currentDirectory())
+        ))
     }
   }
 }

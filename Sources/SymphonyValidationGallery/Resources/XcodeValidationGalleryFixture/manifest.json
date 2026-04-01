@@ -1,0 +1,74 @@
+[
+  {
+    "artifactType" : "screenshot",
+    "checkpoint" : "progress-report",
+    "file" : "macos/media/screenshots/macos-app-tests-progress-report.png",
+    "orientation" : "portrait",
+    "plan" : "app-tests",
+    "platform" : "macos",
+    "sourceResultBundle" : "/tmp/macos-app-tests.xcresult",
+    "surface" : "progress-report",
+    "test" : "SymphonySwiftUIAppTests/SymphonyOperatorModelTests/ProgressReportViewModelShowsCachedSnapshotBeforeRefreshing()",
+    "variant" : "base"
+  },
+  {
+    "artifactType" : "screenshot",
+    "checkpoint" : "root",
+    "file" : "macos/media/screenshots/macos-ui-tests-root.png",
+    "orientation" : "portrait",
+    "plan" : "ui-tests",
+    "platform" : "macos",
+    "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+    "surface" : "root",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testValidationMatrixCapturesNamedCheckpointsAndAuditsVisibleScreens()",
+    "variant" : "base"
+  },
+  {
+    "artifactType" : "screenshot",
+    "checkpoint" : "logs",
+    "file" : "macos/media/screenshots/macos-ui-tests-logs.png",
+    "orientation" : "portrait",
+    "plan" : "ui-tests",
+    "platform" : "macos",
+    "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+    "surface" : "logs",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()",
+    "variant" : "bottom"
+  },
+  {
+    "artifactType" : "screenshot",
+    "checkpoint" : "overview",
+    "file" : "ios/media/screenshots/ios-ui-tests-overview.png",
+    "orientation" : "portrait",
+    "plan" : "ui-tests",
+    "platform" : "ios",
+    "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+    "surface" : "overview",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+    "variant" : "top"
+  },
+  {
+    "artifactType" : "video",
+    "checkpoint" : "overview",
+    "file" : "ios/media/videos/ios-rich-media.mov",
+    "orientation" : "portrait",
+    "plan" : "ui-tests",
+    "platform" : "ios",
+    "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+    "surface" : "overview",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+    "variant" : "walkthrough"
+  },
+  {
+    "artifactType" : "screenshot",
+    "checkpoint" : "sessions",
+    "file" : "ipados/media/screenshots/ipados-ui-tests-sessions.png",
+    "orientation" : "landscape",
+    "plan" : "ui-tests",
+    "platform" : "ipados",
+    "sourceResultBundle" : "/tmp/ipados-ui-tests.xcresult",
+    "surface" : "sessions",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+    "variant" : "middle"
+  }
+]

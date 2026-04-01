@@ -1,0 +1,20 @@
+[
+  {
+    "checkpoint" : "logs",
+    "file" : "macos/media/audit/macos-logs-audit.txt",
+    "message" : "Contrast failed for Tool Call. Edit main.swift",
+    "plan" : "ui-tests",
+    "platform" : "macos",
+    "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
+  },
+  {
+    "checkpoint" : "overview",
+    "file" : "ios/media/audit/ios-overview-audit.txt",
+    "message" : "Element missing an accessibility label.",
+    "plan" : "ui-tests",
+    "platform" : "ios",
+    "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+    "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
+  }
+]

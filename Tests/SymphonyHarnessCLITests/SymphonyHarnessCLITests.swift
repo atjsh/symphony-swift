@@ -10,12 +10,15 @@ import Testing
 
 @Test func rootCommandExposesOnlyCanonicalPublicCommands() {
   #expect(SymphonyHarnessCommand.configuration.defaultSubcommand == nil)
-  #expect(SymphonyHarnessCommand.configuration.subcommands.count == 5)
+  #expect(SymphonyHarnessCommand.configuration.subcommands.count == 6)
   #expect(SymphonyHarnessCommand.configuration.subcommands[0] == SymphonyHarnessCommand.Build.self)
   #expect(SymphonyHarnessCommand.configuration.subcommands[1] == SymphonyHarnessCommand.Test.self)
   #expect(SymphonyHarnessCommand.configuration.subcommands[2] == SymphonyHarnessCommand.Run.self)
   #expect(SymphonyHarnessCommand.configuration.subcommands[3] == SymphonyHarnessCommand.Validate.self)
   #expect(SymphonyHarnessCommand.configuration.subcommands[4] == SymphonyHarnessCommand.Doctor.self)
+  #expect(
+    SymphonyHarnessCommand.configuration.subcommands[5]
+      == SymphonyHarnessCommand.MaterializeGoEnry.self)
 }
 
 @Test func buildCommandParsesCanonicalSubjectsAndOutputMode() throws {
@@ -65,6 +68,14 @@ import Testing
   #expect(command.strict == false)
   #expect(command.json == false)
   #expect(command.quiet == false)
+}
+
+@Test func materializeGoEnryCommandParsesWithoutAdditionalArguments() throws {
+  let command =
+    try SymphonyHarnessCommand.MaterializeGoEnry.parseAsRoot([])
+    as! SymphonyHarnessCommand.MaterializeGoEnry
+
+  #expect(type(of: command) == SymphonyHarnessCommand.MaterializeGoEnry.self)
 }
 
 @Test func buildCommandRejectsLegacyProductFlag() throws {
@@ -183,6 +194,11 @@ import Testing
       try SymphonyHarnessCommand.Doctor.parseAsRoot(["--strict", "--json", "--quiet"])
       as! SymphonyHarnessCommand.Doctor
     try doctor.run()
+
+    var materialize =
+      try SymphonyHarnessCommand.MaterializeGoEnry.parseAsRoot([])
+      as! SymphonyHarnessCommand.MaterializeGoEnry
+    try materialize.run()
   }
 
   #expect(tool.executionRequests.count == 4)
@@ -214,6 +230,8 @@ import Testing
   #expect(tool.doctorRequests[0].json == true)
   #expect(tool.doctorRequests[0].quiet == true)
   #expect(tool.doctorRequests[0].currentDirectory == currentDirectory)
+  #expect(tool.materializeRequests.count == 1)
+  #expect(tool.materializeRequests[0].currentDirectory == currentDirectory)
 
   #expect(
     output.values == [
@@ -222,6 +240,7 @@ import Testing
       "run-output",
       "validate-output",
       "doctor-output",
+      "materialize-output",
     ])
 }
 
@@ -296,6 +315,7 @@ import Testing
 private final class RecordingCLITool: SymphonyHarnessTooling {
   var executionRequests = [ExecutionRequest]()
   var doctorRequests = [DoctorCommandRequest]()
+  var materializeRequests = [GoEnryMaterializationRequest]()
 
   func build(_ request: ExecutionRequest) throws -> String {
     executionRequests.append(request)
@@ -321,12 +341,9 @@ private final class RecordingCLITool: SymphonyHarnessTooling {
     doctorRequests.append(request)
     return "doctor-output"
   }
-}
 
-private final class OutputBox {
-  private(set) var values = [String]()
-
-  func append(_ value: String) {
-    values.append(value)
+  func materializeGoEnry(_ request: GoEnryMaterializationRequest) throws -> String {
+    materializeRequests.append(request)
+    return "materialize-output"
   }
 }

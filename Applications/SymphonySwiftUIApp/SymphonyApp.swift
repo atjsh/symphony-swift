@@ -7,7 +7,7 @@ import SymphonyShared
 
 @main
 struct SymphonyApp: App {
-  private let model: SymphonyOperatorModel
+  @State private var model: SymphonyOperatorModel
 
   nonisolated static func resolveClient(
     arguments: [String],
@@ -29,13 +29,13 @@ struct SymphonyApp: App {
         BootstrapEnvironment.isUITesting(arguments: ProcessInfo.processInfo.arguments, environment: environment)
         ? LocalServerServices.uiTesting(environmentProvider: { environment })
         : LocalServerServices.live(environmentProvider: { environment })
-      model = SymphonyOperatorModel(
+      _model = State(initialValue: SymphonyOperatorModel(
         client: client,
         initialEndpoint: sharedEndpoint,
         localServerServices: localServerServices
-      )
+      ))
     #else
-      model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+      _model = State(initialValue: SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint))
     #endif
 
     Self.emitStartupLogsIfNeeded(environment: environment)
@@ -56,13 +56,13 @@ struct SymphonyApp: App {
         BootstrapEnvironment.isUITesting(arguments: arguments, environment: environment)
         ? LocalServerServices.uiTesting(environmentProvider: { environment })
         : LocalServerServices.live(environmentProvider: { environment })
-      model = SymphonyOperatorModel(
+      _model = State(initialValue: SymphonyOperatorModel(
         client: client,
         initialEndpoint: sharedEndpoint,
         localServerServices: localServerServices
-      )
+      ))
     #else
-      model = SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint)
+      _model = State(initialValue: SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint))
     #endif
 
     Self.emitStartupLogsIfNeeded(environment: environment, output: startupOutput)
@@ -114,12 +114,22 @@ struct SymphonyApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
-      ContentView(model: model)
-        .task {
-          if isUITesting { await model.connect() }
-        }
-    }
+    #if os(macOS)
+      WindowGroup {
+        ContentView(model: model)
+          .task {
+            if isUITesting { await model.connect() }
+          }
+      }
+      .defaultSize(width: 1280, height: 820)
+    #else
+      WindowGroup {
+        ContentView(model: model)
+          .task {
+            if isUITesting { await model.connect() }
+          }
+      }
+    #endif
   }
 }
 
@@ -197,6 +207,73 @@ struct UITestingSymphonyAPIClient: SymphonyAPIClientProtocol {
     return IssueDetail(
       issue: issue, latestRun: run, workspacePath: "/tmp/symphony/atjsh_example_1",
       recentSessions: [session])
+  }
+
+  func issueProgressReport(endpoint: ServerEndpoint, issueID: IssueID) async throws
+    -> IssueProgressReportResponse
+  {
+    let file = RepositoryFileSummary(
+      path: "Sources/App/Main.swift",
+      category: .source,
+      lineCount: 120,
+      characterCount: 3_200,
+      byteCount: 3_200
+    )
+    let activity = RepositoryGitActivitySummary(changedFileCount: 2, additions: 14, deletions: 3)
+    let metrics = RepositoryMetricsSnapshot(
+      fileCount: 5,
+      sourceFileCount: 3,
+      testFileCount: 1,
+      otherFileCount: 1,
+      lineCount: 640,
+      characterCount: 15_000,
+      byteCount: 15_000,
+      largestFile: file,
+      smallestFile: file,
+      activity: activity
+    )
+    return IssueProgressReportResponse(
+      issueID: issueID,
+      generatedAt: "2026-03-24T12:00:00Z",
+      report: RepositoryHistoryReport(
+        headCommitID: "abcdef1234567890",
+        summary: metrics,
+        commits: [
+          RepositoryHistoryCommit(
+            commitID: "abcdef1234567890",
+            shortID: "abcdef1",
+            subject: "Implement feature",
+            authorName: "Taylor",
+            committedAt: "2026-03-24T01:00:00Z",
+            metrics: metrics,
+            activity: activity
+          )
+        ],
+        buckets: [
+          RepositoryMetricsBucket(
+            bucketID: "bucket-1",
+            label: "Current",
+            rangeStart: "2026-03-18T00:00:00Z",
+            rangeEnd: "2026-03-24T23:59:59Z",
+            metrics: metrics
+          )
+        ]
+      ),
+      syntaxHealth: RepositorySyntaxHealth(
+        status: .configured,
+        checkedFileCount: 4,
+        diagnosticCount: 1,
+        diagnostics: [
+          RepositorySyntaxDiagnostic(
+            path: "Sources/App/Main.swift",
+            message: "Unexpected token",
+            severity: "error",
+            line: 18,
+            column: 7
+          )
+        ]
+      )
+    )
   }
 
   func runDetail(endpoint: ServerEndpoint, runID: RunID) async throws -> RunDetail {

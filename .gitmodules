@@ -1,0 +1,3 @@
+[submodule "ThirdParty/go-enry"]
+	path = ThirdParty/go-enry
+	url = https://github.com/go-enry/go-enry.git

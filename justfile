@@ -8,6 +8,9 @@
 #
 harness_scratch_path := ".build/swiftpm-cache"
 
+materialize-go-enry:
+    swift run --quiet --scratch-path {{harness_scratch_path}} harness materialize-go-enry
+
 build *subjects:
     swift run --quiet --scratch-path {{harness_scratch_path}} harness build {{subjects}}
 
@@ -23,10 +26,14 @@ validate *subjects:
 doctor:
     swift run --quiet --scratch-path {{harness_scratch_path}} harness doctor
 
+lint:
+    swift package plugin --allow-writing-to-package-directory swiftlint
+
 # Serial preflight recipes for spec closeout work. These intentionally avoid
 # parallel runs because the shared scratch-path cache can distort coverage data
 # when multiple harness processes overlap in the same worktree.
 preflight-swiftpm:
+    just materialize-go-enry
     just test SymphonyShared
     just test SymphonyServerCore
     just test SymphonyServer

@@ -74,7 +74,7 @@ import Testing
 
   let hostStateSource = try String(
     contentsOf: repoRoot.appendingPathComponent(
-      "Sources/SymphonyServer/ServerState.swift",
+      "Sources/SymphonyServer/State/SQLiteServerStateStore.swift",
       isDirectory: false
     ),
     encoding: .utf8

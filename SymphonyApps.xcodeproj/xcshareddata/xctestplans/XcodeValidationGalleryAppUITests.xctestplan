@@ -1,0 +1,23 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1010000-0000-4000-8000-000000000001",
+      "name" : "Default",
+      "options" : {
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SymphonyApps.xcodeproj",
+        "identifier" : "A10100000000000000000061",
+        "name" : "XcodeValidationGalleryAppUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

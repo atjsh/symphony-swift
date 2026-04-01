@@ -1,0 +1,181 @@
+{
+  "auditIssues" : [
+    {
+      "checkpoint" : "logs",
+      "file" : "macos/media/audit/macos-logs-audit.txt",
+      "message" : "Contrast failed for Tool Call. Edit main.swift",
+      "plan" : "ui-tests",
+      "platform" : "macos",
+      "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
+    },
+    {
+      "checkpoint" : "overview",
+      "file" : "ios/media/audit/ios-overview-audit.txt",
+      "message" : "Element missing an accessibility label.",
+      "plan" : "ui-tests",
+      "platform" : "ios",
+      "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
+    }
+  ],
+  "mediaArtifacts" : [
+    {
+      "artifactType" : "screenshot",
+      "checkpoint" : "progress-report",
+      "file" : "macos/media/screenshots/macos-app-tests-progress-report.png",
+      "orientation" : "portrait",
+      "plan" : "app-tests",
+      "platform" : "macos",
+      "sourceResultBundle" : "/tmp/macos-app-tests.xcresult",
+      "surface" : "progress-report",
+      "test" : "SymphonySwiftUIAppTests/SymphonyOperatorModelTests/ProgressReportViewModelShowsCachedSnapshotBeforeRefreshing()",
+      "variant" : "base"
+    },
+    {
+      "artifactType" : "screenshot",
+      "checkpoint" : "root",
+      "file" : "macos/media/screenshots/macos-ui-tests-root.png",
+      "orientation" : "portrait",
+      "plan" : "ui-tests",
+      "platform" : "macos",
+      "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+      "surface" : "root",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testValidationMatrixCapturesNamedCheckpointsAndAuditsVisibleScreens()",
+      "variant" : "base"
+    },
+    {
+      "artifactType" : "screenshot",
+      "checkpoint" : "logs",
+      "file" : "macos/media/screenshots/macos-ui-tests-logs.png",
+      "orientation" : "portrait",
+      "plan" : "ui-tests",
+      "platform" : "macos",
+      "sourceResultBundle" : "/tmp/macos-ui-tests.xcresult",
+      "surface" : "logs",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()",
+      "variant" : "bottom"
+    },
+    {
+      "artifactType" : "screenshot",
+      "checkpoint" : "overview",
+      "file" : "ios/media/screenshots/ios-ui-tests-overview.png",
+      "orientation" : "portrait",
+      "plan" : "ui-tests",
+      "platform" : "ios",
+      "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+      "surface" : "overview",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+      "variant" : "top"
+    },
+    {
+      "artifactType" : "video",
+      "checkpoint" : "overview",
+      "file" : "ios/media/videos/ios-rich-media.mov",
+      "orientation" : "portrait",
+      "plan" : "ui-tests",
+      "platform" : "ios",
+      "sourceResultBundle" : "/tmp/ios-ui-tests.xcresult",
+      "surface" : "overview",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+      "variant" : "walkthrough"
+    },
+    {
+      "artifactType" : "screenshot",
+      "checkpoint" : "sessions",
+      "file" : "ipados/media/screenshots/ipados-ui-tests-sessions.png",
+      "orientation" : "landscape",
+      "plan" : "ui-tests",
+      "platform" : "ipados",
+      "sourceResultBundle" : "/tmp/ipados-ui-tests.xcresult",
+      "surface" : "sessions",
+      "test" : "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testRichMediaWalkthroughCapturesExtensibleSurfaceMatrix()",
+      "variant" : "middle"
+    }
+  ],
+  "outputRoot" : "Sources/SymphonyValidationGallery/Resources/XcodeValidationGalleryFixture",
+  "runRecords" : [
+    {
+      "destination" : "macOS",
+      "endedAt" : "2026-03-29T12:01:00Z",
+      "outcome" : "passed",
+      "phase" : "mitigation",
+      "plan" : "appTests",
+      "resultBundlePath" : "file:///tmp/macos-app-tests.xcresult",
+      "runName" : "progress-report-model",
+      "startedAt" : "2026-03-29T12:00:00Z",
+      "summary" : {
+        "failedTests" : 0,
+        "passedTests" : 1,
+        "result" : "Passed",
+        "testFailures" : []
+      }
+    },
+    {
+      "destination" : "macOS",
+      "endedAt" : "2026-03-29T12:03:00Z",
+      "outcome" : "passed",
+      "phase" : "mitigation",
+      "plan" : "uiTests",
+      "resultBundlePath" : "file:///tmp/macos-ui-tests.xcresult",
+      "runName" : "accessibility-audit",
+      "startedAt" : "2026-03-29T12:02:00Z",
+      "summary" : {
+        "failedTests" : 0,
+        "passedTests" : 1,
+        "result" : "Passed",
+        "testFailures" : []
+      }
+    },
+    {
+      "destination" : "macOS",
+      "endedAt" : "2026-03-29T12:05:00Z",
+      "outcome" : "passed",
+      "phase" : "richCapture",
+      "plan" : "uiTests",
+      "resultBundlePath" : "file:///tmp/macos-rich-media.xcresult",
+      "runName" : "rich-media",
+      "startedAt" : "2026-03-29T12:04:00Z",
+      "summary" : {
+        "failedTests" : 0,
+        "passedTests" : 1,
+        "result" : "Passed",
+        "testFailures" : []
+      }
+    },
+    {
+      "destination" : "iPhoneSimulator",
+      "endedAt" : "2026-03-29T12:07:00Z",
+      "outcome" : "passed",
+      "phase" : "richCapture",
+      "plan" : "uiTests",
+      "resultBundlePath" : "file:///tmp/ios-rich-media.xcresult",
+      "runName" : "rich-media",
+      "startedAt" : "2026-03-29T12:06:00Z",
+      "summary" : {
+        "failedTests" : 0,
+        "passedTests" : 1,
+        "result" : "Passed",
+        "testFailures" : []
+      }
+    },
+    {
+      "destination" : "iPadSimulator",
+      "endedAt" : "2026-03-29T12:09:00Z",
+      "outcome" : "passed",
+      "phase" : "richCapture",
+      "plan" : "uiTests",
+      "resultBundlePath" : "file:///tmp/ipados-rich-media.xcresult",
+      "runName" : "rich-media",
+      "startedAt" : "2026-03-29T12:08:00Z",
+      "summary" : {
+        "failedTests" : 0,
+        "passedTests" : 1,
+        "result" : "Passed",
+        "testFailures" : []
+      }
+    }
+  ],
+  "status" : "passed",
+  "unresolvedBlockers" : []
+}

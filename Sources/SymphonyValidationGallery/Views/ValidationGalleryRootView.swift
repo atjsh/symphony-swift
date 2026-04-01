@@ -1,0 +1,485 @@
+import SwiftUI
+
+public struct ValidationGalleryRootView: View {
+  @Bindable var store: ValidationGalleryStore
+  let onOpenBundle: () -> Void
+  let onOpenManifest: () -> Void
+  let onRequestExport: (ValidationGalleryCommentExportScope) -> Void
+  let exportFeedback: String?
+  let isModalPresentationActive: Bool
+  @State private var sheetRoute: ValidationGalleryArtifactSheetRoute?
+  @State private var pendingExportScope: ValidationGalleryCommentExportScope?
+
+  public init(
+    store: ValidationGalleryStore,
+    onOpenBundle: @escaping () -> Void,
+    onOpenManifest: @escaping () -> Void,
+    onRequestExport: @escaping (ValidationGalleryCommentExportScope) -> Void,
+    exportFeedback: String? = nil,
+    isModalPresentationActive: Bool = false
+  ) {
+    self.store = store
+    self.onOpenBundle = onOpenBundle
+    self.onOpenManifest = onOpenManifest
+    self.onRequestExport = onRequestExport
+    self.exportFeedback = exportFeedback
+    self.isModalPresentationActive = isModalPresentationActive
+  }
+
+  public var body: some View {
+    Group {
+      #if os(macOS)
+        if store.snapshot == nil {
+          NavigationStack {
+            browserView(compact: false)
+              .navigationTitle("Validation Gallery")
+          }
+        } else {
+          NavigationSplitView {
+            ValidationGallerySidebar(store: store, onOpenRecent: { recent in
+              Task { await store.openRecent(recent) }
+            })
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
+          } content: {
+            browserView(compact: false)
+              .navigationSplitViewColumnWidth(
+                min: regularBrowserColumnMinimumWidth,
+                ideal: regularBrowserColumnIdealWidth,
+                max: regularBrowserColumnMaximumWidth
+              )
+          } detail: {
+            inspectorView
+              .navigationSplitViewColumnWidth(min: 520, ideal: 700, max: 960)
+          }
+          .navigationSplitViewStyle(.balanced)
+        }
+      #else
+        NavigationStack {
+          browserView(compact: true)
+          .navigationTitle("Validation Gallery")
+        }
+      #endif
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Validation Gallery")
+    .accessibilityIdentifier("validation-gallery-root")
+    .accessibilityHidden(isModalPresentationActive)
+    .searchable(text: $store.searchText, prompt: "Filter artifacts")
+    .toolbar {
+      #if os(macOS)
+        if store.snapshot != nil {
+          ToolbarItem(placement: .secondaryAction) {
+            HStack(spacing: 0) {
+              ControlGroup {
+                Button {
+                  store.setBrowserDisplayMode(.list)
+                } label: {
+                  Image(systemName: "list.bullet")
+                    .foregroundStyle(.primary)
+                    .padding(2)
+                    .background(
+                      store.workspacePreferences.browserDisplayMode == .list
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.15))
+                        : AnyShapeStyle(Color.clear),
+                      in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+                }
+                .accessibilityLabel("List Browser")
+                .accessibilityValue(
+                  Text("Current"),
+                  isEnabled: store.workspacePreferences.browserDisplayMode == .list
+                )
+                .accessibilityIdentifier("workspace-display-mode-list-button")
+
+                Button {
+                  store.setBrowserDisplayMode(.grid)
+                } label: {
+                  Image(systemName: "square.grid.2x2")
+                    .foregroundStyle(.primary)
+                    .padding(2)
+                    .background(
+                      store.workspacePreferences.browserDisplayMode == .grid
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.15))
+                        : AnyShapeStyle(Color.clear),
+                      in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+                }
+                .accessibilityLabel("Grid Browser")
+                .accessibilityValue(
+                  Text("Current"),
+                  isEnabled: store.workspacePreferences.browserDisplayMode == .grid
+                )
+                .accessibilityIdentifier("workspace-display-mode-grid-button")
+              } label: {
+                Label("Browser Display Mode", systemImage: "rectangle.grid.1x2")
+              }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Browser Display Mode")
+            .accessibilityValue(browserDisplayModeAccessibilityValue)
+            .accessibilityIdentifier("workspace-display-mode-picker")
+          }
+
+          ToolbarItem(placement: .secondaryAction) {
+            HStack(spacing: 0) {
+              ControlGroup {
+                Button {
+                  store.setMacPreviewEmphasis(.standard)
+                } label: {
+                  Image(systemName: "rectangle.split.3x1")
+                    .foregroundStyle(.primary)
+                    .padding(2)
+                    .background(
+                      store.workspacePreferences.macPreviewEmphasis == .standard
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.15))
+                        : AnyShapeStyle(Color.clear),
+                      in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+                }
+                .accessibilityLabel("Standard Preview Emphasis")
+                .accessibilityValue(
+                  Text("Current"),
+                  isEnabled: store.workspacePreferences.macPreviewEmphasis == .standard
+                )
+                .accessibilityIdentifier("workspace-preview-emphasis-standard-button")
+
+                Button {
+                  store.setMacPreviewEmphasis(.expanded)
+                } label: {
+                  Image(systemName: "rectangle.trailinghalf.inset.filled")
+                    .foregroundStyle(.primary)
+                    .padding(2)
+                    .background(
+                      store.workspacePreferences.macPreviewEmphasis == .expanded
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.15))
+                        : AnyShapeStyle(Color.clear),
+                      in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+                }
+                .accessibilityLabel("Expanded Preview Emphasis")
+                .accessibilityValue(
+                  Text("Current"),
+                  isEnabled: store.workspacePreferences.macPreviewEmphasis == .expanded
+                )
+                .accessibilityIdentifier("workspace-preview-emphasis-expanded-button")
+              } label: {
+                Label("Preview Emphasis", systemImage: "rectangle.expand.vertical")
+              }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Preview Emphasis")
+            .accessibilityValue(previewEmphasisAccessibilityValue)
+            .accessibilityIdentifier("workspace-preview-emphasis-picker")
+          }
+        }
+      #endif
+
+      ToolbarItemGroup(placement: .primaryAction) {
+        Button("Open Bundle", systemImage: "folder.badge.plus", action: onOpenBundle)
+          .accessibilityIdentifier("toolbar-open-validation-bundle-button")
+        Button("Open Manifest", systemImage: "doc.badge.plus", action: onOpenManifest)
+          .accessibilityIdentifier("toolbar-open-manifest-button")
+
+        if let source = store.snapshot?.source {
+          Button("Reload", systemImage: "arrow.clockwise") {
+            Task { await store.open(source, rememberRecent: false) }
+          }
+          .disabled(store.isLoading)
+        }
+
+        if store.hasCommentsInCurrentBundle {
+          Button("Export Bundle Comments", systemImage: "square.and.arrow.down") {
+            requestBundleExport()
+          }
+          .accessibilityIdentifier("export-bundle-comments-button")
+        }
+      }
+    }
+    .sheet(item: $sheetRoute) { route in
+      if let artifact = artifact(for: route.artifactID) {
+        previewSheet(for: artifact, mode: route.mode)
+      }
+    }
+    .overlay(alignment: .topTrailing) {
+      if let exportFeedback {
+        Text(exportFeedback)
+          .font(.footnote.weight(.semibold))
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .background(.regularMaterial, in: Capsule())
+          .padding()
+          .transition(.move(edge: .top).combined(with: .opacity))
+          .accessibilityIdentifier("comments-exported-toast")
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryAddPointComment)) { _ in
+      guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else {
+        return
+      }
+      presentSheet(for: selectedArtifact, mode: .addPointComment)
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryAddAreaComment)) { _ in
+      guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else {
+        return
+      }
+      presentSheet(for: selectedArtifact, mode: .addAreaComment)
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryExportSelectedComments)) { _ in
+      requestSelectedArtifactExport()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryExportBundleComments)) { _ in
+      requestBundleExport()
+    }
+    .onChange(of: sheetRoute?.id) { _, routeID in
+      guard routeID == nil, let pendingExportScope else {
+        return
+      }
+
+      self.pendingExportScope = nil
+      onRequestExport(pendingExportScope)
+    }
+    .animation(.snappy(duration: 0.24), value: store.sidebarSelection)
+    .animation(.snappy(duration: 0.24), value: store.searchText)
+    .animation(.snappy(duration: 0.22), value: exportFeedback)
+  }
+
+  private func browserView(compact: Bool) -> some View {
+    ValidationGalleryBrowserView(
+      store: store,
+      compact: compact,
+      onOpenBundle: onOpenBundle,
+      onOpenManifest: onOpenManifest,
+      onPreviewArtifact: { presentSheet(for: $0, mode: .preview) },
+      onAddPointComment: { presentSheet(for: $0, mode: .addPointComment) },
+      onAddAreaComment: { presentSheet(for: $0, mode: .addAreaComment) },
+      onExportComments: requestSelectedArtifactExport
+    )
+  }
+
+  private var inspectorView: some View {
+    ValidationGalleryInspectorView(
+      store: store,
+      snapshot: store.snapshot,
+      selectedArtifact: store.selectedArtifact,
+      filteredAuditIssues: store.filteredAuditIssues,
+      selectionSummary: store.selectedArtifactPositionText,
+      canSelectPreviousArtifact: store.canSelectPreviousArtifact,
+      canSelectNextArtifact: store.canSelectNextArtifact,
+      onSelectPreviousArtifact: store.selectPreviousArtifact,
+      onSelectNextArtifact: store.selectNextArtifact,
+      onPreviewArtifact: { presentSheet(for: $0, mode: .preview) },
+      onAddPointComment: { presentSheet(for: $0, mode: .addPointComment) },
+      onAddAreaComment: { presentSheet(for: $0, mode: .addAreaComment) },
+      onExportComments: requestSelectedArtifactExport
+    )
+  }
+
+  private var regularBrowserColumnMinimumWidth: CGFloat {
+    switch store.workspacePreferences.browserDisplayMode {
+    case .list:
+      return 260
+    case .grid:
+      return 340
+    }
+  }
+
+  private var regularBrowserColumnIdealWidth: CGFloat {
+    switch (store.workspacePreferences.browserDisplayMode, store.workspacePreferences.macPreviewEmphasis) {
+    case (.list, .standard):
+      return 330
+    case (.list, .expanded):
+      return 290
+    case (.grid, .standard):
+      return 420
+    case (.grid, .expanded):
+      return 360
+    }
+  }
+
+  private var regularBrowserColumnMaximumWidth: CGFloat {
+    switch store.workspacePreferences.browserDisplayMode {
+    case .list:
+      return 380
+    case .grid:
+      return 500
+    }
+  }
+
+  private var browserDisplayModeAccessibilityValue: String {
+    switch store.workspacePreferences.browserDisplayMode {
+    case .list:
+      "List"
+    case .grid:
+      "Grid"
+    }
+  }
+
+  private var previewEmphasisAccessibilityValue: String {
+    switch store.workspacePreferences.macPreviewEmphasis {
+    case .standard:
+      "Standard"
+    case .expanded:
+      "Expanded"
+    }
+  }
+
+  @ViewBuilder
+  private func previewSheet(
+    for artifact: ValidationGalleryArtifact,
+    mode: ValidationGalleryArtifactPresentationMode
+  ) -> some View {
+    let detailView = ValidationGalleryArtifactSheetView(
+      store: store,
+      artifact: artifact,
+      mode: mode,
+      onDismissRequested: { sheetRoute = nil },
+      onExportComments: requestSelectedArtifactExport
+    )
+
+    #if os(macOS)
+      detailView.presentationSizing(.page)
+    #else
+      detailView
+    #endif
+  }
+
+  private func presentSheet(
+    for artifact: ValidationGalleryArtifact,
+    mode: ValidationGalleryArtifactPresentationMode
+  ) {
+    guard mode == .preview || artifact.record.artifactType == .screenshot else {
+      return
+    }
+
+    sheetRoute = ValidationGalleryArtifactSheetRoute(artifactID: artifact.id, mode: mode)
+  }
+
+  private func artifact(for artifactID: ValidationGalleryArtifact.ID) -> ValidationGalleryArtifact? {
+    store.snapshot?.artifacts.first(where: { $0.id == artifactID })
+  }
+
+  private func requestSelectedArtifactExport() {
+    requestExport(.selectedArtifact)
+  }
+
+  private func requestBundleExport() {
+    requestExport(.currentBundle)
+  }
+
+  private func requestExport(_ scope: ValidationGalleryCommentExportScope) {
+    if sheetRoute != nil {
+      pendingExportScope = scope
+      sheetRoute = nil
+      return
+    }
+
+    onRequestExport(scope)
+  }
+}
+
+private struct ValidationGalleryArtifactSheetRoute: Identifiable, Equatable {
+  let artifactID: ValidationGalleryArtifact.ID
+  let mode: ValidationGalleryArtifactPresentationMode
+
+  var id: String {
+    "\(artifactID)::\(mode.rawValue)"
+  }
+}
+
+private extension Notification.Name {
+  static let validationGalleryAddPointComment = Notification.Name("ValidationGalleryAddPointComment")
+  static let validationGalleryAddAreaComment = Notification.Name("ValidationGalleryAddAreaComment")
+  static let validationGalleryExportSelectedComments = Notification.Name("ValidationGalleryExportSelectedComments")
+  static let validationGalleryExportBundleComments = Notification.Name("ValidationGalleryExportBundleComments")
+}
+
+private struct ValidationGallerySidebar: View {
+  @Bindable var store: ValidationGalleryStore
+  let onOpenRecent: (ValidationRecentBundle) -> Void
+
+  var body: some View {
+    List(selection: sidebarSelectionBinding) {
+      Section("Browse") {
+        Label("All Artifacts", systemImage: "square.grid.2x2")
+          .tag(ValidationGallerySidebarSelection?.some(.all))
+          .accessibilityIdentifier("sidebar-selection-all")
+          .onTapGesture { store.sidebarSelection = .all }
+      }
+
+      ForEach(store.snapshot?.platformSections ?? []) { platformSection in
+        Section(ValidationGalleryFormatting.platformTitle(platformSection.platform)) {
+          Label(
+            ValidationGalleryFormatting.platformTitle(platformSection.platform),
+            systemImage: "rectangle.stack"
+          )
+            .tag(ValidationGallerySidebarSelection?.some(.platform(platformSection.platform)))
+            .accessibilityIdentifier("sidebar-platform-\(ValidationGalleryFormatting.sanitizeForIdentifier(platformSection.platform))")
+            .onTapGesture { store.sidebarSelection = .platform(platformSection.platform) }
+
+          ForEach(platformSection.plans) { planSection in
+            Label(
+              ValidationGalleryFormatting.planTitle(planSection.plan),
+              systemImage: "list.bullet.rectangle"
+            )
+              .tag(
+                ValidationGallerySidebarSelection?.some(
+                  .plan(platform: planSection.platform, plan: planSection.plan)
+                )
+              )
+              .accessibilityIdentifier(
+                "sidebar-plan-\(ValidationGalleryFormatting.sanitizeForIdentifier(planSection.platform))-\(ValidationGalleryFormatting.sanitizeForIdentifier(planSection.plan))"
+              )
+              .onTapGesture { store.sidebarSelection = .plan(platform: planSection.platform, plan: planSection.plan) }
+          }
+        }
+      }
+
+      if store.recentBundles.isEmpty == false {
+        Section("Recent") {
+          ForEach(store.recentBundles) { recent in
+            Button {
+              onOpenRecent(recent)
+            } label: {
+              ValidationGalleryRecentBundleRow(recent: recent)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+    .listStyle(.sidebar)
+    .frame(minWidth: 200, idealWidth: 220, maxWidth: 240)
+    .accessibilityIdentifier("validation-gallery-sidebar")
+  }
+
+  private var sidebarSelectionBinding: Binding<ValidationGallerySidebarSelection?> {
+    Binding(
+      get: { store.sidebarSelection },
+      set: { newSelection in
+        store.sidebarSelection = newSelection ?? .all
+      }
+    )
+  }
+}
+
+private struct ValidationGalleryRecentBundleRow: View {
+  let recent: ValidationRecentBundle
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(ValidationGalleryFormatting.recentBundleTitle(recent))
+        .font(.subheadline.weight(.medium))
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let subtitle = ValidationGalleryFormatting.recentBundleSubtitle(recent) {
+        Text(subtitle)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .minimumScaleFactor(0.85)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+}

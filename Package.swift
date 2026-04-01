@@ -1,5 +1,16 @@
 // swift-tools-version: 6.2
+import Foundation
 import PackageDescription
+
+let packageRoot = URL(fileURLWithPath: #filePath)
+  .deletingLastPathComponent()
+  .standardizedFileURL
+let goEnryIncludeRoot = packageRoot
+  .appendingPathComponent(".build/vendor/go-enry/include", isDirectory: true)
+  .path
+let goEnryLibraryRoot = packageRoot
+  .appendingPathComponent(".build/vendor/go-enry/lib", isDirectory: true)
+  .path
 
 let package = Package(
   name: "symphony-swift",
@@ -13,6 +24,7 @@ let package = Package(
     .library(name: "SymphonyServer", targets: ["SymphonyServer"]),
     .library(name: "SymphonyHarness", targets: ["SymphonyHarness"]),
     .library(name: "SymphonyHarnessCLI", targets: ["SymphonyHarnessCLI"]),
+    .library(name: "SymphonyValidationGallery", targets: ["SymphonyValidationGallery"]),
     .executable(name: "symphony-server", targets: ["SymphonyServerCLI"]),
     .executable(name: "harness", targets: ["harness"]),
   ],
@@ -22,11 +34,13 @@ let package = Package(
     .package(
       url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.6.0"),
     .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.3"),
+    .package(url: "https://github.com/SimplyDanny/SwiftLintPlugins", from: "0.63.2"),
   ],
   targets: [
     .target(
       name: "SymphonyShared",
-      path: "Sources/SymphonyShared"
+      path: "Sources/SymphonyShared",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .target(
       name: "SymphonyServerCore",
@@ -34,22 +48,42 @@ let package = Package(
         "SymphonyShared",
         .product(name: "Yams", package: "Yams"),
       ],
-      path: "Sources/SymphonyServerCore"
+      path: "Sources/SymphonyServerCore",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .target(
+      name: "CGoEnryBridge",
+      path: "Sources/CGoEnryBridge",
+      publicHeadersPath: "include",
+      cSettings: [
+        .unsafeFlags(["-I", goEnryIncludeRoot])
+      ],
+      linkerSettings: [
+        .unsafeFlags(["-L", goEnryLibraryRoot, "-lenry"])
+      ]
+    ),
+    .target(
+      name: "GoEnryBridge",
+      dependencies: ["CGoEnryBridge"],
+      path: "Sources/GoEnryBridge"
     ),
     .target(
       name: "SymphonyServer",
       dependencies: [
         "SymphonyShared",
         "SymphonyServerCore",
+        "GoEnryBridge",
         .product(name: "Hummingbird", package: "hummingbird"),
         .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
       ],
-      path: "Sources/SymphonyServer"
+      path: "Sources/SymphonyServer",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .target(
       name: "SymphonyHarness",
       dependencies: ["SymphonyShared"],
-      path: "Sources/SymphonyHarness"
+      path: "Sources/SymphonyHarness",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .target(
       name: "SymphonyHarnessCLI",
@@ -57,12 +91,40 @@ let package = Package(
         "SymphonyHarness",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
-      path: "Sources/SymphonyHarnessCLI"
+      path: "Sources/SymphonyHarnessCLI",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .target(
+      name: "SymphonyXcodeValidation",
+      path: "Sources/SymphonyXcodeValidation",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .target(
+      name: "SymphonyValidationGallery",
+      dependencies: ["SymphonyXcodeValidation"],
+      path: "Sources/SymphonyValidationGallery",
+      resources: [
+        .copy("Resources/XcodeValidationGalleryFixture")
+      ],
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .target(
+      name: "SymphonyXcodeValidationCLI",
+      dependencies: [
+        "SymphonyXcodeValidation",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Sources/SymphonyXcodeValidationCLI"
     ),
     .executableTarget(
       name: "harness",
       dependencies: ["SymphonyHarnessCLI"],
       path: "Sources/harness"
+    ),
+    .executableTarget(
+      name: "SymphonyXcodeValidationRunner",
+      dependencies: ["SymphonyXcodeValidationCLI"],
+      path: "Sources/SymphonyXcodeValidationRunner"
     ),
     .executableTarget(
       name: "SymphonyServerCLI",
@@ -72,7 +134,8 @@ let package = Package(
     .testTarget(
       name: "SymphonyServerCoreTests",
       dependencies: ["SymphonyServerCore", "SymphonyShared"],
-      path: "Tests/SymphonyServerCoreTests"
+      path: "Tests/SymphonyServerCoreTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .testTarget(
       name: "SymphonyServerTests",
@@ -83,7 +146,8 @@ let package = Package(
         .product(name: "HummingbirdTesting", package: "hummingbird"),
         .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
       ],
-      path: "Tests/SymphonyServerTests"
+      path: "Tests/SymphonyServerTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .testTarget(
       name: "SymphonyServerCLITests",
@@ -93,17 +157,32 @@ let package = Package(
     .testTarget(
       name: "SymphonySharedTests",
       dependencies: ["SymphonyShared"],
-      path: "Tests/SymphonySharedTests"
+      path: "Tests/SymphonySharedTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .testTarget(
       name: "SymphonyHarnessTests",
       dependencies: ["SymphonyHarness", "SymphonyShared"],
-      path: "Tests/SymphonyHarnessTests"
+      path: "Tests/SymphonyHarnessTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .testTarget(
       name: "SymphonyHarnessCLITests",
       dependencies: ["SymphonyHarnessCLI", "SymphonyHarness", "SymphonyShared"],
-      path: "Tests/SymphonyHarnessCLITests"
+      path: "Tests/SymphonyHarnessCLITests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .testTarget(
+      name: "SymphonyXcodeValidationTests",
+      dependencies: ["SymphonyXcodeValidation", "SymphonyXcodeValidationCLI", "SymphonyShared"],
+      path: "Tests/SymphonyXcodeValidationTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
+    ),
+    .testTarget(
+      name: "SymphonyValidationGalleryTests",
+      dependencies: ["SymphonyValidationGallery", "SymphonyXcodeValidation", "SymphonyShared"],
+      path: "Tests/SymphonyValidationGalleryTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
   ]
 )

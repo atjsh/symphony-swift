@@ -39,6 +39,8 @@ public protocol SymphonyAPIClientProtocol: Sendable {
   func health(endpoint: ServerEndpoint) async throws -> HealthResponse
   func issues(endpoint: ServerEndpoint) async throws -> IssuesResponse
   func issueDetail(endpoint: ServerEndpoint, issueID: IssueID) async throws -> IssueDetail
+  func issueProgressReport(endpoint: ServerEndpoint, issueID: IssueID) async throws
+    -> IssueProgressReportResponse
   func runDetail(endpoint: ServerEndpoint, runID: RunID) async throws -> RunDetail
   func logs(endpoint: ServerEndpoint, sessionID: SessionID, cursor: EventCursor?, limit: Int)
     async throws -> LogEntriesResponse
@@ -91,6 +93,16 @@ public final class URLSessionSymphonyAPIClient: SymphonyAPIClientProtocol, @unch
 
   public func issueDetail(endpoint: ServerEndpoint, issueID: IssueID) async throws -> IssueDetail {
     try await request(endpoint: endpoint, method: "GET", path: "/api/v1/issues/\(issueID.rawValue)")
+  }
+
+  public func issueProgressReport(endpoint: ServerEndpoint, issueID: IssueID) async throws
+    -> IssueProgressReportResponse
+  {
+    try await request(
+      endpoint: endpoint,
+      method: "GET",
+      path: "/api/v1/issues/\(issueID.rawValue)/progress-report"
+    )
   }
 
   public func runDetail(endpoint: ServerEndpoint, runID: RunID) async throws -> RunDetail {

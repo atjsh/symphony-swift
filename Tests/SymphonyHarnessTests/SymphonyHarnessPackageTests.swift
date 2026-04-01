@@ -66,26 +66,26 @@ import Testing
 
 @Test func harnessLibraryPublicSurfaceUsesSubjectRequestsInsteadOfLegacyProductRequests() throws {
   let repoRoot = currentRepositoryRoot()
-  let buildModels = try String(
-    contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyHarness/Models/BuildModels.swift"),
-    encoding: .utf8
-  )
+  let modelsDir = repoRoot.appendingPathComponent("Sources/SymphonyHarness/Models")
+  let modelFiles = try FileManager.default.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil)
+    .filter { $0.pathExtension == "swift" }
+  let buildModels = try modelFiles.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
   let planningModels = try String(
     contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyHarness/Models/HarnessPlanningModels.swift"),
     encoding: .utf8
   )
-  let toolSource = try String(
-    contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyHarness/SymphonyHarnessTool.swift"),
-    encoding: .utf8
-  )
-  let artifactManager = try String(
-    contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyHarness/Artifacts/ArtifactManager.swift"),
-    encoding: .utf8
-  )
-  let commitHarness = try String(
-    contentsOf: repoRoot.appendingPathComponent("Sources/SymphonyHarness/Harness/CommitHarness.swift"),
-    encoding: .utf8
-  )
+  let harnessDir = repoRoot.appendingPathComponent("Sources/SymphonyHarness")
+  let toolFiles = try FileManager.default.contentsOfDirectory(at: harnessDir, includingPropertiesForKeys: nil)
+    .filter { $0.lastPathComponent.hasPrefix("SymphonyHarnessTool") && $0.pathExtension == "swift" }
+  let toolSource = try toolFiles.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
+  let artifactsDir = repoRoot.appendingPathComponent("Sources/SymphonyHarness/Artifacts")
+  let artifactFiles = try FileManager.default.contentsOfDirectory(at: artifactsDir, includingPropertiesForKeys: nil)
+    .filter { $0.pathExtension == "swift" }
+  let artifactManager = try artifactFiles.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
+  let harnessSubdir = repoRoot.appendingPathComponent("Sources/SymphonyHarness/Harness")
+  let commitFiles = try FileManager.default.contentsOfDirectory(at: harnessSubdir, includingPropertiesForKeys: nil)
+    .filter { $0.lastPathComponent.hasPrefix("CommitHarness") && $0.pathExtension == "swift" }
+  let commitHarness = try commitFiles.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
 
   #expect(planningModels.contains("public struct ExecutionRequest"))
   #expect(!buildModels.contains("public struct BuildCommandRequest"))
@@ -101,12 +101,14 @@ import Testing
   #expect(!buildModels.contains("public struct ArtifactsCommandRequest"))
   #expect(!buildModels.contains("public struct SimSetServerRequest"))
   #expect(!buildModels.contains("public struct SimBootRequest"))
+  #expect(buildModels.contains("public struct GoEnryMaterializationRequest"))
 
   #expect(toolSource.contains("public func build(_ request: ExecutionRequest)"))
   #expect(toolSource.contains("public func test(_ request: ExecutionRequest)"))
   #expect(toolSource.contains("public func run(_ request: ExecutionRequest)"))
   #expect(toolSource.contains("public func validate(_ request: ExecutionRequest)"))
   #expect(toolSource.contains("public func doctor(_ request: DoctorCommandRequest)"))
+  #expect(toolSource.contains("public func materializeGoEnry(_ request: GoEnryMaterializationRequest)"))
   #expect(!toolSource.contains("public func build(_ request: BuildCommandRequest)"))
   #expect(!toolSource.contains("public func test(_ request: TestCommandRequest)"))
   #expect(!toolSource.contains("public func run(_ request: RunCommandRequest)"))
@@ -166,9 +168,14 @@ import Testing
   #expect(justfile.contains("run subject"))
   #expect(justfile.contains("validate *subjects:"))
   #expect(justfile.contains("doctor:"))
+  #expect(justfile.contains("materialize-go-enry:"))
   #expect(justfile.contains("harness_scratch_path :="))
   #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness build"))
   #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness validate"))
+  #expect(
+    justfile.contains(
+      "swift run --quiet --scratch-path {{harness_scratch_path}} harness materialize-go-enry"))
+  #expect(!justfile.contains("./Scripts/materialize-go-enry.sh"))
 }
 
 @Test func rootManifestPublishesCanonicalServerTargetsAndRemovesLegacyRuntimeTargets() throws {
@@ -265,11 +272,10 @@ import Testing
   #expect(nonUITests.contains("@Suite"))
   #expect(nonUITests.contains("@Test"))
 
-  let uiTests = try String(
-    contentsOf: repoRoot.appendingPathComponent(
-      "Applications/SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests.swift"),
-    encoding: .utf8
-  )
+  let uiTestDir = repoRoot.appendingPathComponent("Applications/SymphonySwiftUIAppUITests")
+  let uiTestFiles = try FileManager.default.contentsOfDirectory(at: uiTestDir, includingPropertiesForKeys: nil)
+    .filter { $0.pathExtension == "swift" }
+  let uiTests = try uiTestFiles.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
   #expect(uiTests.contains("performAccessibilityAudit(for:"))
   #expect(uiTests.contains("XCTAttachment(screenshot:"))
   #expect(uiTests.contains("root"))
@@ -373,10 +379,14 @@ import Testing
   #expect(FileManager.default.fileExists(atPath: justfilePath.path))
 
   let justfile = try String(contentsOf: justfilePath, encoding: .utf8)
-  for recipe in ["build", "test", "run", "validate", "doctor"] {
+  for recipe in ["build", "test", "run", "validate", "doctor", "materialize-go-enry"] {
     #expect(justfile.contains(recipe))
     #expect(justfile.contains("swift run --quiet --scratch-path {{harness_scratch_path}} harness \(recipe)"))
   }
+
+  #expect(
+    !FileManager.default.fileExists(
+      atPath: repoRoot.appendingPathComponent("Scripts/materialize-go-enry.sh").path))
 
   let preCommit = try String(contentsOf: preCommitPath, encoding: .utf8)
   #expect(preCommit.contains("#!/bin/sh"))

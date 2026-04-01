@@ -375,6 +375,8 @@ import Testing
   )
   let doctorRequest = DoctorCommandRequest(
     strict: true, json: true, quiet: true, currentDirectory: URL(fileURLWithPath: "/tmp"))
+  let materializeGoEnryRequest = GoEnryMaterializationRequest(
+    currentDirectory: URL(fileURLWithPath: "/tmp"))
   let simSetRequest = SimSetServerRequest(
     serverURL: nil, scheme: "https", host: "example.com", port: 9443,
     currentDirectory: URL(fileURLWithPath: "/tmp"))
@@ -389,6 +391,7 @@ import Testing
   #expect(artifactsRequest.command == .harness)
   #expect(artifactsRequest.runID == "run-1")
   #expect(doctorRequest.strict)
+  #expect(materializeGoEnryRequest.currentDirectory.path == "/tmp")
   #expect(simSetRequest.host == "example.com")
   #expect(simBootRequest.simulator == "AAAA-BBBB")
 }

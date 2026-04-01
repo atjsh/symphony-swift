@@ -99,6 +99,9 @@ defined in Section 20.
 - Expose a required HTTP/JSON and WebSocket API for the native client.
 - Let the SwiftUI client view current work, replay prior logs, and live-tail
   active sessions.
+- Let the SwiftUI client inspect issue-scoped repository progress, historical
+  repository growth, commit-level metrics, and current parse health for an
+  issue workspace without leaving Symphony.
 - Preserve raw provider-event fidelity end-to-end.
 - Support restart recovery for historical state and observability without
   requiring active session resumption.
@@ -385,6 +388,82 @@ Fields:
 - `Event Sequence`
   - Server-assigned, strictly increasing per-session sequence number.
 
+### 5.10 Issue Progress Report
+
+Issue-scoped repository progress payload used by the `Progress` tab in the
+native client.
+
+The progress model is intentionally language-neutral for historical metrics:
+repository history is measured as file inventory and text volume over time,
+while parse health is a separate optional current-`HEAD` signal.
+
+Required types:
+
+- `IssueProgressReportResponse`
+  - `issue_id` (string)
+  - `generated_at` (timestamp)
+  - `report` (`RepositoryHistoryReport`)
+  - `syntax_health` (`RepositorySyntaxHealth`)
+- `RepositoryHistoryReport`
+  - `head_commit_id` (string)
+  - `summary` (`RepositoryMetricsSnapshot`)
+  - `commits` (list of `RepositoryHistoryCommit`)
+  - `buckets` (list of `RepositoryMetricsBucket`)
+- `RepositoryHistoryCommit`
+  - `commit_id` (string)
+  - `short_id` (string)
+  - `subject` (string)
+  - `author_name` (string)
+  - `committed_at` (timestamp)
+  - `metrics` (`RepositoryMetricsSnapshot`)
+  - `git_activity`
+    - `files_changed` (integer)
+    - `insertions` (integer)
+    - `deletions` (integer)
+- `RepositoryMetricsSnapshot`
+  - `file_count` (integer)
+  - `source_file_count` (integer)
+  - `test_file_count` (integer)
+  - `other_file_count` (integer)
+  - `line_count` (integer)
+  - `character_count` (integer)
+  - `byte_count` (integer)
+  - `largest_file` (`RepositoryFileSummary` or null)
+  - `smallest_file` (`RepositoryFileSummary` or null)
+- `RepositoryMetricsBucket`
+  - `bucket_id` (string)
+  - `label` (string)
+  - `start_at` (timestamp)
+  - `end_at` (timestamp)
+  - `metrics` (`RepositoryMetricsSnapshot`)
+- `RepositoryFileSummary`
+  - `path` (string)
+  - `category` (enum: `source`, `test`, `other`)
+  - `line_count` (integer)
+  - `character_count` (integer)
+  - `byte_count` (integer)
+- `RepositorySyntaxHealth`
+  - `status` (enum: `configured`, `unsupported`, `failed`)
+  - `checked_file_count` (integer)
+  - `diagnostic_count` (integer)
+  - `failure_message` (string or null)
+  - `diagnostics` (list of `RepositorySyntaxDiagnostic`)
+- `RepositorySyntaxDiagnostic`
+  - `path` (string)
+  - `message` (string)
+  - `severity` (string)
+  - `line` (integer or null)
+  - `column` (integer or null)
+
+Progress-report invariants:
+
+- Historical chart metrics are limited to `files`, `lines`, `characters`, and
+  `bytes`.
+- Historical progress data does not include declaration or symbol counts.
+- `syntax_health` is optional current-state analysis and does not define a
+  historical trend line in v1.
+- File classification is file-level, not syntax-tree-level.
+
 ## 6. Workflow and Configuration
 
 ### 6.1 File Discovery
@@ -423,6 +502,7 @@ Top-level keys:
 - `providers`
 - `server`
 - `storage`
+- `analysis`
 
 Unknown keys should be ignored for forward compatibility.
 
@@ -545,6 +625,35 @@ Fields:
 
 - `sqlite_path` (default `<application-support>/symphony/symphony.sqlite3`)
 - `retain_raw_events` (required behavior, default `true`)
+
+#### 6.3.9 `analysis`
+
+Fields:
+
+- `history`
+  - `source_paths` (optional list of repo-root-relative glob strings)
+  - `test_paths` (optional list of repo-root-relative glob strings)
+- `syntax`
+  - `command` (optional shell command string executed from the workspace root)
+
+Rules:
+
+- `test_paths` overrides are applied before `source_paths` overrides.
+- When neither override matches, default source detection uses `go-enry`.
+- Default source classification excludes files identified by `go-enry` as
+  binary, vendor, generated, documentation, configuration, dotfile, or image
+  content.
+- Default test classification uses workflow overrides first, then `go-enry`
+  test detection, then conservative basename fallback such as `*.test.*`,
+  `*.spec.*`, `*_test.*`, `*_tests.*`, and `test_*`.
+- Historical metrics include only tracked UTF-8 text blobs.
+- `analysis.syntax.command`, when configured, must emit JSON to stdout with:
+  - `checked_file_count`
+  - `diagnostic_count`
+  - `diagnostics` containing `path`, `message`, `severity`, and optional
+    `line` and `column`
+- A missing `analysis.syntax.command` is treated as unsupported parse health,
+  not as a server error.
 
 ### 6.4 Resolution Semantics
 
@@ -988,6 +1097,10 @@ The SQLite database is the durable source of truth for historical metadata and i
 The server uses this store for runtime state exposed over HTTP and WebSocket, orchestration
 metadata, and provider recovery state.
 
+Derived progress-report caches may live outside SQLite when they can be
+recomputed from repository history and workflow configuration. Those caches are
+performance artifacts, not the durable source of truth.
+
 ### 11.2 Required Durable Records
 
 The persistence layer must store enough information to reconstruct:
@@ -1188,7 +1301,125 @@ Returns:
 - workspace path
 - recent agent sessions
 
-### 13.6 Run Detail
+### 13.6 Issue Progress Report
+
+`GET /api/v1/issues/{id}/progress-report`
+
+Returns:
+
+- `IssueProgressReportResponse`
+- current repository-history summary for the issue workspace
+- historical commit and bucket metrics for charting
+- current parse-health status when configured
+
+Response requirements:
+
+- `issue_id` identifies the issue whose workspace was analyzed
+- `generated_at` records when the response was produced
+- `report.head_commit_id` identifies the repository `HEAD` used for the
+  historical snapshot
+- `report.summary` is the current aggregate snapshot for the analyzed history
+- `report.commits` contains commit-level historical points ordered for client
+  navigation and charting
+- `report.buckets` contains coarser chart buckets suitable for fast rendering
+- `syntax_health` is always present, with status `configured`, `unsupported`,
+  or `failed`
+
+Metrics contract:
+
+- historical metrics include only `file_count`, `source_file_count`,
+  `test_file_count`, `other_file_count`, `line_count`, `character_count`, and
+  `byte_count`
+- `Functions` and `Symbols` are not part of the contract
+- parse health is not a chart metric
+
+Documented errors:
+
+- `404 issue_not_found`
+- `409 workspace_unavailable`
+- `503 repository_history_unavailable`
+
+Suggested response:
+
+```json
+{
+  "issue_id": "I_123",
+  "generated_at": "2026-03-29T12:00:00Z",
+  "report": {
+    "head_commit_id": "0123456789abcdef",
+    "summary": {
+      "file_count": 42,
+      "source_file_count": 24,
+      "test_file_count": 10,
+      "other_file_count": 8,
+      "line_count": 10420,
+      "character_count": 312004,
+      "byte_count": 312004,
+      "largest_file": {
+        "path": "Applications/SymphonySwiftUIApp/SymphonyOperatorModel.swift",
+        "category": "source",
+        "line_count": 1400,
+        "character_count": 42000,
+        "byte_count": 42000
+      },
+      "smallest_file": null
+    },
+    "commits": [
+      {
+        "commit_id": "0123456789abcdef",
+        "short_id": "0123456",
+        "subject": "Add progress report endpoint",
+        "author_name": "Symphony Developer",
+        "committed_at": "2026-03-29T11:32:00Z",
+        "metrics": {
+          "file_count": 42,
+          "source_file_count": 24,
+          "test_file_count": 10,
+          "other_file_count": 8,
+          "line_count": 10420,
+          "character_count": 312004,
+          "byte_count": 312004,
+          "largest_file": null,
+          "smallest_file": null
+        },
+        "git_activity": {
+          "files_changed": 7,
+          "insertions": 320,
+          "deletions": 18
+        }
+      }
+    ],
+    "buckets": [
+      {
+        "bucket_id": "2026-03",
+        "label": "Mar 2026",
+        "start_at": "2026-03-01T00:00:00Z",
+        "end_at": "2026-03-31T23:59:59Z",
+        "metrics": {
+          "file_count": 42,
+          "source_file_count": 24,
+          "test_file_count": 10,
+          "other_file_count": 8,
+          "line_count": 10420,
+          "character_count": 312004,
+          "byte_count": 312004,
+          "largest_file": null,
+          "smallest_file": null
+        }
+      }
+    ]
+  },
+  "syntax_health": {
+    "status": "configured",
+    "checked_file_count": 36,
+    "diagnostic_count": 0,
+    "failure_message": null,
+    "diagnostics": []
+  }
+}
+```
+
+### 13.7 Run Detail
 
 `GET /api/v1/runs/{id}`
 
@@ -1200,7 +1431,7 @@ Returns:
 - aggregate token usage
 - latest log counters
 
-### 13.7 Historical Logs
+### 13.8 Historical Logs
 
 `GET /api/v1/logs/{session_id}?cursor=...&limit=...`
 
@@ -1238,7 +1469,7 @@ Replay semantics:
 - `next_cursor` represents the last event included in the response
 - event order always matches persisted `sequence`
 
-### 13.8 Refresh Trigger
+### 13.9 Refresh Trigger
 
 `POST /api/v1/refresh`
 
@@ -1255,7 +1486,7 @@ Suggested response:
 }
 ```
 
-### 13.9 WebSocket Log Stream
+### 13.10 WebSocket Log Stream
 
 `WS /api/v1/logs/stream?session_id=...&cursor=...`
 
@@ -1278,13 +1509,19 @@ Client expectations:
 - reconnect should re-use the last received cursor
 - if the session is already complete, the socket may send backlog then close gracefully
 
-### 13.10 API Type Contracts
+### 13.11 API Type Contracts
 
 The required API surface must expose or imply these types:
 
 - `ServerEndpoint`
 - `IssueSummary`
 - `IssueDetail`
+- `IssueProgressReportResponse`
+- `RepositoryHistoryReport`
+- `RepositoryHistoryCommit`
+- `RepositoryMetricsSnapshot`
+- `RepositoryMetricsBucket`
+- `RepositorySyntaxHealth`
 - `RunSummary`
 - `RunDetail`
 - `AgentSession`
@@ -1330,7 +1567,7 @@ Default values:
 
 1. Connection view
 2. Issue list view
-3. Issue detail view
+3. Issue detail view with Overview, Sessions, Logs, and Progress navigation
 4. Run/session detail view
 5. Live log viewer
 
@@ -1340,6 +1577,19 @@ Default values:
 - inspect persisted run metadata
 - replay historical logs from HTTP
 - live-tail logs from WebSocket
+- lazy-load an issue-scoped `Progress` tab from
+  `GET /api/v1/issues/{id}/progress-report`
+- render `Files`, `Lines`, `Characters`, and `Bytes` as the only selectable
+  progress-chart metrics
+- render parse health as a separate panel rather than a chart metric
+- show cached progress data immediately when available, then refresh in the
+  background
+- support explicit local report refresh without changing the meaning of the
+  top-level orchestration refresh action
+- persist local progress snapshot and selection state in app-local SwiftData,
+  with the server remaining authoritative
+- support regular-width navigator/dashboard/inspector layout and compact stacked
+  layout for the `Progress` tab
 - show provider badge on runs and sessions
 - correctly render the normalized event kinds defined in Section 12
 - show raw JSON fallback for unknown provider event types
@@ -1447,6 +1697,8 @@ This section defines the minimum validation matrix for conformant implementation
 - YAML front matter parsing
 - non-map front matter rejection
 - defaults for tracker, polling, workspace, agent, providers, server, and storage
+- defaults and parsing for `analysis.history.source_paths`,
+  `analysis.history.test_paths`, and `analysis.syntax.command`
 - `$VAR` resolution
 - `~` path expansion
 - strict prompt render behavior
@@ -1492,6 +1744,7 @@ This section defines the minimum validation matrix for conformant implementation
 
 - health serialization
 - issue/run detail serialization
+- issue progress report serialization and error-envelope mapping
 - log pagination
 - cursor encoding and decoding
 - historical replay ordering
@@ -1509,6 +1762,14 @@ This section defines the minimum validation matrix for conformant implementation
 - manual remote host/domain entry
 - issue list loading
 - run detail loading
+- progress-report cached-first loading
+- progress-report background refresh replacement
+- progress metric selection limited to `Files`, `Lines`, `Characters`, and
+  `Bytes`
+- absence of `Functions` and `Symbols` in the progress UI
+- progress regular-width and compact-width layout rendering
+- progress parse-health panel rendering for configured, unsupported, and failed
+  states
 - provider badge rendering
 - correct rendering of:
   - `message`
@@ -1613,6 +1874,11 @@ This section defines the minimum validation matrix for conformant implementation
   accessibility-audit failures
 - app scheme, bundle, signing, and Xcode Test Plan cleanup checks for
   `SymphonySwiftUIApp`
+- `materialize-go-enry` command wiring through `SymphonyHarness` and
+  `SymphonyHarnessCLI`, including the canonical `just` wrapper
+- `go-enry` submodule-dependent materialization output at
+  `.build/vendor/go-enry/lib/libenry.a` and
+  `.build/vendor/go-enry/include/enry.h`
 
 ### 17.9 Acceptance Scenarios
 
@@ -1629,6 +1895,9 @@ This section defines the minimum validation matrix for conformant implementation
   `XCUIApplication.performAccessibilityAudit(for:_:)`
 - trusted localhost connection works without extra setup
 - remote trusted-network connection works when host/domain and port are entered manually
+- issue detail `Progress` opens without eager loading, renders cached history
+  first when available, and refreshes to current repository metrics and parse
+  health on demand
 
 ## 18. Definition of Done
 
@@ -1669,6 +1938,11 @@ Symphony is conformant when all of the following are true:
   history or log replay, it should be persisted.
 - The server may maintain additional indexes or caches, but the raw event body
   remains canonical.
+- Progress-report history is derived server data, not a separate durable source
+  of truth.
+- Historical progress analysis is server-side and file-level. It measures
+  tracked text files over git history rather than language-specific declaration
+  graphs.
 - The client should prefer a thin rendering layer over server-owned behavior
   rather than duplicating orchestration rules locally.
 - Hummingbird is the normative server framework, and custom HTTP parsing is not a
@@ -1678,6 +1952,20 @@ Symphony is conformant when all of the following are true:
 - `SymphonyShared` should prefer portable Swift value semantics over host-bound
   convenience APIs when practical; filesystem, process, transport, and
   persistence helpers belong in outer layers.
+- Default source detection for progress reporting uses `go-enry`, with
+  repository-owned `analysis.history.*` overrides taking precedence for unusual
+  layouts.
+- The `go-enry` source dependency is managed as a pinned git submodule under
+  `ThirdParty/go-enry`; materialized archive and header outputs are build
+  artifacts, not checked-in binaries.
+- `SymphonyHarness` owns `go-enry` materialization through the canonical
+  `materialize-go-enry` command, and `just` may only wrap that command.
+- SwiftData is app-local only for progress snapshots and local selection state.
+  `SymphonyShared`, `SymphonyServerCore`, and `SymphonyServer` remain
+  independent of SwiftData.
+- Progress-report performance depends on blob-level classification caching,
+  bounded structured concurrency during server analysis, and precomputed chart
+  series and filtered lists before SwiftUI rendering.
 - `SymphonyHarness` should stay free of server-only package dependencies.
 - Future alternate-host experiments, including browser or WASM-oriented
   orchestration or replay surfaces, should build on `SymphonyShared` and
@@ -2219,6 +2507,10 @@ Conditionally required tools for app work:
 - `xcrun`
 - Simulator tooling and `xcresulttool`
 
+Conditionally required tools for server progress-report work:
+
+- `go` for `go-enry` archive materialization
+
 Runtime rules:
 
 - package, server, and harness work remains valid on hosts without Xcode
@@ -2231,6 +2523,8 @@ Runtime rules:
   checked-in Xcode Test Plan set with explicit result-bundle paths
 - `doctor` must report missing `just` or missing Xcode clearly and
   deterministically
+- `materialize-go-enry` must fail clearly when `go` is unavailable or the
+  `ThirdParty/go-enry` submodule is not initialized
 - the root package is the first-class SourceKit-LSP and VS Code integration
   surface for `SymphonyShared`, `SymphonyServerCore`, `SymphonyServer`,
   `SymphonyServerCLI`, `SymphonyHarness`, and `SymphonyHarnessCLI`
@@ -2292,6 +2586,13 @@ Rules:
 
 - No shell package, XcodeGen input, or undocumented support script is part of the
   required dependency-materialization flow.
+- The canonical `go-enry` source lives in the checked-out
+  `ThirdParty/go-enry` git submodule.
+- `harness materialize-go-enry` is the required command for producing
+  `.build/vendor/go-enry/lib/libenry.a` and
+  `.build/vendor/go-enry/include/enry.h`.
+- `just materialize-go-enry` may exist only as a thin wrapper around
+  `harness materialize-go-enry`.
 - If future local prerequisites need explicit preparation, they must surface
   through the canonical `harness` or `just` workflow rather than hidden tooling.
 - Any required bootstrap, dependency materialization, or environment

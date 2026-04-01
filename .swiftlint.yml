@@ -1,0 +1,44 @@
+included:
+  - Sources/SymphonyShared
+  - Tests/SymphonySharedTests
+  - Sources/SymphonyServerCore
+  - Tests/SymphonyServerCoreTests
+  - Sources/SymphonyServer
+  - Tests/SymphonyServerTests
+  - Sources/SymphonyHarness
+  - Sources/SymphonyHarnessCLI
+  - Tests/SymphonyHarnessTests
+  - Tests/SymphonyHarnessCLITests
+  - Sources/SymphonyXcodeValidation
+  - Tests/SymphonyXcodeValidationTests
+  - Sources/SymphonyValidationGallery
+  - Tests/SymphonyValidationGalleryTests
+  - Applications/SymphonySwiftUIApp
+  - Applications/SymphonySwiftUIAppTests
+  - Applications/SymphonySwiftUIAppUITests
+  - Applications/XcodeValidationGalleryApp
+  - Applications/XcodeValidationGalleryAppTests
+  - Applications/XcodeValidationGalleryAppUITests
+
+file_length:
+  warning: 400
+  error: 500
+
+type_body_length:
+  warning: 350
+  error: 450
+
+disabled_rules:
+  - trailing_comma
+  - opening_brace
+  - identifier_name
+  - force_cast
+  - force_try
+  - line_length
+  - type_name
+  - large_tuple
+  - nesting
+  - function_body_length
+  - function_parameter_count
+  - optional_data_string_conversion
+  - cyclomatic_complexity

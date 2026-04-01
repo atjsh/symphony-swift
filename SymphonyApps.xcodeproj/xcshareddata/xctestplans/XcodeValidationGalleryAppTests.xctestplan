@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1010000-0000-4000-8000-000000000102",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:SymphonyApps.xcodeproj",
+        "identifier" : "A10100000000000000000062",
+        "name" : "XcodeValidationGalleryAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}

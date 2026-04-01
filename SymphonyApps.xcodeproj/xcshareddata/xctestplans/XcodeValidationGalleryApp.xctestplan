@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1010000-0000-4000-8000-000000000101",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:SymphonyApps.xcodeproj",
+      "identifier" : "A10100000000000000000060",
+      "name" : "XcodeValidationGalleryApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:SymphonyApps.xcodeproj",
+        "identifier" : "A10100000000000000000062",
+        "name" : "XcodeValidationGalleryAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}

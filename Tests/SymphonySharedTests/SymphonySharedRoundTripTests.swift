@@ -205,6 +205,75 @@ import Testing
   let errorEnvelope = ErrorEnvelope(
     error: ErrorPayload(code: "missing_issue", message: "Issue not found."))
   let issueList = IssuesResponse(items: [issueSummary])
+  let largestFile = RepositoryFileSummary(
+    path: "Sources/App/Main.swift",
+    category: .source,
+    lineCount: 200,
+    characterCount: 4_800,
+    byteCount: 4_800
+  )
+  let smallestFile = RepositoryFileSummary(
+    path: "Tests/App/MainTests.swift",
+    category: .test,
+    lineCount: 12,
+    characterCount: 240,
+    byteCount: 240
+  )
+  let activity = RepositoryGitActivitySummary(changedFileCount: 3, additions: 18, deletions: 4)
+  let metrics = RepositoryMetricsSnapshot(
+    fileCount: 8,
+    sourceFileCount: 5,
+    testFileCount: 2,
+    otherFileCount: 1,
+    lineCount: 1_240,
+    characterCount: 32_400,
+    byteCount: 32_400,
+    largestFile: largestFile,
+    smallestFile: smallestFile,
+    activity: activity
+  )
+  let commit = RepositoryHistoryCommit(
+    commitID: "abcdef1234567890",
+    shortID: "abcdef1",
+    subject: "Implement issue progress report",
+    authorName: "Taylor",
+    committedAt: "2026-03-24T06:00:00Z",
+    metrics: metrics,
+    activity: activity
+  )
+  let bucket = RepositoryMetricsBucket(
+    bucketID: "bucket-1",
+    label: "Week 1",
+    rangeStart: "2026-03-18T00:00:00Z",
+    rangeEnd: "2026-03-24T23:59:59Z",
+    metrics: metrics
+  )
+  let report = RepositoryHistoryReport(
+    headCommitID: "abcdef1234567890",
+    summary: metrics,
+    commits: [commit],
+    buckets: [bucket]
+  )
+  let syntaxHealth = RepositorySyntaxHealth(
+    status: .configured,
+    checkedFileCount: 7,
+    diagnosticCount: 1,
+    diagnostics: [
+      RepositorySyntaxDiagnostic(
+        path: "Sources/App/Main.swift",
+        message: "Unexpected token",
+        severity: "error",
+        line: 18,
+        column: 7
+      )
+    ]
+  )
+  let progressReport = IssueProgressReportResponse(
+    issueID: issue.id,
+    generatedAt: "2026-03-24T12:00:00Z",
+    report: report,
+    syntaxHealth: syntaxHealth
+  )
 
   #expect(try roundTrip(blocker) == blocker)
   #expect((try roundTrip(issue)).labels == ["bug", "needs-test"])
@@ -218,6 +287,15 @@ import Testing
   #expect(try roundTrip(logs) == logs)
   #expect(try roundTrip(refresh) == refresh)
   #expect(try roundTrip(errorEnvelope) == errorEnvelope)
+  #expect(try roundTrip(largestFile) == largestFile)
+  #expect(try roundTrip(smallestFile) == smallestFile)
+  #expect(try roundTrip(activity) == activity)
+  #expect(try roundTrip(metrics) == metrics)
+  #expect(try roundTrip(commit) == commit)
+  #expect(try roundTrip(bucket) == bucket)
+  #expect(try roundTrip(report) == report)
+  #expect(try roundTrip(syntaxHealth) == syntaxHealth)
+  #expect(try roundTrip(progressReport) == progressReport)
   #expect(identifier.description == identifier.rawValue)
   #expect(issue.identifier.workspaceKey.description == "atjsh_example_42")
 

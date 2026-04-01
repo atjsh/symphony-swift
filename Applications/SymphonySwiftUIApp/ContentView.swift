@@ -2,7 +2,7 @@ import SwiftUI
 import SymphonyShared
 
 struct ContentView: View {
-  @ObservedObject var model: SymphonyOperatorModel
+  var model: SymphonyOperatorModel
 
   init(model: SymphonyOperatorModel) {
     self.model = model
