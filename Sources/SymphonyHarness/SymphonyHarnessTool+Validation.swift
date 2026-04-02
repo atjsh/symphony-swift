@@ -159,6 +159,9 @@ extension SymphonyHarnessTool {
       }
 
       let destinations = try simulatorResolver.approvedValidationDestinations()
+      for destination in destinations {
+        try simulatorResolver.boot(resolved: destination)
+      }
       let fileManager = FileManager.default
       try fileManager.createDirectory(at: subjectRoot, withIntermediateDirectories: true)
 

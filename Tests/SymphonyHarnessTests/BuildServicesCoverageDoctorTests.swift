@@ -75,7 +75,11 @@ import Testing
     workspaceDiscovery: discovery,
     processRunner: runner,
     toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
-      capabilities: .fullyAvailableForTests)
+      capabilities: .fullyAvailableForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPhone 17", udid: "A", state: "Booted", runtime: "iOS 26"),
+      SimulatorDevice(name: "iPad Pro", udid: "B", state: "Booted", runtime: "iOS 26"),
+    ])
   )
 
   let report = try service.makeReport(
@@ -108,7 +112,11 @@ import Testing
     workspaceDiscovery: discovery,
     processRunner: runner,
     toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
-      capabilities: .fullyAvailableForTests)
+      capabilities: .fullyAvailableForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPhone 17", udid: "A", state: "Booted", runtime: "iOS 26"),
+      SimulatorDevice(name: "iPad Pro", udid: "B", state: "Booted", runtime: "iOS 26"),
+    ])
   )
 
   let report = try service.makeReport(
@@ -158,3 +166,117 @@ import Testing
   }
 }
 
+@Test func doctorReportsMissingIPhoneSimulator() throws {
+  let service = DoctorService(
+    workspaceDiscovery: StubWorkspaceDiscovery(
+      workspace: WorkspaceContext(
+        projectRoot: URL(fileURLWithPath: "/tmp/repo", isDirectory: true),
+        buildStateRoot: URL(fileURLWithPath: "/tmp/repo/.build/harness", isDirectory: true),
+        xcodeWorkspacePath: URL(fileURLWithPath: "/tmp/repo/Symphony.xcworkspace"),
+        xcodeProjectPath: nil
+      )),
+    processRunner: StubProcessRunner(results: [
+      "xcodebuild -list -json -workspace /tmp/repo/Symphony.xcworkspace": StubProcessRunner.success(
+        #"{"workspace":{"schemes":["SymphonySwiftUIApp"]}}"#),
+    ]),
+    toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+      capabilities: .fullyAvailableForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPad Pro", udid: "B", state: "Booted", runtime: "iOS 26"),
+    ])
+  )
+
+  let report = try service.makeReport(
+    from: DoctorCommandRequest(
+      strict: false, json: false, quiet: false,
+      currentDirectory: URL(fileURLWithPath: "/tmp/repo"))
+  )
+  #expect(report.issues.contains { $0.code == "missing_iphone_simulator" })
+  #expect(!report.issues.contains { $0.code == "missing_ipad_simulator" })
+}
+
+@Test func doctorReportsMissingIPadSimulator() throws {
+  let service = DoctorService(
+    workspaceDiscovery: StubWorkspaceDiscovery(
+      workspace: WorkspaceContext(
+        projectRoot: URL(fileURLWithPath: "/tmp/repo", isDirectory: true),
+        buildStateRoot: URL(fileURLWithPath: "/tmp/repo/.build/harness", isDirectory: true),
+        xcodeWorkspacePath: URL(fileURLWithPath: "/tmp/repo/Symphony.xcworkspace"),
+        xcodeProjectPath: nil
+      )),
+    processRunner: StubProcessRunner(results: [
+      "xcodebuild -list -json -workspace /tmp/repo/Symphony.xcworkspace": StubProcessRunner.success(
+        #"{"workspace":{"schemes":["SymphonySwiftUIApp"]}}"#),
+    ]),
+    toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+      capabilities: .fullyAvailableForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPhone 17", udid: "A", state: "Booted", runtime: "iOS 26"),
+    ])
+  )
+
+  let report = try service.makeReport(
+    from: DoctorCommandRequest(
+      strict: false, json: false, quiet: false,
+      currentDirectory: URL(fileURLWithPath: "/tmp/repo"))
+  )
+  #expect(!report.issues.contains { $0.code == "missing_iphone_simulator" })
+  #expect(report.issues.contains { $0.code == "missing_ipad_simulator" })
+}
+
+@Test func doctorReportsNoSimulatorWarningsWhenBothPresent() throws {
+  let service = DoctorService(
+    workspaceDiscovery: StubWorkspaceDiscovery(
+      workspace: WorkspaceContext(
+        projectRoot: URL(fileURLWithPath: "/tmp/repo", isDirectory: true),
+        buildStateRoot: URL(fileURLWithPath: "/tmp/repo/.build/harness", isDirectory: true),
+        xcodeWorkspacePath: URL(fileURLWithPath: "/tmp/repo/Symphony.xcworkspace"),
+        xcodeProjectPath: nil
+      )),
+    processRunner: StubProcessRunner(results: [
+      "xcodebuild -list -json -workspace /tmp/repo/Symphony.xcworkspace": StubProcessRunner.success(
+        #"{"workspace":{"schemes":["SymphonySwiftUIApp"]}}"#),
+    ]),
+    toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+      capabilities: .fullyAvailableForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPhone 17", udid: "A", state: "Booted", runtime: "iOS 26"),
+      SimulatorDevice(name: "iPad Pro", udid: "B", state: "Booted", runtime: "iOS 26"),
+    ])
+  )
+
+  let report = try service.makeReport(
+    from: DoctorCommandRequest(
+      strict: false, json: false, quiet: false,
+      currentDirectory: URL(fileURLWithPath: "/tmp/repo"))
+  )
+  #expect(!report.issues.contains { $0.code == "missing_iphone_simulator" })
+  #expect(!report.issues.contains { $0.code == "missing_ipad_simulator" })
+  #expect(!report.issues.contains { $0.code == "simulator_query_failed" })
+}
+
+@Test func doctorSkipsSimulatorCheckWhenXcodeUnavailable() throws {
+  let service = DoctorService(
+    workspaceDiscovery: StubWorkspaceDiscovery(
+      workspace: WorkspaceContext(
+        projectRoot: URL(fileURLWithPath: "/tmp/repo", isDirectory: true),
+        buildStateRoot: URL(fileURLWithPath: "/tmp/repo/.build/harness", isDirectory: true),
+        xcodeWorkspacePath: URL(fileURLWithPath: "/tmp/repo/Symphony.xcworkspace"),
+        xcodeProjectPath: nil
+      )),
+    processRunner: StubProcessRunner(results: [
+      "which swift": StubProcessRunner.success(),
+    ]),
+    toolchainCapabilitiesResolver: StubToolchainCapabilitiesResolver(
+      capabilities: .noXcodeForTests),
+    simulatorCatalog: StubSimulatorCatalog(devices: [])
+  )
+
+  let report = try service.makeReport(
+    from: DoctorCommandRequest(
+      strict: false, json: false, quiet: false,
+      currentDirectory: URL(fileURLWithPath: "/tmp/repo"))
+  )
+  #expect(!report.issues.contains { $0.code == "missing_iphone_simulator" })
+  #expect(!report.issues.contains { $0.code == "missing_ipad_simulator" })
+}

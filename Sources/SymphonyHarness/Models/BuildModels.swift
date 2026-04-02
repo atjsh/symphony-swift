@@ -330,6 +330,7 @@ struct XcodeCommandRequest: Codable, Hashable, Sendable {
       "-destination", destination.xcodeDestination,
       "-derivedDataPath", derivedDataPath.path,
       "-resultBundlePath", resultBundlePath.path,
+      "-skipPackagePluginValidation",
     ]
 
     if let testPlan {

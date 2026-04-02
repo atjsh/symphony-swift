@@ -139,6 +139,7 @@ extension SymphonyHarnessTool {
     }
 
     try prepareXcodeExecutionContext(executionContext)
+    try simulatorResolver.boot(resolved: destination)
 
     let startedAt = Date()
     let reporter = XcodeOutputReporter(mode: request.outputMode, sink: statusSink)

@@ -274,7 +274,14 @@ import Testing
       xcodeProjectPath: nil
     )
   )
-  let doctor = DoctorService(workspaceDiscovery: discovery, processRunner: runner)
+  let doctor = DoctorService(
+    workspaceDiscovery: discovery,
+    processRunner: runner,
+    simulatorCatalog: StubSimulatorCatalog(devices: [
+      SimulatorDevice(name: "iPhone 17", udid: "A", state: "Booted", runtime: "iOS 26"),
+      SimulatorDevice(name: "iPad Pro", udid: "B", state: "Booted", runtime: "iOS 26"),
+    ])
+  )
   let report = try doctor.makeReport(
     from: DoctorCommandRequest(
       strict: false, json: false, quiet: false, currentDirectory: URL(fileURLWithPath: "/tmp/repo"))

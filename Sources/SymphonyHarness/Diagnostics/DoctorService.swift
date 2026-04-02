@@ -5,12 +5,14 @@ public struct DoctorService: DoctorServicing {
   private let processRunner: ProcessRunning
   private let fileManager: FileManager
   private let toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
+  private let simulatorCatalog: SimulatorCataloging
 
   public init(
     workspaceDiscovery: WorkspaceDiscovering = WorkspaceDiscovery(),
     processRunner: ProcessRunning = SystemProcessRunner(),
     fileManager: FileManager = .default,
-    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil
+    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil,
+    simulatorCatalog: SimulatorCataloging? = nil
   ) {
     self.workspaceDiscovery = workspaceDiscovery
     self.processRunner = processRunner
@@ -18,6 +20,9 @@ public struct DoctorService: DoctorServicing {
     self.toolchainCapabilitiesResolver =
       toolchainCapabilitiesResolver
       ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+    self.simulatorCatalog =
+      simulatorCatalog
+      ?? SimctlSimulatorCatalog(processRunner: processRunner)
   }
 
   public func makeReport(from request: DoctorCommandRequest) throws -> DiagnosticsReport {
@@ -68,6 +73,40 @@ public struct DoctorService: DoctorServicing {
       notes.append(
         "Xcode-backed diagnostics were skipped because the current environment has no Xcode available."
       )
+    }
+
+    if capabilities.supportsSimulatorCommands {
+      do {
+        let devices = try simulatorCatalog.availableDevices()
+        let hasIPhone = devices.contains { $0.name.localizedCaseInsensitiveContains("iphone") }
+        let hasIPad = devices.contains { $0.name.localizedCaseInsensitiveContains("ipad") }
+        if !hasIPhone {
+          issues.append(
+            DiagnosticIssue(
+              severity: .warning,
+              code: "missing_iphone_simulator",
+              message: "No iPhone simulator is available for app validation.",
+              suggestedFix: "Install an iPhone simulator runtime via Xcode or `xcodebuild -downloadPlatform iOS`."
+            ))
+        }
+        if !hasIPad {
+          issues.append(
+            DiagnosticIssue(
+              severity: .warning,
+              code: "missing_ipad_simulator",
+              message: "No iPad simulator is available for app validation.",
+              suggestedFix: "Install an iPad simulator runtime via Xcode or `xcodebuild -downloadPlatform iOS`."
+            ))
+        }
+      } catch {
+        issues.append(
+          DiagnosticIssue(
+            severity: .warning,
+            code: "simulator_query_failed",
+            message: "Failed to query available simulators: \(error.localizedDescription)",
+            suggestedFix: "Ensure `xcrun simctl list devices available` succeeds."
+          ))
+      }
     }
 
     do {
