@@ -206,3 +206,111 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
     lock.unlock()
   }
 }
+
+// MARK: - Custom Activity Output Git Runner
+
+final class StubGitCommandRunnerWithCustomActivity: GitCommandRunning, @unchecked Sendable {
+  private let headCommitID: String
+  private let commitMetadata: [StubCommitMetadata]
+  private let treeEntriesByCommit: [String: [StubTreeEntry]]
+  private let activityOutput: String
+  private let blobMetricsByID: [String: BlobMetrics]
+
+  init(
+    headCommitID: String,
+    commitMetadata: [StubCommitMetadata],
+    treeEntriesByCommit: [String: [StubTreeEntry]],
+    activityOutput: String,
+    blobMetricsByID: [String: BlobMetrics]
+  ) {
+    self.headCommitID = headCommitID
+    self.commitMetadata = commitMetadata
+    self.treeEntriesByCommit = treeEntriesByCommit
+    self.activityOutput = activityOutput
+    self.blobMetricsByID = blobMetricsByID
+  }
+
+  func run(in workspacePath: String, arguments: [String]) throws -> Data {
+    if arguments == ["rev-parse", "HEAD"] {
+      return Data("\(headCommitID)\n".utf8)
+    }
+    if arguments.prefix(4) == ["log", "--first-parent", "--reverse", "--date-order"] {
+      let output = commitMetadata
+        .map {
+          [$0.commitID, $0.shortID, $0.subject, $0.authorName, $0.committedAt]
+            .joined(separator: "\u{1F}")
+        }
+        .joined(separator: "\n")
+      return Data(output.utf8)
+    }
+    if arguments.prefix(3) == ["ls-tree", "-rz", "-r"], let commitID = arguments.last {
+      let data = treeEntriesByCommit[commitID, default: []].reduce(into: Data()) { partialResult, entry in
+        partialResult.append(Data("100644 blob \(entry.blobID)\t\(entry.path)".utf8))
+        partialResult.append(0)
+      }
+      return data
+    }
+    if arguments.prefix(5) == ["diff-tree", "--numstat", "--root", "--no-commit-id", "-r"] {
+      return Data(activityOutput.utf8)
+    }
+    return Data()
+  }
+
+  func loadBlobMetrics(in workspacePath: String, blobIDs: [String]) throws -> [String: BlobMetrics] {
+    blobIDs.reduce(into: [:]) { partialResult, blobID in
+      partialResult[blobID] = blobMetricsByID[blobID]
+    }
+  }
+}
+
+// MARK: - Custom Tree Output Git Runner
+
+final class StubGitCommandRunnerWithCustomTreeOutput: GitCommandRunning, @unchecked Sendable {
+  private let headCommitID: String
+  private let commitMetadata: [StubCommitMetadata]
+  private let treeOutput: Data
+  private let activityOutput: String
+  private let blobMetricsByID: [String: BlobMetrics]
+
+  init(
+    headCommitID: String,
+    commitMetadata: [StubCommitMetadata],
+    treeOutput: Data,
+    activityOutput: String,
+    blobMetricsByID: [String: BlobMetrics]
+  ) {
+    self.headCommitID = headCommitID
+    self.commitMetadata = commitMetadata
+    self.treeOutput = treeOutput
+    self.activityOutput = activityOutput
+    self.blobMetricsByID = blobMetricsByID
+  }
+
+  func run(in workspacePath: String, arguments: [String]) throws -> Data {
+    if arguments == ["rev-parse", "HEAD"] {
+      return Data("\(headCommitID)\n".utf8)
+    }
+    if arguments.prefix(4) == ["log", "--first-parent", "--reverse", "--date-order"] {
+      let output = commitMetadata
+        .map {
+          [$0.commitID, $0.shortID, $0.subject, $0.authorName, $0.committedAt]
+            .joined(separator: "\u{1F}")
+        }
+        .joined(separator: "\n")
+      return Data(output.utf8)
+    }
+    if arguments.prefix(3) == ["ls-tree", "-rz", "-r"] {
+      return treeOutput
+    }
+    if arguments.prefix(5) == ["diff-tree", "--numstat", "--root", "--no-commit-id", "-r"] {
+      return Data(activityOutput.utf8)
+    }
+    return Data()
+  }
+
+  func loadBlobMetrics(in workspacePath: String, blobIDs: [String]) throws -> [String: BlobMetrics] {
+    blobIDs.reduce(into: [:]) { partialResult, blobID in
+      partialResult[blobID] = blobMetricsByID[blobID]
+    }
+  }
+}

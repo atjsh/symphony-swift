@@ -95,6 +95,14 @@ final class OperatorProgressReportViewModel {
     )
   }
 
+  func testingSetStatus(_ newStatus: OperatorProgressReportStatus) {
+    status = newStatus
+  }
+
+  func testingSetRefreshErrorMessage(_ message: String?) {
+    refreshErrorMessage = message
+  }
+
   private func load(endpoint: ServerEndpoint?, forceRefresh: Bool) async {
     if forceRefresh {
       guard isLoading == false, isRefreshing == false else {

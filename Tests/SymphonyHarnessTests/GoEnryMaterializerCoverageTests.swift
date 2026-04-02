@@ -123,7 +123,103 @@ import Testing
   }
 }
 
+// MARK: - singleHostVariant archive guard (fileExists returns false after moveItem)
+
+@Test func goEnryMaterializerThrowsOnMissingArchiveAfterBuild() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let sharedRoot = repoRoot.appendingPathComponent("ThirdParty/go-enry/shared", isDirectory: true)
+    try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
+    try "package main\nimport \"C\"\nfunc main() {}\n".write(
+      to: sharedRoot.appendingPathComponent("enry.go"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let runner = GoEnryMaterializationProcessRunner(results: [:])
+    let fakeFM = FakeFileExistsManager(pathsDenied: ["libenry.a"])
+    let materializer = GoEnryMaterializer(
+      processRunner: runner,
+      fileManager: fakeFM,
+      hostPlatform: .linux,
+      hostArchitecture: .arm64
+    )
+
+    do {
+      _ = try materializer.materialize(
+        workspace: WorkspaceContext(
+          projectRoot: repoRoot,
+          buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+          xcodeWorkspacePath: nil,
+          xcodeProjectPath: nil
+        )
+      )
+      Issue.record("Expected missing archive error.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_go_enry_archive")
+    }
+  }
+}
+
+// MARK: - singleHostVariant header guard (fileExists returns false for header)
+
+@Test func goEnryMaterializerThrowsOnMissingHeaderAfterBuild() throws {
+  try withTemporaryRepositoryFixture { repoRoot in
+    let sharedRoot = repoRoot.appendingPathComponent("ThirdParty/go-enry/shared", isDirectory: true)
+    try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
+    try "package main\nimport \"C\"\nfunc main() {}\n".write(
+      to: sharedRoot.appendingPathComponent("enry.go"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let runner = GoEnryMaterializationProcessRunner(results: [:])
+    let fakeFM = FakeFileExistsManager(pathsDenied: ["libenry-linux-arm64.h"])
+    let materializer = GoEnryMaterializer(
+      processRunner: runner,
+      fileManager: fakeFM,
+      hostPlatform: .linux,
+      hostArchitecture: .arm64
+    )
+
+    do {
+      _ = try materializer.materialize(
+        workspace: WorkspaceContext(
+          projectRoot: repoRoot,
+          buildStateRoot: repoRoot.appendingPathComponent(".build/harness", isDirectory: true),
+          xcodeWorkspacePath: nil,
+          xcodeProjectPath: nil
+        )
+      )
+      Issue.record("Expected missing header error.")
+    } catch let error as SymphonyHarnessError {
+      #expect(error.code == "missing_go_enry_header")
+    }
+  }
+}
+
 // MARK: - Test Stubs
+
+/// FileManager subclass that denies `fileExists` for paths whose last component matches a denied name.
+private final class FakeFileExistsManager: FileManager {
+  let pathsDenied: Set<String>
+
+  init(pathsDenied: some Sequence<String>) {
+    self.pathsDenied = Set(pathsDenied)
+    super.init()
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("not implemented")
+  }
+
+  override func fileExists(atPath path: String) -> Bool {
+    let lastComponent = URL(fileURLWithPath: path).lastPathComponent
+    if pathsDenied.contains(lastComponent) {
+      return false
+    }
+    return super.fileExists(atPath: path)
+  }
+}
 
 private struct FailingLipoProcessRunner: ProcessRunning {
   func run(

@@ -222,4 +222,61 @@ struct DetailViewTests {
     )
     render(host(AnyView(compactSessions), width: 320, height: 420))
   }
+
+  @Test func scrollingTabBarRendersCompactIOSGridLayout() throws {
+    let compactTheme = OperatorTheme(compact: true)
+    let tabBar = OperatorDetailTabBar(
+      theme: compactTheme,
+      selection: .constant(.overview)
+    )
+    exercise(AnyView(tabBar), width: 320, height: 200)
+
+    let regularTheme = OperatorTheme(compact: false)
+    let regularTabBar = OperatorDetailTabBar(
+      theme: regularTheme,
+      selection: .constant(.progress)
+    )
+    exercise(AnyView(regularTabBar), width: 480, height: 100)
+  }
+
+  @Test func sessionsListRendersEmptyState() throws {
+    let theme = OperatorTheme(compact: false)
+    let emptyPanel = RecentSessionsPanel(
+      theme: theme,
+      sessions: []
+    )
+    exercise(AnyView(emptyPanel), width: 480, height: 300)
+  }
+
+  @Test func sessionsListRendersMultipleSessions() throws {
+    let detail = makeIssueDetail()
+    let theme = OperatorTheme(compact: false)
+    let sessionsPanel = RecentSessionsPanel(
+      theme: theme,
+      sessions: detail.recentSessions + detail.recentSessions
+    )
+    exercise(AnyView(sessionsPanel), width: 480, height: 600)
+  }
+
+  @Test func sessionsListRendersSessionWithRateLimitPayload() throws {
+    let session = AgentSession(
+      sessionID: SessionID("session-rl"),
+      provider: "claude_code",
+      providerSessionID: "provider-session-rl",
+      providerThreadID: "thread-rl",
+      providerTurnID: "turn-rl",
+      providerRunID: "provider-run-rl",
+      runID: RunID("run-rl"),
+      providerProcessPID: "1000",
+      status: "active",
+      lastEventType: "rate_limit",
+      lastEventAt: "2026-03-24T03:05:00Z",
+      turnCount: 3,
+      tokenUsage: try! TokenUsage(inputTokens: 10, outputTokens: 8),
+      latestRateLimitPayload: #"{"remaining":12,"reset_at":"2026-03-24T01:05:00Z"}"#
+    )
+    let theme = OperatorTheme(compact: false)
+    let sessionsPanel = RecentSessionsPanel(theme: theme, sessions: [session])
+    exercise(AnyView(sessionsPanel), width: 480, height: 400)
+  }
 }

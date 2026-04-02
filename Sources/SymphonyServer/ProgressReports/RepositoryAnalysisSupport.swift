@@ -70,6 +70,33 @@ private struct SyntaxHealthDiagnosticPayload: Decodable, Sendable {
   let column: Int?
 }
 
+// MARK: - Process Running
+
+public protocol ProcessRunning: Sendable {
+  func run(
+    executable: String,
+    arguments: [String],
+    currentDirectoryPath: String?,
+    standardInput: Data?
+  ) throws -> Data
+}
+
+extension ProcessRunning {
+  public func run(
+    executable: String,
+    arguments: [String],
+    currentDirectoryPath: String? = nil,
+    standardInput: Data? = nil
+  ) throws -> Data {
+    try run(
+      executable: executable,
+      arguments: arguments,
+      currentDirectoryPath: currentDirectoryPath,
+      standardInput: standardInput
+    )
+  }
+}
+
 // MARK: - Git Command Running
 
 public protocol GitCommandRunning: Sendable {
@@ -78,10 +105,14 @@ public protocol GitCommandRunning: Sendable {
 }
 
 public struct ProcessGitCommandRunner: GitCommandRunning {
-  public init() {}
+  private let processRunner: any ProcessRunning
+
+  public init(processRunner: any ProcessRunning = DefaultProcessRunner()) {
+    self.processRunner = processRunner
+  }
 
   public func run(in workspacePath: String, arguments: [String]) throws -> Data {
-    try ProcessRunner.run(
+    try processRunner.run(
       executable: "/usr/bin/env",
       arguments: ["git", "-C", workspacePath] + arguments
     )
@@ -93,7 +124,7 @@ public struct ProcessGitCommandRunner: GitCommandRunning {
     }
 
     let input = blobIDs.joined(separator: "\n") + "\n"
-    let data = try ProcessRunner.run(
+    let data = try processRunner.run(
       executable: "/usr/bin/env",
       arguments: ["git", "-C", workspacePath, "cat-file", "--batch"],
       standardInput: Data(input.utf8)
@@ -301,10 +332,14 @@ public struct UnavailableRepositoryLanguageDetector: RepositoryLanguageDetecting
 // MARK: - Process Runners
 
 public struct ProcessShellCommandRunner: Sendable {
-  public init() {}
+  private let processRunner: any ProcessRunning
+
+  public init(processRunner: any ProcessRunning = DefaultProcessRunner()) {
+    self.processRunner = processRunner
+  }
 
   public func run(command: String, in workspacePath: String) throws -> String {
-    let data = try ProcessRunner.run(
+    let data = try processRunner.run(
       executable: "/bin/bash",
       arguments: ["-lc", command],
       currentDirectoryPath: workspacePath
@@ -313,8 +348,10 @@ public struct ProcessShellCommandRunner: Sendable {
   }
 }
 
-enum ProcessRunner {
-  static func run(
+public struct DefaultProcessRunner: ProcessRunning {
+  public init() {}
+
+  public func run(
     executable: String,
     arguments: [String],
     currentDirectoryPath: String? = nil,
@@ -353,6 +390,23 @@ enum ProcessRunner {
       )
     }
     return output
+  }
+}
+
+@available(*, deprecated, renamed: "DefaultProcessRunner")
+enum ProcessRunner {
+  static func run(
+    executable: String,
+    arguments: [String],
+    currentDirectoryPath: String? = nil,
+    standardInput: Data? = nil
+  ) throws -> Data {
+    try DefaultProcessRunner().run(
+      executable: executable,
+      arguments: arguments,
+      currentDirectoryPath: currentDirectoryPath,
+      standardInput: standardInput
+    )
   }
 }
 

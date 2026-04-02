@@ -258,3 +258,197 @@ import Testing
   #expect(metrics.textMetrics?.lineCount == 0)
   #expect(metrics.textMetrics?.characterCount == 0)
 }
+
+// MARK: - RepositoryHistoryBucketer Edge Cases
+
+@Test func bucketerSkipsCommitsWithInvalidDates() {
+  let activity = RepositoryGitActivitySummary(changedFileCount: 1, additions: 10, deletions: 0)
+  let snapshot = RepositoryMetricsSnapshot(
+    fileCount: 1, sourceFileCount: 1, testFileCount: 0, otherFileCount: 0,
+    lineCount: 10, characterCount: 50, byteCount: 50
+  )
+  let commits = [
+    RepositoryHistoryCommit(
+      commitID: "aaa", shortID: "aaa", subject: "Init", authorName: "Dev",
+      committedAt: "not-a-date", metrics: snapshot, activity: activity
+    ),
+  ]
+  let buckets = RepositoryHistoryBucketer.makeBuckets(from: commits)
+  #expect(buckets.isEmpty)
+}
+
+@Test func bucketerSortsAcrossYears() {
+  let activity = RepositoryGitActivitySummary(changedFileCount: 1, additions: 10, deletions: 0)
+  let snapshot = RepositoryMetricsSnapshot(
+    fileCount: 1, sourceFileCount: 1, testFileCount: 0, otherFileCount: 0,
+    lineCount: 10, characterCount: 50, byteCount: 50
+  )
+  let commits = [
+    RepositoryHistoryCommit(
+      commitID: "a", shortID: "a", subject: "2025", authorName: "Dev",
+      committedAt: "2025-12-29T12:00:00Z", metrics: snapshot, activity: activity
+    ),
+    RepositoryHistoryCommit(
+      commitID: "b", shortID: "b", subject: "2026", authorName: "Dev",
+      committedAt: "2026-01-05T12:00:00Z", metrics: snapshot, activity: activity
+    ),
+  ]
+  let buckets = RepositoryHistoryBucketer.makeBuckets(from: commits)
+  #expect(buckets.count >= 1)
+  // If they fall in different ISO weeks, the first bucket should be 2025
+  if buckets.count >= 2 {
+    #expect(buckets[0].label < buckets[1].label)
+  }
+}
+
+// MARK: - IssueProgressReportGenerator: Empty Head Commit
+
+@Test func issueProgressReportThrowsForEmptyHeadCommitID() throws {
+  let cacheDirectory = try makeTemporaryDirectory()
+  let gitRunner = StubGitCommandRunner(
+    headCommitID: "  \n  ",
+    commitMetadata: [],
+    treeEntriesByCommit: [:],
+    activitiesByCommit: [:],
+    blobMetricsByID: [:]
+  )
+  let generator = CachedIssueProgressReportGenerator(
+    cacheDirectoryURL: cacheDirectory,
+    analysisConfigProvider: { .defaults },
+    gitRunner: gitRunner,
+    fileClassifier: RepositoryFileClassifier(
+      detector: StubRepositoryLanguageDetector(
+        testPaths: [], languagesByPath: [:], languageTypes: [:]
+      )
+    ),
+    syntaxRunner: StubRepositorySyntaxHealthRunner(
+      health: RepositorySyntaxHealth(status: .unsupported, checkedFileCount: 0, diagnosticCount: 0)
+    )
+  )
+
+  #expect(throws: IssueProgressReportError.self) {
+    _ = try generator.issueProgressReport(issueID: IssueID("test"), workspacePath: "/tmp/workspace")
+  }
+}
+
+// MARK: - IssueProgressReportGenerator: Binary Numstat Activity
+
+@Test func issueProgressReportHandlesBinaryNumstatOutput() throws {
+  let cacheDirectory = try makeTemporaryDirectory()
+  // Binary files in numstat have "-" for additions/deletions
+  let gitRunner = StubGitCommandRunnerWithCustomActivity(
+    headCommitID: "aaaa1111",
+    commitMetadata: [
+      .init(
+        commitID: "aaaa1111", shortID: "aaaa111", subject: "Add binary",
+        authorName: "Dev", committedAt: "2026-03-20T12:00:00Z"
+      )
+    ],
+    treeEntriesByCommit: [
+      "aaaa1111": [
+        .init(blobID: "blob1", path: "Sources/App.swift")
+      ]
+    ],
+    activityOutput: "-\t-\timage.png\n5\t2\tSources/App.swift\n",
+    blobMetricsByID: [
+      "blob1": .make(from: Data("hello\n".utf8))
+    ]
+  )
+  let generator = CachedIssueProgressReportGenerator(
+    cacheDirectoryURL: cacheDirectory,
+    analysisConfigProvider: { .defaults },
+    gitRunner: gitRunner,
+    fileClassifier: RepositoryFileClassifier(
+      detector: StubRepositoryLanguageDetector(
+        testPaths: [],
+        languagesByPath: ["Sources/App.swift": "Swift"],
+        languageTypes: ["Swift": "programming"]
+      )
+    ),
+    syntaxRunner: StubRepositorySyntaxHealthRunner(
+      health: RepositorySyntaxHealth(status: .unsupported, checkedFileCount: 0, diagnosticCount: 0)
+    )
+  )
+
+  let report = try generator.issueProgressReport(
+    issueID: IssueID("test"), workspacePath: "/tmp/workspace"
+  )
+  // Binary file "-" values should be skipped (not parsed as Int), but file still counted
+  let lastCommit = report.report.commits.last
+  #expect(lastCommit?.activity.changedFileCount == 2)
+  #expect(lastCommit?.activity.additions == 5) // Only the non-binary file counted
+}
+
+// MARK: - IssueProgressReportGenerator: Malformed Tree Entries
+
+@Test func issueProgressReportSkipsMalformedTreeEntries() throws {
+  let cacheDirectory = try makeTemporaryDirectory()
+  let gitRunner = StubGitCommandRunnerWithCustomTreeOutput(
+    headCommitID: "aaaa1111",
+    commitMetadata: [
+      .init(
+        commitID: "aaaa1111", shortID: "aaaa111", subject: "Init",
+        authorName: "Dev", committedAt: "2026-03-20T12:00:00Z"
+      )
+    ],
+    // Tree output with a malformed record (no tab separator) followed by a valid one
+    treeOutput: {
+      var data = Data()
+      // Malformed record: no tab separator
+      data.append(Data("100644 blob".utf8))
+      data.append(0) // null separator
+      // Valid record
+      data.append(Data("100644 blob validblob\tSources/Main.swift".utf8))
+      data.append(0)
+      return data
+    }(),
+    activityOutput: "1\t0\tSources/Main.swift\n",
+    blobMetricsByID: [
+      "validblob": .make(from: Data("let x = 1\n".utf8))
+    ]
+  )
+  let generator = CachedIssueProgressReportGenerator(
+    cacheDirectoryURL: cacheDirectory,
+    analysisConfigProvider: { .defaults },
+    gitRunner: gitRunner,
+    fileClassifier: RepositoryFileClassifier(
+      detector: StubRepositoryLanguageDetector(
+        testPaths: [],
+        languagesByPath: ["Sources/Main.swift": "Swift"],
+        languageTypes: ["Swift": "programming"]
+      )
+    ),
+    syntaxRunner: StubRepositorySyntaxHealthRunner(
+      health: RepositorySyntaxHealth(status: .unsupported, checkedFileCount: 0, diagnosticCount: 0)
+    )
+  )
+
+  let report = try generator.issueProgressReport(
+    issueID: IssueID("test"), workspacePath: "/tmp/workspace"
+  )
+  // Only the valid entry should be counted
+  #expect(report.report.summary.fileCount == 1)
+}
+
+// MARK: - WorkflowAnalysisConfigStore
+
+@Test func workflowAnalysisConfigStoreReturnsCurrentConfig() {
+  let config = AnalysisConfig.defaults
+  let store = WorkflowAnalysisConfigStore(config: config)
+  #expect(store.current.history.sourcePaths == config.history.sourcePaths)
+  #expect(store.current.history.testPaths == config.history.testPaths)
+}
+
+@Test func workflowAnalysisConfigStoreUpdatesConfig() {
+  let store = WorkflowAnalysisConfigStore(config: .defaults)
+  let updated = AnalysisConfig(
+    history: AnalysisHistoryConfig(
+      sourcePaths: ["custom/**"],
+      testPaths: ["custom_tests/**"]
+    ),
+    syntax: AnalysisSyntaxConfig(command: "lint")
+  )
+  store.update(updated)
+  #expect(store.current.history.sourcePaths == ["custom/**"])
+  #expect(store.current.syntax.command == "lint")
+}

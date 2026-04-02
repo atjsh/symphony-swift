@@ -85,4 +85,43 @@ struct SharedViewTests {
     #expect(measuredFlowSize.width == 96)
     #expect(measuredFlowSize.height == 56)
   }
+
+  @Test func endpointEditorSheetRendersOnBothPlatforms() throws {
+    let client = PassiveSymphonyAPIClient()
+    let model = SymphonyOperatorModel(client: client, progressReportCache: TestProgressReportCache())
+    let root = SymphonyOperatorRootView(model: model)
+
+    let editorView = root.makeEndpointEditorView()
+    exercise(AnyView(editorView), width: 480, height: 400)
+
+    let sheetView = root.makeEndpointEditorSheet()
+    exercise(AnyView(sheetView), width: 480, height: 400)
+  }
+
+  @Test func statePillTintCoversAllBranches() {
+    // Each state string exercises a different branch in compactAccessibleTint
+    let stateValues = [
+      "in_progress",
+      "running",
+      "active",
+      "queued",
+      "pending",
+      "waiting",
+      "done",
+      "success",
+      "complete",
+      "failed",
+      "error",
+      "cancelled",
+      "unknown_state",
+    ]
+
+    for compact in [false, true] {
+      let theme = OperatorTheme(compact: compact)
+      for state in stateValues {
+        let pill = StatePill(theme: theme, text: state, tint: statusTint(state))
+        exercise(AnyView(pill), width: 120, height: 40)
+      }
+    }
+  }
 }
