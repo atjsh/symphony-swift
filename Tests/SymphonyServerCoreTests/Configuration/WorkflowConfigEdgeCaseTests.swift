@@ -362,3 +362,28 @@ import Testing
   // nil description → "" via ?? default
   #expect(!rendered.contains("nil"))
 }
+
+@Test func workflowParserAnalysisHistoryScalarFallsBackToDefaults() throws {
+  let content = """
+    ---
+    analysis:
+      history: none
+    ---
+    Prompt
+    """
+  let definition = try WorkflowParser.parse(content: content)
+  #expect(definition.config.analysis.history == .defaults)
+}
+
+@Test func workflowParserAnalysisHistoryEmptyDictUsesDefaultPaths() throws {
+  let content = """
+    ---
+    analysis:
+      history: {}
+    ---
+    Prompt
+    """
+  let definition = try WorkflowParser.parse(content: content)
+  #expect(definition.config.analysis.history.sourcePaths.isEmpty)
+  #expect(definition.config.analysis.history.testPaths.isEmpty)
+}
