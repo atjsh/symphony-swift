@@ -127,9 +127,13 @@ struct DefaultOperatorProgressReportCache: OperatorProgressReportCaching {
     self.store = store
   }
 
-  static func makeDefault() -> any OperatorProgressReportCaching {
+  static func makeDefault(
+    containerFactory: () throws -> ModelContainer = {
+      try ModelContainer(for: OperatorProgressReportCacheRecord.self)
+    }
+  ) -> any OperatorProgressReportCaching {
     do {
-      let container = try ModelContainer(for: OperatorProgressReportCacheRecord.self)
+      let container = try containerFactory()
       return DefaultOperatorProgressReportCache(
         store: OperatorProgressReportCacheStore(modelContainer: container)
       )

@@ -222,13 +222,8 @@ struct GoEnryMaterializer: GoEnryMaterializing {
         )
       }
     case .singleHostVariant:
-      guard let artifact = builtArtifacts.first else {
-        throw SymphonyHarnessError(
-          code: "missing_go_enry_archive",
-          message: "The go-enry build plan did not produce any artifacts."
-        )
-      }
-      try fileManager.moveItem(at: artifact.archive, to: archivePath)
+      precondition(!builtArtifacts.isEmpty)
+      try fileManager.moveItem(at: builtArtifacts[0].archive, to: archivePath)
     }
 
     guard fileManager.fileExists(atPath: archivePath.path) else {
@@ -238,12 +233,8 @@ struct GoEnryMaterializer: GoEnryMaterializing {
       )
     }
 
-    guard let headerArtifact = builtArtifacts.first else {
-      throw SymphonyHarnessError(
-        code: "missing_go_enry_header",
-        message: "The go-enry build plan did not produce a header."
-      )
-    }
+    precondition(!builtArtifacts.isEmpty)
+    let headerArtifact = builtArtifacts[0]
 
     guard fileManager.fileExists(atPath: headerArtifact.header.path) else {
       throw SymphonyHarnessError(

@@ -153,10 +153,8 @@ final class BlockingResultBox<T>: @unchecked Sendable {
 
   func take() -> Result<T, Error> {
     lock.withLock {
-      guard let result else {
-        fatalError("Missing blocking task result.")
-      }
-      return result
+      // Semaphore contract guarantees store() is called before take().
+      result!
     }
   }
 }
@@ -175,8 +173,8 @@ struct RepositoryHistoryBucketer {
       }
       let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
       let key = BucketKey(
-        yearForWeekOfYear: components.yearForWeekOfYear ?? 0,
-        weekOfYear: components.weekOfYear ?? 0
+        yearForWeekOfYear: components.yearForWeekOfYear!,
+        weekOfYear: components.weekOfYear!
       )
       let newState = BucketState(
         startDate: min(buckets[key]?.startDate ?? date, date),
@@ -186,10 +184,8 @@ struct RepositoryHistoryBucketer {
       buckets[key] = newState
     }
 
-    return buckets.keys.sorted().compactMap { key in
-      guard let state = buckets[key] else {
-        return nil
-      }
+    return buckets.keys.sorted().map { key in
+      let state = buckets[key]!  // Keys are from this dictionary; value is always present.
       return RepositoryMetricsBucket(
         bucketID: "\(key.yearForWeekOfYear)-\(key.weekOfYear)",
         label: String(format: "%04d-W%02d", key.yearForWeekOfYear, key.weekOfYear),

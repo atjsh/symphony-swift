@@ -314,3 +314,66 @@ final class StubGitCommandRunnerWithCustomTreeOutput: GitCommandRunning, @unchec
     }
   }
 }
+
+// MARK: - Custom Raw Log Output Git Runner
+
+/// Injects raw string output for `git log` to test malformed commit metadata parsing.
+final class StubGitCommandRunnerWithRawLogOutput: GitCommandRunning, @unchecked Sendable {
+  private let headCommitID: String
+  private let rawLogOutput: String
+
+  init(headCommitID: String, rawLogOutput: String) {
+    self.headCommitID = headCommitID
+    self.rawLogOutput = rawLogOutput
+  }
+
+  func run(in workspacePath: String, arguments: [String]) throws -> Data {
+    if arguments == ["rev-parse", "HEAD"] {
+      return Data("\(headCommitID)\n".utf8)
+    }
+    if arguments.prefix(4) == ["log", "--first-parent", "--reverse", "--date-order"] {
+      return Data(rawLogOutput.utf8)
+    }
+    return Data()
+  }
+
+  func loadBlobMetrics(in workspacePath: String, blobIDs: [String]) throws -> [String: BlobMetrics] {
+    [:]
+  }
+}
+
+// MARK: - Throwing Git Runner (for runBlocking error path)
+
+/// Returns valid commit metadata but throws during ls-tree, exercising
+/// the `resultBox.store(.failure(error))` path in `runBlocking`.
+final class StubThrowingTreeGitCommandRunner: GitCommandRunning, @unchecked Sendable {
+  struct TreeLoadFailure: Error {}
+
+  private let headCommitID: String
+  private let commitMetadata: [StubCommitMetadata]
+
+  init(headCommitID: String, commitMetadata: [StubCommitMetadata]) {
+    self.headCommitID = headCommitID
+    self.commitMetadata = commitMetadata
+  }
+
+  func run(in workspacePath: String, arguments: [String]) throws -> Data {
+    if arguments == ["rev-parse", "HEAD"] {
+      return Data("\(headCommitID)\n".utf8)
+    }
+    if arguments.prefix(4) == ["log", "--first-parent", "--reverse", "--date-order"] {
+      let output = commitMetadata
+        .map { [$0.commitID, $0.shortID, $0.subject, $0.authorName, $0.committedAt].joined(separator: "\u{1F}") }
+        .joined(separator: "\n")
+      return Data(output.utf8)
+    }
+    if arguments.prefix(3) == ["ls-tree", "-rz", "-r"] {
+      throw TreeLoadFailure()
+    }
+    return Data()
+  }
+
+  func loadBlobMetrics(in workspacePath: String, blobIDs: [String]) throws -> [String: BlobMetrics] {
+    [:]
+  }
+}

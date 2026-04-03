@@ -134,9 +134,9 @@ public final class CachedIssueProgressReportGenerator: IssueProgressReportGenera
       )
     }
 
-    guard let summaryCommit = commits.last else {
-      throw IssueProgressReportError.repositoryHistoryUnavailable("Repository history is unavailable.")
-    }
+    // commitMetadata is guaranteed non-empty by the guard in buildReport(),
+    // so analyzedCommits → commits is also non-empty.
+    let summaryCommit = commits.last!
 
     let syntaxHealth = syntaxRunner.syntaxHealth(
       in: workspacePath,
@@ -307,10 +307,6 @@ public final class CachedIssueProgressReportGenerator: IssueProgressReportGenera
     maxConcurrentTasks: Int,
     operation: @escaping @Sendable (Input) async throws -> Output
   ) async throws -> [Output] {
-    guard !inputs.isEmpty else {
-      return []
-    }
-
     let concurrencyLimit = max(1, maxConcurrentTasks)
     var iterator = inputs.makeIterator()
     var outputs = [Output]()
@@ -318,9 +314,7 @@ public final class CachedIssueProgressReportGenerator: IssueProgressReportGenera
 
     return try await withThrowingTaskGroup(of: Output.self) { group in
       for _ in 0..<min(concurrencyLimit, inputs.count) {
-        guard let input = iterator.next() else {
-          break
-        }
+        let input = iterator.next()!
         group.addTask {
           try await operation(input)
         }

@@ -104,16 +104,6 @@ final class OperatorProgressReportViewModel {
   }
 
   private func load(endpoint: ServerEndpoint?, forceRefresh: Bool) async {
-    if forceRefresh {
-      guard isLoading == false, isRefreshing == false else {
-        return
-      }
-    } else {
-      guard report == nil, isLoading == false, isRefreshing == false else {
-        return
-      }
-    }
-
     guard let issueID = currentIssueID else {
       status = .idle
       return
@@ -215,11 +205,12 @@ final class OperatorProgressReportViewModel {
       return
     }
 
+    // applySnapshot always sets lastRefreshDate before report becomes non-nil.
     let snapshot = CachedOperatorProgressReportSnapshot(
       response: report,
       selectedMetric: selectedMetric,
       selectedCommitID: selectedCommitID,
-      lastRefreshDate: lastRefreshDate ?? Date()
+      lastRefreshDate: lastRefreshDate!
     )
     selectionPersistenceTask?.cancel()
     selectionPersistenceTask = Task { [cache] in

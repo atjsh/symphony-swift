@@ -413,16 +413,15 @@ enum ProcessRunner {
 // MARK: - Glob Pattern
 
 private struct GlobPattern {
-  private let regex: NSRegularExpression?
+  private let regex: NSRegularExpression
 
   init(_ pattern: String) {
-    self.regex = try? NSRegularExpression(pattern: Self.regexPattern(for: pattern))
+    // regexPattern(for:) always produces valid patterns – all non-glob characters
+    // are escaped via NSRegularExpression.escapedPattern(for:).
+    self.regex = try! NSRegularExpression(pattern: Self.regexPattern(for: pattern))
   }
 
   func matches(path: String) -> Bool {
-    guard let regex else {
-      return false
-    }
     let range = NSRange(path.startIndex..<path.endIndex, in: path)
     return regex.firstMatch(in: path, range: range) != nil
   }
