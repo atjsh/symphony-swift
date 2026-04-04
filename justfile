@@ -52,6 +52,9 @@ preflight-swiftpm:
     just test SymphonyServerCLI
     just test SymphonyHarness
     just test SymphonyHarnessCLI
+    just test SymphonyXcodeValidation
+    just test SymphonyXcodeValidationServerCore
+    just test SymphonyXcodeValidationServer
 
 preflight-app:
     just validate SymphonySwiftUIApp

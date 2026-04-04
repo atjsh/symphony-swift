@@ -27,6 +27,9 @@ import Testing
     "SymphonyServerCLI",
     "SymphonyHarness",
     "SymphonyHarnessCLI",
+    "SymphonyXcodeValidation",
+    "SymphonyXcodeValidationServerCore",
+    "SymphonyXcodeValidationServer",
     "SymphonySwiftUIApp",
   ])
   #expect(HarnessSubjects.explicitTestSubjectNames == [
@@ -36,6 +39,9 @@ import Testing
     "SymphonyServerCLITests",
     "SymphonyHarnessTests",
     "SymphonyHarnessCLITests",
+    "SymphonyXcodeValidationTests",
+    "SymphonyXcodeValidationServerCoreTests",
+    "SymphonyXcodeValidationServerTests",
     "SymphonySwiftUIAppTests",
     "SymphonySwiftUIAppUITests",
   ])

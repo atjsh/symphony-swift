@@ -58,6 +58,9 @@ import Testing
       "SymphonyServerCLITests",
       "SymphonyHarnessTests",
       "SymphonyHarnessCLITests",
+      "SymphonyXcodeValidationTests",
+      "SymphonyXcodeValidationServerCoreTests",
+      "SymphonyXcodeValidationServerTests",
     ]))
     let summaryText = try String(contentsOf: URL(fileURLWithPath: summaryPath), encoding: .utf8)
     #expect(summaryText.contains("defaulted_subjects:"))
@@ -359,6 +362,9 @@ import Testing
       "SymphonyServerCLITests",
       "SymphonyHarnessTests",
       "SymphonyHarnessCLITests",
+      "SymphonyXcodeValidationTests",
+      "SymphonyXcodeValidationServerCoreTests",
+      "SymphonyXcodeValidationServerTests",
     ]))
     let summaryText = try String(contentsOf: URL(fileURLWithPath: summaryPath), encoding: .utf8)
     #expect(summaryText.contains("defaulted_subjects:"))

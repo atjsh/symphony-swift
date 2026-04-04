@@ -111,6 +111,30 @@ public enum HarnessSubjects {
       requiresExclusiveDestination: false
     ),
     HarnessSubject(
+      name: "SymphonyXcodeValidation",
+      kind: .library,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: "SymphonyXcodeValidationTests",
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
+      name: "SymphonyXcodeValidationServerCore",
+      kind: .library,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: "SymphonyXcodeValidationServerCoreTests",
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
+      name: "SymphonyXcodeValidationServer",
+      kind: .library,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: "SymphonyXcodeValidationServerTests",
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
       name: "SymphonySwiftUIApp",
       kind: .app,
       buildSystem: .xcode,
@@ -163,6 +187,30 @@ public enum HarnessSubjects {
     ),
     HarnessSubject(
       name: "SymphonyHarnessCLITests",
+      kind: .test,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: nil,
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
+      name: "SymphonyXcodeValidationTests",
+      kind: .test,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: nil,
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
+      name: "SymphonyXcodeValidationServerCoreTests",
+      kind: .test,
+      buildSystem: .swiftpm,
+      defaultTestCompanion: nil,
+      requiresXcode: false,
+      requiresExclusiveDestination: false
+    ),
+    HarnessSubject(
+      name: "SymphonyXcodeValidationServerTests",
       kind: .test,
       buildSystem: .swiftpm,
       defaultTestCompanion: nil,
