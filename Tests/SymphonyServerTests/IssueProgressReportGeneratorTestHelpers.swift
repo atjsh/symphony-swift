@@ -175,7 +175,7 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
     if arguments.prefix(3) == ["ls-tree", "-rz", "-r"], let commitID = arguments.last {
       beginConcurrentLoad()
       defer { endConcurrentLoad() }
-      Thread.sleep(forTimeInterval: 0.05)
+      yieldAndSleep()
       var data = Data()
       data.append(Data("100644 blob blob-\(commitID)\tSources/App/Main.swift".utf8))
       data.append(0)
@@ -184,7 +184,7 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
     if arguments.prefix(5) == ["diff-tree", "--numstat", "--root", "--no-commit-id", "-r"] {
       beginConcurrentLoad()
       defer { endConcurrentLoad() }
-      Thread.sleep(forTimeInterval: 0.05)
+      yieldAndSleep()
       return Data("10\t1\tSources/App/Main.swift\n".utf8)
     }
     Issue.record("Unexpected git arguments: \(arguments)")
@@ -195,6 +195,13 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
     blobIDs.reduce(into: [:]) { partialResult, blobID in
       partialResult[blobID] = .make(from: Data("print(\"hello\")\n".utf8))
     }
+  }
+
+  /// Yield the CPU to encourage peer-task scheduling, then sleep to hold the
+  /// concurrent-load region open long enough for peer overlap to be recorded.
+  private func yieldAndSleep() {
+    sched_yield()
+    Thread.sleep(forTimeInterval: 0.2)
   }
 
   private func beginConcurrentLoad() {
