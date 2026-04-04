@@ -223,5 +223,15 @@ let package = Package(
       path: "Tests/SymphonyXcodeValidationServerCoreTests",
       plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
     ),
+    .testTarget(
+      name: "SymphonyXcodeValidationServerTests",
+      dependencies: [
+        "SymphonyXcodeValidationServer",
+        "SymphonyXcodeValidationServerCore",
+        .product(name: "HummingbirdTesting", package: "hummingbird"),
+      ],
+      path: "Tests/SymphonyXcodeValidationServerTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
+    ),
   ]
 )
