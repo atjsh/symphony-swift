@@ -369,24 +369,6 @@ final class Counter: @unchecked Sendable {
   }
 }
 
-func waitUntil(
-  _ description: String,
-  timeout: Duration = .seconds(1),
-  interval: Duration = .milliseconds(20),
-  condition: @escaping @Sendable () async -> Bool
-) async throws {
-  let deadline = ContinuousClock.now + timeout
-  while ContinuousClock.now < deadline {
-    if await condition() {
-      return
-    }
-    try await Task.sleep(for: interval)
-  }
-
-  Issue.record("Timed out waiting for \(description).")
-  throw POSIXError(.ETIMEDOUT)
-}
-
 func builtProductsDirectory() -> URL {
   Bundle(for: BundleLocator.self).bundleURL.deletingLastPathComponent()
 }

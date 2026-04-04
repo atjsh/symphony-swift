@@ -47,7 +47,7 @@ import Testing
 
   _ = try await websocket.nextEvent()
 
-  try await waitUntil("LiveLogHub has a subscriber for the active WebSocket session") {
+  try await bootstrapWaitUntil("LiveLogHub has a subscriber for the active WebSocket session") {
     await fixture.liveLogHub.subscriberCount(for: fixture.session.sessionID) > 0
   }
 }
@@ -178,7 +178,7 @@ import Testing
 
   otherTask.cancel()
   _ = await otherTask.result
-  try await waitUntil("other live-log subscriber is removed") {
+  try await bootstrapWaitUntil("other live-log subscriber is removed") {
     await hub.subscriberCount(for: otherSessionID) == 0
   }
 }
