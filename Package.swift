@@ -128,7 +128,7 @@ let package = Package(
     ),
     .target(
       name: "SymphonyValidationGallery",
-      dependencies: ["SymphonyXcodeValidation"],
+      dependencies: ["SymphonyXcodeValidation", "SymphonyXcodeValidationServerCore"],
       path: "Sources/SymphonyValidationGallery",
       resources: [
         .copy("Resources/XcodeValidationGalleryFixture")
