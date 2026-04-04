@@ -176,19 +176,15 @@ struct RootViewBodyExtendedTests {
     #if canImport(AppKit)
       let compactTheme = OperatorTheme(compact: true)
       let intrinsicMetricsHost = NSHostingView(
-        rootView: AnyView(
-          MetricsStrip(
-            theme: compactTheme,
-            metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
-          )
+        rootView: MetricsStrip(
+          theme: compactTheme,
+          metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
         )
       )
       #expect(intrinsicMetricsHost.fittingSize.width > 0)
 
       let intrinsicEmptyFlowHost = NSHostingView(
-        rootView: AnyView(
-          OperatorFlowLayout(spacing: 8) {}
-        )
+        rootView: OperatorFlowLayout(spacing: 8) {}
       )
       #expect(intrinsicEmptyFlowHost.fittingSize.height >= 0)
     #endif
@@ -196,20 +192,18 @@ struct RootViewBodyExtendedTests {
     let theme = OperatorTheme(compact: true)
     render(
       host(
-        AnyView(
-          VStack(alignment: .leading, spacing: 12) {
-            OperatorFlowLayout(spacing: 8) {}
-            MetricsStrip(
-              theme: theme,
-              metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
-            )
-            TokenUsageStrip(
-              theme: theme,
-              tokens: try! TokenUsage(inputTokens: 1_200, outputTokens: 950, totalTokens: 2_150)
-            )
-            TokenUsageStrip(theme: theme, tokens: try! TokenUsage())
-          }
-        ),
+        VStack(alignment: .leading, spacing: 12) {
+          OperatorFlowLayout(spacing: 8) {}
+          MetricsStrip(
+            theme: theme,
+            metrics: [("Input", "1,200"), ("Output", "950"), ("Total", "2,150")]
+          )
+          TokenUsageStrip(
+            theme: theme,
+            tokens: try! TokenUsage(inputTokens: 1_200, outputTokens: 950, totalTokens: 2_150)
+          )
+          TokenUsageStrip(theme: theme, tokens: try! TokenUsage())
+        },
         width: 320,
         height: 320
       )

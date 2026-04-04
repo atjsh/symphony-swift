@@ -228,7 +228,7 @@ struct RootViewActionTests {
     revealIssuesSidebar()
     #expect(columnVisibility == .all)
 
-    exercise(AnyView(view.makeEndpointEditorView()), width: 640, height: 480)
+    exercise(view.makeEndpointEditorView(), width: 640, height: 480)
 
     #expect(
       SymphonyOperatorRootView.columnVisibilityAfterIssueSelection(
@@ -284,7 +284,7 @@ struct RootViewActionTests {
   @Test func MacOSRootViewFittingHeightStaysWithinBoundedIdealSize() throws {
     #if os(macOS)
       let emptyModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
-      let emptySize = fittingSize(AnyView(SymphonyOperatorRootView(model: emptyModel)))
+      let emptySize = fittingSize(SymphonyOperatorRootView(model: emptyModel))
       #expect(emptySize.width >= 1024)
       #expect(emptySize.height >= 680)
       #expect(emptySize.height <= 820)
@@ -302,7 +302,7 @@ struct RootViewActionTests {
         makeEvent(sequence: 1, kind: "message", rawJSON: #"{"message":"hello"}"#)
       ]
 
-      let loadedSize = fittingSize(AnyView(SymphonyOperatorRootView(model: loadedModel)))
+      let loadedSize = fittingSize(SymphonyOperatorRootView(model: loadedModel))
       #expect(loadedSize.width >= 1024)
       #expect(loadedSize.height >= 680)
       #expect(loadedSize.height <= 820)
@@ -318,12 +318,10 @@ struct RootViewActionTests {
 
     render(
       host(
-        AnyView(
-          SymphonyOperatorRootView(
-            model: compactModel,
-            initialColumnVisibility: .detailOnly,
-            compactOverride: true
-          )
+        SymphonyOperatorRootView(
+          model: compactModel,
+          initialColumnVisibility: .detailOnly,
+          compactOverride: true
         ),
         width: 320,
         height: 720
@@ -339,15 +337,14 @@ struct RootViewActionTests {
 
     render(
       host(
-        AnyView(
-          OperatorDetailView(model: noRunModel, theme: regularTheme, selectRun: { _ in })),
+        OperatorDetailView(model: noRunModel, theme: regularTheme, selectRun: { _ in }),
         width: 960,
         height: 720
       )
     )
     render(
       host(
-        AnyView(RunOverviewPanel(theme: regularTheme, runDetail: makeRunDetail())),
+        RunOverviewPanel(theme: regularTheme, runDetail: makeRunDetail()),
         width: 960,
         height: 720
       )

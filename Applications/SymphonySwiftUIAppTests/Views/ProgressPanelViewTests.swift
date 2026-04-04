@@ -29,7 +29,7 @@ struct ProgressPanelViewTests {
     let model = makeModel()
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 480, height: 320)
+    exercise(panel, width: 480, height: 320)
   }
 
   @Test func progressPanelRendersFailedState() throws {
@@ -43,21 +43,21 @@ struct ProgressPanelViewTests {
     let compactPanel = OperatorProgressPanel(
       model: model, theme: OperatorTheme(compact: true), detail: detail
     )
-    exercise(AnyView(compactPanel), width: 320, height: 640)
+    exercise(compactPanel, width: 320, height: 640)
   }
 
   @Test func progressPanelRendersWithLoadedReport() throws {
     let model = makeModel(report: makeIssueProgressReport())
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 
   @Test func progressPanelRendersCompactLayoutWithReport() throws {
     let model = makeModel(report: makeIssueProgressReport())
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: true), detail: detail)
-    exercise(AnyView(panel), width: 320, height: 640)
+    exercise(panel, width: 320, height: 640)
   }
 
   @Test func progressPanelRendersWithSyntaxHealthConfigured() throws {
@@ -76,7 +76,7 @@ struct ProgressPanelViewTests {
     let model = makeModel(report: report)
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 
   @Test func progressPanelRendersWithSyntaxHealthFailed() throws {
@@ -91,7 +91,7 @@ struct ProgressPanelViewTests {
     let model = makeModel(report: report)
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: true), detail: detail)
-    exercise(AnyView(panel), width: 320, height: 640)
+    exercise(panel, width: 320, height: 640)
   }
 
   @Test func progressPanelRendersWithSyntaxHealthUnsupported() throws {
@@ -105,7 +105,7 @@ struct ProgressPanelViewTests {
     let model = makeModel(report: report)
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 
   @Test func progressPanelRendersMetricSelectionChanges() throws {
@@ -114,7 +114,7 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 
   @Test func progressPanelRendersNoWorkspaceState() throws {
@@ -124,7 +124,7 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 480, height: 320)
+    exercise(panel, width: 480, height: 320)
   }
 
   @Test func progressPanelRendersFailedStatusContent() throws {
@@ -133,7 +133,7 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 480, height: 320)
+    exercise(panel, width: 480, height: 320)
   }
 
   @Test func progressPanelRendersLoadedStatusContentWithoutReport() throws {
@@ -142,7 +142,7 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 480, height: 320)
+    exercise(panel, width: 480, height: 320)
   }
 
   @Test func progressPanelRendersRefreshErrorMessage() throws {
@@ -151,7 +151,7 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 
   @Test func progressPanelRendersWithEmptyBuckets() throws {
@@ -171,6 +171,6 @@ struct ProgressPanelViewTests {
 
     let detail = makeIssueDetail()
     let panel = OperatorProgressPanel(model: model, theme: OperatorTheme(compact: false), detail: detail)
-    exercise(AnyView(panel), width: 1280, height: 800)
+    exercise(panel, width: 1280, height: 800)
   }
 }

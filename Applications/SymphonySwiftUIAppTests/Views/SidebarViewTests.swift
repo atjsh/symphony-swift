@@ -54,58 +54,53 @@ struct SidebarViewTests {
       connectedModel.issues = [makeIssueSummary(), noProviderIssue]
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: connectedModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: connectedModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
 
       render(
         host(
-          AnyView(
-            OperatorSidebarView.makeServerStatusSummaryView(
-              theme: theme,
-              model: connectedModel,
-              health: connectedModel.health,
-              connectionError: nil,
-              host: connectedModel.host,
-              portText: connectedModel.portText,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {}
-            )),
+          OperatorSidebarView.makeServerStatusSummaryView(
+            theme: theme,
+            model: connectedModel,
+            health: connectedModel.health,
+            connectionError: nil,
+            host: connectedModel.host,
+            portText: connectedModel.portText,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {}
+          ),
           width: 420,
           height: 180
         ))
       render(
         host(
-          AnyView(
-            OperatorSidebarView.makeIssueSidebarRow(
-              theme: theme, issue: makeIssueSummary(), isSelected: true)),
+          OperatorSidebarView.makeIssueSidebarRow(
+            theme: theme, issue: makeIssueSummary(), isSelected: true),
           width: 420,
           height: 160
         ))
       render(
         host(
-          AnyView(
-            OperatorSidebarView.makeIssueSidebarRow(
-              theme: theme, issue: noProviderIssue, isSelected: false)),
+          OperatorSidebarView.makeIssueSidebarRow(
+            theme: theme, issue: noProviderIssue, isSelected: false),
           width: 420,
           height: 160
         ))
       render(
         host(
-          AnyView(
-            OperatorSidebarView.makeIssueSidebarRow(
-              theme: compactTheme,
-              issue: makeIssueSummary(),
-              isSelected: false
-            )),
+          OperatorSidebarView.makeIssueSidebarRow(
+            theme: compactTheme,
+            issue: makeIssueSummary(),
+            isSelected: false
+          ),
           width: 320,
           height: 220
         ))
@@ -114,14 +109,13 @@ struct SidebarViewTests {
       failedModel.connectionError = "Refresh failed"
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: failedModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: failedModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
@@ -129,26 +123,24 @@ struct SidebarViewTests {
       let idleModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: idleModel,
-              theme: theme,
-              openServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: idleModel,
+            theme: theme,
+            openServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: idleModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: idleModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
@@ -229,14 +221,13 @@ struct SidebarViewTests {
       localModel.localServerLaunchState = .starting
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: localModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: localModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
@@ -244,14 +235,13 @@ struct SidebarViewTests {
       localModel.localServerLaunchState = .running
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: localModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: localModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
@@ -260,14 +250,13 @@ struct SidebarViewTests {
       localModel.localServerFailure = "Launch failed"
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: localModel,
-              theme: theme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )),
+          OperatorSidebarView(
+            model: localModel,
+            theme: theme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
+          ),
           width: 420,
           height: 900
         ))
@@ -355,23 +344,19 @@ struct SidebarViewTests {
 
       render(
         host(
-          AnyView(
-            OperatorDetailView(model: model, theme: compactTheme, selectRun: { _ in })
-          ),
+          OperatorDetailView(model: model, theme: compactTheme, selectRun: { _ in }),
           width: 320,
           height: 900
         )
       )
       render(
         host(
-          AnyView(
-            OperatorSidebarView(
-              model: model,
-              theme: compactTheme,
-              openLocalServerEditor: {},
-              openExistingServerEditor: {},
-              selectIssue: { _ in }
-            )
+          OperatorSidebarView(
+            model: model,
+            theme: compactTheme,
+            openLocalServerEditor: {},
+            openExistingServerEditor: {},
+            selectIssue: { _ in }
           ),
           width: 320,
           height: 720

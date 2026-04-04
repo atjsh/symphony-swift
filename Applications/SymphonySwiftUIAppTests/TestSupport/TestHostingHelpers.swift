@@ -13,38 +13,25 @@ import SwiftUI
 
 #if canImport(AppKit)
   @MainActor
-  func fittingSize(_ view: AnyView) -> CGSize {
+  func fittingSize<V: View>(_ view: V) -> CGSize {
     let hostingView = NSHostingView(rootView: view)
     hostingView.layoutSubtreeIfNeeded()
     return hostingView.fittingSize
   }
 
   @MainActor
-  func host(_ view: SymphonyOperatorRootView) -> NSHostingView<SymphonyOperatorRootView> {
-    let hostingView = NSHostingView(rootView: view)
-    hostingView.frame = NSRect(x: 0, y: 0, width: 1280, height: 900)
-    return hostingView
-  }
-
-  @MainActor
-  func host(
-    _ view: AnyView,
+  func host<V: View>(
+    _ view: V,
     width: CGFloat = 1280,
     height: CGFloat = 900
-  ) -> NSHostingView<AnyView> {
+  ) -> NSHostingView<V> {
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(x: 0, y: 0, width: width, height: height)
     return hostingView
   }
 
   @MainActor
-  func render(_ hostingView: NSHostingView<SymphonyOperatorRootView>) {
-    hostingView.layoutSubtreeIfNeeded()
-    hostingView.displayIfNeeded()
-  }
-
-  @MainActor
-  func render(_ hostingView: NSHostingView<AnyView>) {
+  func render<V: View>(_ hostingView: NSHostingView<V>) {
     hostingView.layoutSubtreeIfNeeded()
     hostingView.displayIfNeeded()
   }
@@ -60,11 +47,11 @@ import SwiftUI
   }
 
   @MainActor
-  func host(
-    _ view: SymphonyOperatorRootView,
+  func host<V: View>(
+    _ view: V,
     width: CGFloat = 1280,
     height: CGFloat = 900
-  ) -> IOSHostedView<SymphonyOperatorRootView> {
+  ) -> IOSHostedView<V> {
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: height))
     let controller = UIHostingController(rootView: view)
     window.rootViewController = controller
@@ -75,29 +62,7 @@ import SwiftUI
   }
 
   @MainActor
-  func host(
-    _ view: AnyView,
-    width: CGFloat = 1280,
-    height: CGFloat = 900
-  ) -> IOSHostedView<AnyView> {
-    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: height))
-    let controller = UIHostingController(rootView: view)
-    window.rootViewController = controller
-    window.isHidden = false
-    controller.view.frame = window.bounds
-    controller.loadViewIfNeeded()
-    return IOSHostedView(window: window, controller: controller)
-  }
-
-  @MainActor
-  func render(_ hostingView: IOSHostedView<SymphonyOperatorRootView>) {
-    hostingView.controller.view.frame = hostingView.window.bounds
-    hostingView.controller.view.setNeedsLayout()
-    hostingView.controller.view.layoutIfNeeded()
-  }
-
-  @MainActor
-  func render(_ hostingView: IOSHostedView<AnyView>) {
+  func render<V: View>(_ hostingView: IOSHostedView<V>) {
     hostingView.controller.view.frame = hostingView.window.bounds
     hostingView.controller.view.setNeedsLayout()
     hostingView.controller.view.layoutIfNeeded()
@@ -107,23 +72,8 @@ import SwiftUI
 // MARK: - Exercise Helpers
 
 @MainActor
-func exercise(
-  _ view: SymphonyOperatorRootView,
-  width: CGFloat = 1280,
-  height: CGFloat = 900
-) {
-  #if canImport(AppKit)
-    render(host(view))
-  #elseif canImport(UIKit)
-    render(host(view, width: width, height: height))
-  #else
-    _ = view
-  #endif
-}
-
-@MainActor
-func exercise(
-  _ view: AnyView,
+func exercise<V: View>(
+  _ view: V,
   width: CGFloat = 1280,
   height: CGFloat = 900
 ) {

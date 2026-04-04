@@ -18,7 +18,7 @@ struct EndpointEditorViewTests {
     model.portText = "  9443 "
     model.connectionError = "Timed out"
 
-    render(host(AnyView(OperatorEndpointEditorView(model: model)), width: 640, height: 480))
+    render(host(OperatorEndpointEditorView(model: model), width: 640, height: 480))
 
     var dismissCount = 0
     let dismissAction = OperatorEndpointEditorView.makeEndpointDismissAction {
@@ -75,7 +75,7 @@ struct EndpointEditorViewTests {
       )
       render(
         host(
-          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          OperatorEndpointEditorView(model: localModel, initialMode: .localServer),
           width: 700,
           height: 620
         )
@@ -114,7 +114,7 @@ struct EndpointEditorViewTests {
     #if os(macOS)
       let existingModel = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
       let existingSize = fittingSize(
-        AnyView(OperatorEndpointEditorView(model: existingModel)))
+        OperatorEndpointEditorView(model: existingModel))
       #expect(existingSize.width >= 680)
       #expect(existingSize.height >= 360)
 
@@ -135,8 +135,7 @@ struct EndpointEditorViewTests {
       )
 
       let workflowSize = fittingSize(
-        AnyView(
-          OperatorEndpointEditorView(model: workflowModel, initialMode: .localServer))
+        OperatorEndpointEditorView(model: workflowModel, initialMode: .localServer)
       )
       #expect(workflowSize.width >= 1040)
       #expect(workflowSize.height >= 620)
@@ -166,7 +165,7 @@ struct EndpointEditorViewTests {
 
       render(
         host(
-          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          OperatorEndpointEditorView(model: localModel, initialMode: .localServer),
           width: 700,
           height: 620
         )
@@ -197,7 +196,7 @@ struct EndpointEditorViewTests {
 
       render(
         host(
-          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          OperatorEndpointEditorView(model: localModel, initialMode: .localServer),
           width: 700,
           height: 620
         )
@@ -239,7 +238,7 @@ struct EndpointEditorViewTests {
 
       render(
         host(
-          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          OperatorEndpointEditorView(model: localModel, initialMode: .localServer),
           width: 700,
           height: 620
         )
@@ -280,7 +279,7 @@ struct EndpointEditorViewTests {
 
       render(
         host(
-          AnyView(OperatorEndpointEditorView(model: localModel, initialMode: .localServer)),
+          OperatorEndpointEditorView(model: localModel, initialMode: .localServer),
           width: 700,
           height: 620
         )

@@ -63,52 +63,48 @@ struct LogsViewTests {
 
       render(
         host(
-          AnyView(OperatorLogsPane(model: model, theme: regularTheme)), width: 960,
+          OperatorLogsPane(model: model, theme: regularTheme), width: 960,
           height: 720))
       render(
         host(
-          AnyView(OperatorLogsPane(model: model, theme: compactTheme)), width: 320,
+          OperatorLogsPane(model: model, theme: compactTheme), width: 320,
           height: 720))
       render(
         host(
-          AnyView(
-            LogTimelinePanel(theme: compactTheme, logEvents: [statusEvent, usageEvent])),
+          LogTimelinePanel(theme: compactTheme, logEvents: [statusEvent, usageEvent]),
           width: 320,
           height: 420
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: compactTheme,
-              event: statusEvent,
-              presentation: SymphonyEventPresentation(event: statusEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: compactTheme,
+            event: statusEvent,
+            presentation: SymphonyEventPresentation(event: statusEvent),
+            isLast: false
+          ),
           width: 320,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: usageEvent,
-              presentation: SymphonyEventPresentation(event: usageEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: usageEvent,
+            presentation: SymphonyEventPresentation(event: usageEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: compactTheme,
-              event: supplementalEvent,
-              presentation: SymphonyEventPresentation(event: supplementalEvent),
-              isLast: true
-            )),
+          LogEventRow(
+            theme: compactTheme,
+            event: supplementalEvent,
+            presentation: SymphonyEventPresentation(event: supplementalEvent),
+            isLast: true
+          ),
           width: 320,
           height: 260
         ))
@@ -162,7 +158,7 @@ struct LogsViewTests {
     #expect(filter == .alerts)
     render(
       host(
-        AnyView(OperatorLogsPane.makeSegmentedLogFilterPicker(selection: filterBinding)),
+        OperatorLogsPane.makeSegmentedLogFilterPicker(selection: filterBinding),
         width: 420,
         height: 80
       )
@@ -206,12 +202,11 @@ struct LogsViewTests {
     do {
       render(
         host(
-          AnyView(
-            EmptyStatePanel(
-              theme: regularTheme,
-              systemImage: "tray",
-              title: "Nothing here yet"
-            )),
+          EmptyStatePanel(
+            theme: regularTheme,
+            systemImage: "tray",
+            title: "Nothing here yet"
+          ),
           width: 480,
           height: 220
         ))
@@ -229,135 +224,125 @@ struct LogsViewTests {
 
       render(
         host(
-          AnyView(OperatorLogsPane(model: model, theme: regularTheme)), width: 960,
+          OperatorLogsPane(model: model, theme: regularTheme), width: 960,
           height: 900))
       render(
         host(
-          AnyView(OperatorLogsPane(model: model, theme: compactTheme)), width: 320,
+          OperatorLogsPane(model: model, theme: compactTheme), width: 320,
           height: 900))
       render(
         host(
-          AnyView(LogTimelinePanel(theme: regularTheme, logEvents: [])), width: 960,
+          LogTimelinePanel(theme: regularTheme, logEvents: []), width: 960,
           height: 320)
       )
       render(
         host(
-          AnyView(
-            LogTimelinePanel(
-              theme: regularTheme,
-              logEvents: [
-                messageEvent,
-                toolEvent,
-                compactEvent,
-                approvalEvent,
-                errorEvent,
-                supplementalEvent,
-              ]
-            )),
+          LogTimelinePanel(
+            theme: regularTheme,
+            logEvents: [
+              messageEvent,
+              toolEvent,
+              compactEvent,
+              approvalEvent,
+              errorEvent,
+              supplementalEvent,
+            ]
+          ),
           width: 960,
           height: 900
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: messageEvent,
-              presentation: SymphonyEventPresentation(event: messageEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: messageEvent,
+            presentation: SymphonyEventPresentation(event: messageEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: toolEvent,
-              presentation: SymphonyEventPresentation(event: toolEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: toolEvent,
+            presentation: SymphonyEventPresentation(event: toolEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: compactEvent,
-              presentation: SymphonyEventPresentation(event: compactEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: compactEvent,
+            presentation: SymphonyEventPresentation(event: compactEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: approvalEvent,
-              presentation: SymphonyEventPresentation(event: approvalEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: approvalEvent,
+            presentation: SymphonyEventPresentation(event: approvalEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: errorEvent,
-              presentation: SymphonyEventPresentation(event: errorEvent),
-              isLast: false
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: errorEvent,
+            presentation: SymphonyEventPresentation(event: errorEvent),
+            isLast: false
+          ),
           width: 720,
           height: 220
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: supplementalEvent,
-              presentation: SymphonyEventPresentation(event: supplementalEvent),
-              isLast: true
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: supplementalEvent,
+            presentation: SymphonyEventPresentation(event: supplementalEvent),
+            isLast: true
+          ),
           width: 720,
           height: 240
         ))
       render(
         host(
-          AnyView(
-            LogEventRow(
-              theme: regularTheme,
-              event: supplementalEvent,
-              presentation: SymphonyEventPresentation(
-                rowStyle: .supplemental,
-                title: "",
-                detail: "Detail-only accessibility label",
-                metadata: "claude_code • #6 • provider_custom",
-                showsRawJSON: true
-              ),
-              isLast: true
-            )),
+          LogEventRow(
+            theme: regularTheme,
+            event: supplementalEvent,
+            presentation: SymphonyEventPresentation(
+              rowStyle: .supplemental,
+              title: "",
+              detail: "Detail-only accessibility label",
+              metadata: "claude_code • #6 • provider_custom",
+              showsRawJSON: true
+            ),
+            isLast: true
+          ),
           width: 720,
           height: 240
         ))
       render(
         host(
-          AnyView(
-            Text("Selected").operatorSelectionBackground(regularTheme, isSelected: true)),
+          Text("Selected").operatorSelectionBackground(regularTheme, isSelected: true),
           width: 240,
           height: 100
         ))
       render(
         host(
-          AnyView(
-            Text("Unselected").operatorSelectionBackground(regularTheme, isSelected: false)),
+          Text("Unselected").operatorSelectionBackground(regularTheme, isSelected: false),
           width: 240,
           height: 100
         ))

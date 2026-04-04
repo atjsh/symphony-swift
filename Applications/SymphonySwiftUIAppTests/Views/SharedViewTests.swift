@@ -19,25 +19,23 @@ struct SharedViewTests {
 
     render(
       host(
-        AnyView(
-          VStack(alignment: .leading, spacing: 12) {
-            DetailLine(compact: false, label: "Workspace", value: "/tmp/example", monospaced: true)
-            DetailLine(compact: true, label: "Status", value: "Running")
-            Text("Selectable")
-              .operatorDetailTextSelection(enabled: true)
-            EmptyStatePanel(
-              theme: theme,
-              systemImage: "tray",
-              title: "Still empty",
-              detail: "Waiting for a selected run."
-            )
-            OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
-              Text("One")
-              Text("Two")
-              Text("Three")
-            }
+        VStack(alignment: .leading, spacing: 12) {
+          DetailLine(compact: false, label: "Workspace", value: "/tmp/example", monospaced: true)
+          DetailLine(compact: true, label: "Status", value: "Running")
+          Text("Selectable")
+            .operatorDetailTextSelection(enabled: true)
+          EmptyStatePanel(
+            theme: theme,
+            systemImage: "tray",
+            title: "Still empty",
+            detail: "Waiting for a selected run."
+          )
+          OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
+            Text("One")
+            Text("Two")
+            Text("Three")
           }
-        ),
+        },
         width: 480,
         height: 420
       )
@@ -45,7 +43,7 @@ struct SharedViewTests {
 
     #if canImport(UIKit)
       let selectionHostingView = host(
-        AnyView(Text("Selectable").operatorDetailTextSelection(enabled: true)),
+        Text("Selectable").operatorDetailTextSelection(enabled: true),
         width: 180,
         height: 80
       )
@@ -54,14 +52,12 @@ struct SharedViewTests {
       #expect(selectionSize.height > 0)
 
       let flowHostingView = host(
-        AnyView(
-          OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
-            Text("One")
-            Text("Two")
-            Text("Three")
-            Text("Four")
-          }
-        ),
+        OperatorFlowLayout(spacing: 8, rowSpacing: 8) {
+          Text("One")
+          Text("Two")
+          Text("Three")
+          Text("Four")
+        },
         width: 90,
         height: 240
       )
@@ -92,10 +88,10 @@ struct SharedViewTests {
     let root = SymphonyOperatorRootView(model: model)
 
     let editorView = root.makeEndpointEditorView()
-    exercise(AnyView(editorView), width: 480, height: 400)
+    exercise(editorView, width: 480, height: 400)
 
     let sheetView = root.makeEndpointEditorSheet()
-    exercise(AnyView(sheetView), width: 480, height: 400)
+    exercise(sheetView, width: 480, height: 400)
   }
 
   @Test func statePillTintCoversAllBranches() {
@@ -120,7 +116,7 @@ struct SharedViewTests {
       let theme = OperatorTheme(compact: compact)
       for state in stateValues {
         let pill = StatePill(theme: theme, text: state, tint: statusTint(state))
-        exercise(AnyView(pill), width: 120, height: 40)
+        exercise(pill, width: 120, height: 40)
       }
     }
   }

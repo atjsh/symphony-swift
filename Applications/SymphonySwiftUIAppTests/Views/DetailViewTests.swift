@@ -30,8 +30,7 @@ struct DetailViewTests {
       )
       render(
         host(
-          AnyView(
-            OperatorDetailView(model: model, theme: theme, selectRun: { _ in })),
+          OperatorDetailView(model: model, theme: theme, selectRun: { _ in }),
           width: 960,
           height: 900
         ))
@@ -39,16 +38,14 @@ struct DetailViewTests {
       model.issueDetail = makeIssueDetail()
       render(
         host(
-          AnyView(
-            OperatorDetailView(model: model, theme: theme, selectRun: { _ in })),
+          OperatorDetailView(model: model, theme: theme, selectRun: { _ in }),
           width: 960,
           height: 900
         ))
 
       render(
         host(
-          AnyView(
-            RecentSessionsPanel(theme: theme, sessions: makeIssueDetail().recentSessions)),
+          RecentSessionsPanel(theme: theme, sessions: makeIssueDetail().recentSessions),
           width: 960,
           height: 720
         ))
@@ -99,7 +96,7 @@ struct DetailViewTests {
 
     render(
       host(
-        AnyView(OperatorDetailTabBar.makeSegmentedTabPicker(selection: binding)),
+        OperatorDetailTabBar.makeSegmentedTabPicker(selection: binding),
         width: 420,
         height: 80
       )
@@ -142,24 +139,20 @@ struct DetailViewTests {
         )
       )
       let intrinsicSize = fittingSize(
-        AnyView(
-          OperatorDetailView(
-            model: model,
-            theme: theme,
-            selectRun: { _ in }
-          )
+        OperatorDetailView(
+          model: model,
+          theme: theme,
+          selectRun: { _ in }
         )
       )
       #expect(intrinsicSize.height > 0)
       #expect(intrinsicSize.height < 720)
 
       let hostingView = host(
-        AnyView(
-          OperatorDetailView(
-            model: model,
-            theme: theme,
-            selectRun: { _ in }
-          )
+        OperatorDetailView(
+          model: model,
+          theme: theme,
+          selectRun: { _ in }
         ),
         width: 960,
         height: 720
@@ -168,12 +161,10 @@ struct DetailViewTests {
     #else
       let model = SymphonyOperatorModel(client: PassiveSymphonyAPIClient())
       let hostingView = host(
-        AnyView(
-          OperatorDetailView(
-            model: model,
-            theme: theme,
-            selectRun: { _ in }
-          )
+        OperatorDetailView(
+          model: model,
+          theme: theme,
+          selectRun: { _ in }
         ),
         width: 390,
         height: 844
@@ -198,7 +189,7 @@ struct DetailViewTests {
       runSelectionAction: {},
       compact: true
     )
-    render(host(AnyView(compactPanel), width: 320, height: 640))
+    render(host(compactPanel, width: 320, height: 640))
 
     let supplementalEvent = AgentRawEvent(
       sessionID: SessionID("session-42"),
@@ -215,13 +206,13 @@ struct DetailViewTests {
       presentation: SymphonyEventPresentation(event: supplementalEvent),
       isLast: true
     )
-    render(host(AnyView(supplementalRow), width: 480, height: 240))
+    render(host(supplementalRow, width: 480, height: 240))
 
     let compactSessions = RecentSessionsPanel(
       theme: OperatorTheme(compact: true),
       sessions: makeIssueDetail().recentSessions
     )
-    render(host(AnyView(compactSessions), width: 320, height: 420))
+    render(host(compactSessions, width: 320, height: 420))
   }
 
   @Test func scrollingTabBarRendersCompactIOSGridLayout() throws {
@@ -230,14 +221,14 @@ struct DetailViewTests {
       theme: compactTheme,
       selection: .constant(.overview)
     )
-    exercise(AnyView(tabBar), width: 320, height: 200)
+    exercise(tabBar, width: 320, height: 200)
 
     let regularTheme = OperatorTheme(compact: false)
     let regularTabBar = OperatorDetailTabBar(
       theme: regularTheme,
       selection: .constant(.progress)
     )
-    exercise(AnyView(regularTabBar), width: 480, height: 100)
+    exercise(regularTabBar, width: 480, height: 100)
   }
 
   @Test func sessionsListRendersEmptyState() throws {
@@ -246,7 +237,7 @@ struct DetailViewTests {
       theme: theme,
       sessions: []
     )
-    exercise(AnyView(emptyPanel), width: 480, height: 300)
+    exercise(emptyPanel, width: 480, height: 300)
   }
 
   @Test func sessionsListRendersMultipleSessions() throws {
@@ -256,7 +247,7 @@ struct DetailViewTests {
       theme: theme,
       sessions: detail.recentSessions + detail.recentSessions
     )
-    exercise(AnyView(sessionsPanel), width: 480, height: 600)
+    exercise(sessionsPanel, width: 480, height: 600)
   }
 
   @Test func sessionsListRendersSessionWithRateLimitPayload() throws {
@@ -278,7 +269,7 @@ struct DetailViewTests {
     )
     let theme = OperatorTheme(compact: false)
     let sessionsPanel = RecentSessionsPanel(theme: theme, sessions: [session])
-    exercise(AnyView(sessionsPanel), width: 480, height: 400)
+    exercise(sessionsPanel, width: 480, height: 400)
   }
 }
 
