@@ -1,13 +1,5 @@
 import SwiftUI
 
-#if os(macOS)
-  import AppKit
-#endif
-
-#if os(iOS)
-  import UIKit
-#endif
-
 enum ValidationGalleryAnnotationInteractionMode {
   case readOnly
   case addPoint
@@ -33,16 +25,17 @@ struct ValidationGalleryAnnotatedImageView: View {
   @State private var panOffset: CGSize = .zero
   @State private var magnifyStartScale: CGFloat?
   @State private var dragStartOffset: CGSize?
+  @State private var loadedImage: ValidationGalleryLoadedImage?
 
   var body: some View {
-    if artifact.isAvailable, let image = loadedImage {
+    if let image = loadedImage {
       GeometryReader { geometry in
         let imageRect = aspectFitRect(for: image.pixelSize, in: geometry.size)
 
         annotationCanvas(image: image.image, imageRect: imageRect, containerSize: geometry.size)
       }
       .frame(maxWidth: .infinity, minHeight: minimumHeight)
-    } else {
+    } else if !artifact.isAvailable {
       ContentUnavailableView(
         "Missing Image",
         systemImage: "photo.badge.exclamationmark",
@@ -51,6 +44,14 @@ struct ValidationGalleryAnnotatedImageView: View {
       .frame(maxWidth: .infinity, minHeight: minimumHeight)
       .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
       .accessibilityIdentifier(accessibilityIdentifier)
+    } else {
+      ProgressView()
+        .frame(maxWidth: .infinity, minHeight: minimumHeight)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .task(id: artifact.fileURL) {
+          loadedImage = await ValidationGalleryThumbnailLoader.shared.fullImage(for: artifact.fileURL)
+        }
     }
   }
 
@@ -342,27 +343,6 @@ struct ValidationGalleryAnnotatedImageView: View {
     )
   }
 
-  private var loadedImage: ValidationGalleryLoadedImage? {
-    #if os(macOS)
-      if let image = NSImage(contentsOf: artifact.fileURL) {
-        return ValidationGalleryLoadedImage(
-          image: Image(nsImage: image),
-          pixelSize: image.size
-        )
-      }
-    #endif
-
-    #if os(iOS)
-      if let image = UIImage(contentsOfFile: artifact.fileURL.path) {
-        return ValidationGalleryLoadedImage(
-          image: Image(uiImage: image),
-          pixelSize: image.size
-        )
-      }
-    #endif
-
-    return nil
-  }
 }
 
 struct ValidationGalleryLoadedImage {

@@ -142,31 +142,8 @@ public final class ValidationGalleryStore {
 
   public internal(set) var filteredArtifacts: [ValidationGalleryArtifact] = []
   public internal(set) var visiblePlatformSections: [ValidationGalleryPlatformSection] = []
-
-  public var selectedArtifact: ValidationGalleryArtifact? {
-    guard let selectedArtifactID else {
-      return filteredArtifacts.first
-    }
-
-    return filteredArtifacts.first(where: { $0.id == selectedArtifactID }) ?? filteredArtifacts.first
-  }
-
-  public var filteredAuditIssues: [ValidationGalleryAuditIssue] {
-    guard let snapshot else {
-      return []
-    }
-
-    return snapshot.auditIssues.filter { issue in
-      switch sidebarSelection {
-      case .all:
-        true
-      case .platform(let platform):
-        issue.record.platform == platform
-      case .plan(let platform, let plan):
-        issue.record.platform == platform && issue.record.plan == plan
-      }
-    }
-  }
+  public internal(set) var selectedArtifact: ValidationGalleryArtifact?
+  public internal(set) var filteredAuditIssues: [ValidationGalleryAuditIssue] = []
 
   public var hasActiveFilters: Bool {
     trimmedSearchText.isEmpty == false || sidebarSelection != .all
@@ -240,6 +217,7 @@ public final class ValidationGalleryStore {
 
   public func selectArtifact(_ artifactID: ValidationGalleryArtifact.ID?) {
     selectedArtifactID = artifactID
+    recomputeSelectedArtifact()
     selectionFeedback = nil
     normalizeSelectionAfterFilterChange()
     normalizeSelectedComment()
@@ -285,6 +263,7 @@ public final class ValidationGalleryStore {
     let visibleArtifacts = filteredArtifacts
     guard visibleArtifacts.isEmpty == false else {
       selectedArtifactID = nil
+      recomputeSelectedArtifact()
       selectionFeedback = nil
       selectedCommentID = nil
       return
@@ -300,6 +279,7 @@ public final class ValidationGalleryStore {
 
     let previousSelectionID = selectedArtifactID
     selectedArtifactID = visibleArtifacts.first?.id
+    recomputeSelectedArtifact()
     if previousSelectionID != nil, let selectedArtifact {
       selectionFeedback = ValidationGallerySelectionFeedback(
         kind: .autoSelected,
@@ -361,6 +341,8 @@ public final class ValidationGalleryStore {
     guard let snapshot else {
       filteredArtifacts = []
       visiblePlatformSections = []
+      filteredAuditIssues = []
+      recomputeSelectedArtifact()
       return
     }
 
@@ -371,6 +353,25 @@ public final class ValidationGalleryStore {
     visiblePlatformSections = ValidationGalleryOrganizer.makePlatformSections(
       from: filteredArtifacts
     )
+    filteredAuditIssues = snapshot.auditIssues.filter { issue in
+      switch sidebarSelection {
+      case .all:
+        true
+      case .platform(let platform):
+        issue.record.platform == platform
+      case .plan(let platform, let plan):
+        issue.record.platform == platform && issue.record.plan == plan
+      }
+    }
+    recomputeSelectedArtifact()
+  }
+
+  private func recomputeSelectedArtifact() {
+    if let selectedArtifactID {
+      selectedArtifact = filteredArtifacts.first(where: { $0.id == selectedArtifactID }) ?? filteredArtifacts.first
+    } else {
+      selectedArtifact = filteredArtifacts.first
+    }
   }
 
   private func matchesSelection(_ artifact: ValidationGalleryArtifact) -> Bool {
@@ -429,6 +430,7 @@ public final class ValidationGalleryStore {
     }
 
     selectedArtifactID = filteredArtifacts[targetIndex].id
+    recomputeSelectedArtifact()
     selectionFeedback = nil
     normalizeSelectedComment()
   }

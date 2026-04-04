@@ -72,6 +72,33 @@ struct ValidationGalleryThumbnailLoaderTests {
     #expect(uncached == nil)
   }
 
+  @Test func fullImageReturnsLoadedImageWithPixelSize() async throws {
+    let (loader, imageURL) = try makeLoaderWithTestImage(width: 300, height: 200)
+    let result = await loader.fullImage(for: imageURL)
+    let loaded = try #require(result)
+    #expect(loaded.pixelSize.width == 300)
+    #expect(loaded.pixelSize.height == 200)
+  }
+
+  @Test func fullImageCachesAcrossCalls() async throws {
+    let (loader, imageURL) = try makeLoaderWithTestImage(width: 150, height: 150)
+
+    let first = await loader.fullImage(for: imageURL)
+    #expect(first != nil)
+
+    try FileManager.default.removeItem(at: imageURL)
+
+    let second = await loader.fullImage(for: imageURL)
+    #expect(second != nil)
+  }
+
+  @Test func fullImageReturnsNilForMissingFile() async {
+    let loader = ValidationGalleryThumbnailLoader()
+    let fakeURL = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).png")
+    let result = await loader.fullImage(for: fakeURL)
+    #expect(result == nil)
+  }
+
   // MARK: - Helpers
 
   private func makeLoaderWithTestImage(
