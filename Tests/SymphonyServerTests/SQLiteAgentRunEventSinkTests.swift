@@ -367,10 +367,13 @@ struct SQLiteAgentRunEventSinkTests {
     let numericUsage = try TokenUsage(inputTokens: 11)
     #expect(fallbackSnapshot.lastAgentMessage == "array hello")
     #expect(fallbackSnapshot.latestSequence == EventSequence(4))
-    #expect(sink.testingProviderMessageText(from: [[:]]) == nil)
+    #expect(sink.testingProviderMessageText(from: .array([.object([:])]) ) == nil)
     #expect(
-      sink.testingProviderTokenUsage(from: ["input_tokens": NSNumber(value: 11.5)]) == numericUsage)
-    #expect(sink.testingProviderTokenUsage(from: ["input_tokens": ["unexpected": true]]) == nil)
+      sink.testingProviderTokenUsage(from: .object(["input_tokens": .double(11.5)])) == numericUsage
+    )
+    #expect(
+      sink.testingProviderTokenUsage(
+        from: .object(["input_tokens": .object(["unexpected": .bool(true)])])) == nil)
   }
 
   @Test func receiveEventWithoutKnownSessionReturnsWithoutPersisting() throws {

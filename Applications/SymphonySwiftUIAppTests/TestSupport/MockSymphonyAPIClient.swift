@@ -3,7 +3,12 @@ import SymphonyShared
 
 @testable import SymphonySwiftUIApp
 
+// SAFETY: @unchecked Sendable — all mutable recording state protected by `lock`.
+// Config properties (healthResponse, issuesResponse, etc.) are set before test
+// execution starts and read during; the test lifecycle ensures no concurrent writes.
 final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendable {
+  private let lock = NSLock()
+
   var healthResponse: HealthResponse
   var issuesResponse: IssuesResponse
   var issueDetailResponse: IssueDetail
@@ -22,17 +27,31 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
   var suspendRefresh = false
   var suspendIssueProgressReport = false
 
-  private(set) var recordedHosts = [String]()
-  private(set) var refreshCallCount = 0
-  private(set) var issueDetailRequests = [IssueID]()
-  private(set) var issueProgressReportRequests = [IssueID]()
-  private(set) var runDetailRequests = [RunID]()
-  private(set) var logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
-  private(set) var streamRequests = [(sessionID: SessionID, cursor: EventCursor?)]()
-  private(set) var streamStartCount = 0
-  private(set) var streamTerminationCount = 0
-  private var refreshContinuation: CheckedContinuation<Void, Never>?
-  private var issueProgressReportContinuation: CheckedContinuation<Void, Never>?
+  private var _recordedHosts = [String]()
+  private var _refreshCallCount = 0
+  private var _issueDetailRequests = [IssueID]()
+  private var _issueProgressReportRequests = [IssueID]()
+  private var _runDetailRequests = [RunID]()
+  private var _logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
+  private var _streamRequests = [(sessionID: SessionID, cursor: EventCursor?)]()
+  private var _streamStartCount = 0
+  private var _streamTerminationCount = 0
+  private var _refreshContinuation: CheckedContinuation<Void, Never>?
+  private var _issueProgressReportContinuation: CheckedContinuation<Void, Never>?
+
+  var recordedHosts: [String] { lock.withLock { _recordedHosts } }
+  var refreshCallCount: Int { lock.withLock { _refreshCallCount } }
+  var issueDetailRequests: [IssueID] { lock.withLock { _issueDetailRequests } }
+  var issueProgressReportRequests: [IssueID] { lock.withLock { _issueProgressReportRequests } }
+  var runDetailRequests: [RunID] { lock.withLock { _runDetailRequests } }
+  var logRequests: [(sessionID: SessionID, cursor: EventCursor?, limit: Int)] {
+    lock.withLock { _logRequests }
+  }
+  var streamRequests: [(sessionID: SessionID, cursor: EventCursor?)] {
+    lock.withLock { _streamRequests }
+  }
+  var streamStartCount: Int { lock.withLock { _streamStartCount } }
+  var streamTerminationCount: Int { lock.withLock { _streamTerminationCount } }
   let issueProgressReportRequestStream = IssueProgressReportRequestStream()
 
   init() {
@@ -88,7 +107,7 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let healthError {
       throw healthError
     }
-    recordedHosts.append(endpoint.host)
+    lock.withLock { _recordedHosts.append(endpoint.host) }
     return healthResponse
   }
 
@@ -96,7 +115,7 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let issuesError {
       throw issuesError
     }
-    recordedHosts.append(endpoint.host)
+    lock.withLock { _recordedHosts.append(endpoint.host) }
     return issuesResponse
   }
 
@@ -104,7 +123,7 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let issueDetailError {
       throw issueDetailError
     }
-    issueDetailRequests.append(issueID)
+    lock.withLock { _issueDetailRequests.append(issueID) }
     return issueDetailResponse
   }
 
@@ -114,11 +133,11 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let issueDetailError {
       throw issueDetailError
     }
-    issueProgressReportRequests.append(issueID)
+    lock.withLock { _issueProgressReportRequests.append(issueID) }
     await issueProgressReportRequestStream.yield(issueID)
     if suspendIssueProgressReport {
       await withCheckedContinuation { continuation in
-        issueProgressReportContinuation = continuation
+        lock.withLock { _issueProgressReportContinuation = continuation }
       }
     }
     if issueProgressReportResponse.issueID == issueID {
@@ -136,7 +155,7 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let runDetailError {
       throw runDetailError
     }
-    runDetailRequests.append(runID)
+    lock.withLock { _runDetailRequests.append(runID) }
     return runDetailResponse
   }
 
@@ -146,7 +165,7 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let logsError {
       throw logsError
     }
-    logRequests.append((sessionID, cursor, limit))
+    lock.withLock { _logRequests.append((sessionID, cursor, limit)) }
     return logsResponse
   }
 
@@ -154,23 +173,27 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
     if let refreshError {
       throw refreshError
     }
-    refreshCallCount += 1
+    lock.withLock { _refreshCallCount += 1 }
     if suspendRefresh {
       await withCheckedContinuation { continuation in
-        refreshContinuation = continuation
+        lock.withLock { _refreshContinuation = continuation }
       }
     }
     return RefreshResponse(queued: true, requestedAt: "2026-03-24T12:00:00Z")
   }
 
   func resumeRefresh() {
-    refreshContinuation?.resume()
-    refreshContinuation = nil
+    lock.withLock {
+      _refreshContinuation?.resume()
+      _refreshContinuation = nil
+    }
   }
 
   func resumeIssueProgressReport() {
-    issueProgressReportContinuation?.resume()
-    issueProgressReportContinuation = nil
+    lock.withLock {
+      _issueProgressReportContinuation?.resume()
+      _issueProgressReportContinuation = nil
+    }
   }
 
   func nextIssueProgressReportRequest() async -> IssueID? {
@@ -180,11 +203,14 @@ final class MockSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendabl
   func logStream(endpoint: ServerEndpoint, sessionID: SessionID, cursor: EventCursor?) throws
     -> AsyncThrowingStream<AgentRawEvent, Error>
   {
-    streamRequests.append((sessionID, cursor))
-    streamStartCount += 1
+    lock.withLock {
+      _streamRequests.append((sessionID, cursor))
+      _streamStartCount += 1
+    }
     return AsyncThrowingStream(AgentRawEvent.self) { continuation in
       continuation.onTermination = { [weak self] _ in
-        self?.streamTerminationCount += 1
+        guard let self else { return }
+        self.lock.withLock { self._streamTerminationCount += 1 }
       }
       if let streamError {
         continuation.finish(throwing: streamError)

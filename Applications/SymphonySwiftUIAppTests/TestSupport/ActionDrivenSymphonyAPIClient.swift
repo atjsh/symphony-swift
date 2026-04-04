@@ -3,46 +3,57 @@ import SymphonyShared
 
 @testable import SymphonySwiftUIApp
 
+// SAFETY: @unchecked Sendable — all mutable recording state protected by `lock`.
 final class ActionDrivenSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked Sendable {
-  private(set) var healthCount = 0
-  private(set) var issuesCount = 0
-  private(set) var refreshCount = 0
-  private(set) var issueDetailRequests = [IssueID]()
-  private(set) var runDetailRequests = [RunID]()
-  private(set) var logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
+  private let lock = NSLock()
+  private var _healthCount = 0
+  private var _issuesCount = 0
+  private var _refreshCount = 0
+  private var _issueDetailRequests = [IssueID]()
+  private var _runDetailRequests = [RunID]()
+  private var _logRequests = [(sessionID: SessionID, cursor: EventCursor?, limit: Int)]()
+
+  var healthCount: Int { lock.withLock { _healthCount } }
+  var issuesCount: Int { lock.withLock { _issuesCount } }
+  var refreshCount: Int { lock.withLock { _refreshCount } }
+  var issueDetailRequests: [IssueID] { lock.withLock { _issueDetailRequests } }
+  var runDetailRequests: [RunID] { lock.withLock { _runDetailRequests } }
+  var logRequests: [(sessionID: SessionID, cursor: EventCursor?, limit: Int)] {
+    lock.withLock { _logRequests }
+  }
 
   func health(endpoint: ServerEndpoint) async throws -> HealthResponse {
-    healthCount += 1
+    lock.withLock { _healthCount += 1 }
     return HealthResponse(
       status: "ok", serverTime: "2026-03-24T00:00:00Z", version: "1.0.0", trackerKind: "github")
   }
 
   func issues(endpoint: ServerEndpoint) async throws -> IssuesResponse {
-    issuesCount += 1
+    lock.withLock { _issuesCount += 1 }
     return IssuesResponse(items: [makeIssueSummary()])
   }
 
   func issueDetail(endpoint: ServerEndpoint, issueID: IssueID) async throws -> IssueDetail {
-    issueDetailRequests.append(issueID)
+    lock.withLock { _issueDetailRequests.append(issueID) }
     return makeIssueDetail()
   }
 
   func issueProgressReport(endpoint: ServerEndpoint, issueID: IssueID) async throws
     -> IssueProgressReportResponse
   {
-    issueDetailRequests.append(issueID)
+    lock.withLock { _issueDetailRequests.append(issueID) }
     return makeIssueProgressReport(issueID: issueID)
   }
 
   func runDetail(endpoint: ServerEndpoint, runID: RunID) async throws -> RunDetail {
-    runDetailRequests.append(runID)
+    lock.withLock { _runDetailRequests.append(runID) }
     return makeRunDetail()
   }
 
   func logs(endpoint: ServerEndpoint, sessionID: SessionID, cursor: EventCursor?, limit: Int)
     async throws -> LogEntriesResponse
   {
-    logRequests.append((sessionID, cursor, limit))
+    lock.withLock { _logRequests.append((sessionID, cursor, limit)) }
     return LogEntriesResponse(
       sessionID: sessionID,
       provider: "claude_code",
@@ -53,7 +64,7 @@ final class ActionDrivenSymphonyAPIClient: SymphonyAPIClientProtocol, @unchecked
   }
 
   func refresh(endpoint: ServerEndpoint) async throws -> RefreshResponse {
-    refreshCount += 1
+    lock.withLock { _refreshCount += 1 }
     return RefreshResponse(queued: true, requestedAt: "2026-03-24T00:00:02Z")
   }
 

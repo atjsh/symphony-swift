@@ -141,6 +141,7 @@ actor RepositoryClassificationCache {
 
 // MARK: - Blocking Result Box
 
+// SAFETY: @unchecked Sendable — `result` is exclusively accessed through `lock.withLock`.
 final class BlockingResultBox<T>: @unchecked Sendable {
   private let lock = NSLock()
   private var result: Result<T, Error>?

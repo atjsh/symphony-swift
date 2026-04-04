@@ -131,9 +131,18 @@ struct ValidationPostMitigationExecutionResult: Sendable {
   let firstError: Error?
 }
 
+// SAFETY: @unchecked Sendable — `result` is protected by `lock`.
+// The semaphore provides cross-thread coordination; the lock
+// guarantees exclusive access to the mutable `result` field.
 final class ValidationSynchronousResultBox<T>: @unchecked Sendable {
   let semaphore = DispatchSemaphore(value: 0)
-  var result: Result<T, Error>?
+  private let lock = NSLock()
+  private var _result: Result<T, Error>?
+
+  var result: Result<T, Error>? {
+    get { lock.withLock { _result } }
+    set { lock.withLock { _result = newValue } }
+  }
 }
 
 actor ValidationAsyncLimiter {

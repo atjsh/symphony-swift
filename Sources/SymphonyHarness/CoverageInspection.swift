@@ -361,7 +361,7 @@ public struct SwiftPMCoverageInspector {
         return nil
       }
 
-      let regex = try! NSRegularExpression(pattern: pattern)
+      guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
       let range = NSRange(line.startIndex..<line.endIndex, in: line)
       guard let match = regex.firstMatch(in: line, range: range),
         let lineRange = Range(match.range(at: 1), in: line),

@@ -3,6 +3,8 @@ import SQLite3
 import SymphonyShared
 import SymphonyServerCore
 
+// SAFETY: @unchecked Sendable — all database operations go through `lock.sync`
+// which wraps NSLock for exclusive access to the SQLite handle.
 public final class SQLiteServerStateStore: @unchecked Sendable {
   private let databaseURL: URL
   private let lock = NSLock()

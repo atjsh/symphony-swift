@@ -3,6 +3,7 @@ import SymphonyShared
 
 // MARK: - Session Sequence Counter
 
+// SAFETY: @unchecked Sendable — `_value` accessed through manual lock/unlock.
 final class SessionSequenceCounter: @unchecked Sendable {
   private let lock = NSLock()
   private var _value: Int = 0
@@ -18,6 +19,7 @@ final class SessionSequenceCounter: @unchecked Sendable {
 
 // MARK: - Session Store
 
+// SAFETY: @unchecked Sendable — `_sessions` accessed through `lock.withLock`.
 public final class SessionStore: @unchecked Sendable {
   private let lock = NSLock()
   private var _sessions: [SessionID: ProviderManagedSession] = [:]

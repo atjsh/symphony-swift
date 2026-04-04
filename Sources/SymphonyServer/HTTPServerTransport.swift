@@ -5,6 +5,8 @@ import HummingbirdWebSocket
 import SymphonyShared
 import SymphonyServerCore
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
+// Mutations happen within the contained types which have their own synchronization.
 @available(macOS 14, iOS 17, tvOS 17, *)
 final class SymphonyHTTPServer: @unchecked Sendable {
   private let endpoint: BootstrapServerEndpoint
@@ -103,7 +105,9 @@ final class SymphonyHTTPServer: @unchecked Sendable {
       }
       return .upgrade()
     } onUpgrade: { _, outbound, context in
-      let sessionID = sessionID(query: context.request.uri.query)!
+      guard let sessionID = sessionID(query: context.request.uri.query) else {
+        return
+      }
       let encoder = makeEncoder()
       try await streamLogEvents(
         store: store,
@@ -226,9 +230,9 @@ final class SymphonyHTTPServer: @unchecked Sendable {
           lastDeliveredSequence.rawValue > 0
           ? EventCursor(sessionID: sessionID, lastDeliveredSequence: lastDeliveredSequence)
           : nil
-        let page = try store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100)!
-
-        guard !page.items.isEmpty else {
+        guard let page = try store.logs(sessionID: sessionID, cursor: pollingCursor, limit: 100),
+          !page.items.isEmpty
+        else {
           break
         }
 

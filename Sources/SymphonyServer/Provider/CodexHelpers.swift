@@ -1,31 +1,27 @@
 import Foundation
 import SymphonyServerCore
+import SymphonyShared
 
 // MARK: - Codex Helper Functions
 
-func codexStartupThreadID(from jsonObject: [String: Any]?) -> String? {
-  guard let jsonObject else { return nil }
+func codexStartupThreadID(from msg: ProviderJSONMessage?) -> String? {
+  guard let msg else { return nil }
 
-  if let method = jsonObject["method"] as? String,
-    method == "thread/started",
-    let params = jsonObject["params"] as? [String: Any],
-    let thread = params["thread"] as? [String: Any],
-    let threadID = thread["id"] as? String,
+  if msg.method == "thread/started" {
+    if let threadID = msg.paramsString("thread", "id"),
+      !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return threadID
+    }
+  }
+
+  if let threadID = msg.resultString("thread", "id"),
     !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   {
     return threadID
   }
 
-  if let result = jsonObject["result"] as? [String: Any],
-    let thread = result["thread"] as? [String: Any],
-    let threadID = thread["id"] as? String,
-    !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-  {
-    return threadID
-  }
-
-  if let params = jsonObject["params"] as? [String: Any],
-    let threadID = params["thread_id"] as? String ?? params["threadId"] as? String,
+  if let threadID = msg.paramsString("thread_id") ?? msg.paramsString("threadId"),
     !threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   {
     return threadID
@@ -34,27 +30,23 @@ func codexStartupThreadID(from jsonObject: [String: Any]?) -> String? {
   return nil
 }
 
-func codexTurnID(from jsonObject: [String: Any]?) -> String? {
-  guard let jsonObject else { return nil }
+func codexTurnID(from msg: ProviderJSONMessage?) -> String? {
+  guard let msg else { return nil }
 
-  if let params = jsonObject["params"] as? [String: Any] {
-    if let turn = params["turn"] as? [String: Any],
-      let turnID = turn["id"] as? String,
+  if let params = msg.params {
+    if let turnID = params["turn"]?.objectValue?["id"]?.stringValue,
       !turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
       return turnID
     }
 
-    if let turnID = params["turn_id"] as? String ?? params["turnId"] as? String,
-      !turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    {
+    let turnID = params["turn_id"]?.stringValue ?? params["turnId"]?.stringValue
+    if let turnID, !turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       return turnID
     }
   }
 
-  if let result = jsonObject["result"] as? [String: Any],
-    let turn = result["turn"] as? [String: Any],
-    let turnID = turn["id"] as? String,
+  if let turnID = msg.resultString("turn", "id"),
     !turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   {
     return turnID
@@ -63,11 +55,11 @@ func codexTurnID(from jsonObject: [String: Any]?) -> String? {
   return nil
 }
 
-func shouldSuppressSuccessfulCodexResponse(_ jsonObject: [String: Any]?) -> Bool {
-  guard let jsonObject else { return false }
-  guard jsonObject["error"] == nil else { return false }
-  guard jsonObject["id"] != nil, jsonObject["result"] != nil else { return false }
-  return jsonObject["method"] == nil && jsonObject["type"] == nil
+func shouldSuppressSuccessfulCodexResponse(_ msg: ProviderJSONMessage?) -> Bool {
+  guard let msg else { return false }
+  guard msg.error == nil else { return false }
+  guard msg.id != nil, msg.result != nil else { return false }
+  return msg.method == nil && msg.type == nil
 }
 
 func makeCodexTurnStartMessage(
@@ -115,15 +107,12 @@ func makeCodexInterruptMessage(
 }
 
 func codexTurnOutcome(from rawJSON: String) -> CodexTerminalOutcome? {
-  guard
-    let data = rawJSON.data(using: .utf8),
-    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-  else { return nil }
+  guard let msg = ProviderJSONMessage.parse(rawJSON) else { return nil }
 
-  guard let method = json["method"] as? String else { return nil }
+  guard let method = msg.method else { return nil }
   switch method {
   case "turn/completed":
-    switch firstCodexOutcomeString(in: json)?.lowercased() {
+    switch firstCodexOutcomeString(in: msg)?.lowercased() {
     case "failed", "error":
       return .failed
     case "cancelled", "canceled", "interrupted":
@@ -142,30 +131,57 @@ func codexTurnOutcome(from rawJSON: String) -> CodexTerminalOutcome? {
   }
 }
 
-private func firstCodexOutcomeString(in value: Any?) -> String? {
-  if let string = value as? String {
+/// Recursively search for a terminal outcome string in a JSONValue tree.
+private func firstCodexOutcomeString(in value: JSONValue?) -> String? {
+  guard let value else { return nil }
+
+  switch value {
+  case .string(let string):
     let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
-  }
 
-  if let array = value as? [Any] {
+  case .array(let array):
     for entry in array {
       if let found = firstCodexOutcomeString(in: entry) {
         return found
       }
     }
     return nil
-  }
 
-  guard let json = value as? [String: Any] else { return nil }
-  for key in ["status", "result", "outcome", "terminalStatus", "state", "type"] {
-    if let found = firstCodexOutcomeString(in: json[key]) {
-      return found
+  case .object(let obj):
+    for key in ["status", "result", "outcome", "terminalStatus", "state", "type"] {
+      if let found = firstCodexOutcomeString(in: obj[key]) {
+        return found
+      }
+    }
+    for key in ["params", "turn", "terminal", "payload"] {
+      if let found = firstCodexOutcomeString(in: obj[key]) {
+        return found
+      }
+    }
+    return nil
+
+  default:
+    return nil
+  }
+}
+
+/// Recursively search from a ProviderJSONMessage (top-level entry point).
+private func firstCodexOutcomeString(in msg: ProviderJSONMessage) -> String? {
+  let searchKeys = ["status", "result", "outcome", "terminalStatus", "state", "type",
+                     "params", "turn", "terminal", "payload"]
+  if let result = msg.result {
+    for key in searchKeys {
+      if let found = firstCodexOutcomeString(in: result[key]) {
+        return found
+      }
     }
   }
-  for key in ["params", "turn", "terminal", "payload"] {
-    if let found = firstCodexOutcomeString(in: json[key]) {
-      return found
+  if let params = msg.params {
+    for key in searchKeys {
+      if let found = firstCodexOutcomeString(in: params[key]) {
+        return found
+      }
     }
   }
   return nil

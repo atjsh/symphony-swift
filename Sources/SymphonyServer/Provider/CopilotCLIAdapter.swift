@@ -206,10 +206,10 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
         for line in protocolLines(from: output) {
           guard !finishState.isFinished else { return }
 
-          let jsonObject = protocolJSONObject(from: line)
-          if let json = jsonObject {
+          let msg = protocolJSONMessage(from: line)
+          if let msg {
             do {
-              try handleCopilotProtocolMessage(json, process: process, sessionState: sessionState)
+              try handleCopilotProtocolMessage(msg, process: process, sessionState: sessionState)
             } catch {
               finishState.finishIfNeeded {
                 continuation.finish(throwing: error)
@@ -232,7 +232,7 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
 
           if descriptor.isTerminal {
             finishState.finishIfNeeded {
-              if let stopReason = copilotPromptStopReason(from: jsonObject) {
+              if let stopReason = copilotPromptStopReason(from: msg) {
                 if stopReason == "end_turn" {
                   continuation.finish()
                 } else {
@@ -273,21 +273,21 @@ public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
 // MARK: - Copilot Protocol Helpers
 
 private func handleCopilotProtocolMessage(
-  _ json: [String: Any],
+  _ msg: ProviderJSONMessage,
   process: LaunchedProcess,
   sessionState: CopilotSessionState
 ) throws {
-  if let providerSessionID = copilotProviderSessionID(from: json) {
+  if let providerSessionID = copilotProviderSessionID(from: msg) {
     sessionState.recordProviderSessionID(providerSessionID)
     if let startupPrompt = sessionState.startupPromptMessageIfNeeded() {
       try submitJSONMessages([startupPrompt], to: process)
     }
   }
 
-  guard let method = json["method"] as? String,
+  guard let method = msg.method,
     ["session/request_permission", "requestPermission"].contains(method),
-    let id = json["id"] as? Int,
-    let response = copilotPermissionResponse(for: json, requestID: id)
+    let id = msg.id?.intValue,
+    let response = copilotPermissionResponse(for: msg, requestID: id)
   else {
     return
   }
@@ -295,15 +295,17 @@ private func handleCopilotProtocolMessage(
 }
 
 private func copilotPermissionResponse(
-  for jsonObject: [String: Any],
+  for msg: ProviderJSONMessage,
   requestID: Int
 ) -> [String: Any]? {
-  let params = jsonObject["params"] as? [String: Any]
-  let options = params?["options"] as? [Any]
-  let optionID = options?
-    .compactMap { $0 as? [String: Any] }
-    .compactMap { $0["optionId"] as? String }
-    .first
+  let options = msg.paramsObject("options")
+  let optionID: String? = {
+    guard let optionsArray = msg.params?["options"]?.arrayValue else { return nil }
+    return optionsArray
+      .compactMap { $0.objectValue }
+      .compactMap { $0["optionId"]?.stringValue }
+      .first
+  }()
 
   let outcome: [String: Any]
   if let optionID {

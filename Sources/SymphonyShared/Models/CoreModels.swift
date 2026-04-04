@@ -1,9 +1,18 @@
 import Foundation
 
 public struct TokenUsage: Codable, Hashable, Sendable {
+  public static let empty = TokenUsage()
+
   public let inputTokens: Int?
   public let outputTokens: Int?
   public let totalTokens: Int?
+
+  /// Creates a zero/nil token usage. Cannot fail because no validation is performed on nil inputs.
+  public init() {
+    self.inputTokens = nil
+    self.outputTokens = nil
+    self.totalTokens = nil
+  }
 
   public init(inputTokens: Int? = nil, outputTokens: Int? = nil, totalTokens: Int? = nil) throws {
     if let inputTokens, let outputTokens, let totalTokens {

@@ -2,6 +2,8 @@ import Foundation
 import SymphonyServerCore
 import SymphonyShared
 
+// SAFETY: @unchecked Sendable — all mutable dictionaries (startInfoByRunID, startedAtByRunID,
+// lastStateByRunID, etc.) are exclusively accessed through `lock.withLock`.
 public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendable {
   private let lock = NSLock()
   private let store: SQLiteServerStateStore
@@ -19,11 +21,34 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
   }
 
   public func runDidStart(_ startInfo: AgentRunStartInfo) {
-    try? persistStart(startInfo)
+    do {
+      try persistStart(startInfo)
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "event_sink_persist_start_failed",
+        context: RuntimeLogContext(
+          runID: startInfo.context.runID.rawValue,
+          sessionID: startInfo.sessionID.rawValue
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   public func runDidTransition(_ context: RunContext, to state: RunLifecycleState) {
-    try? persistTransition(context: context, state: state)
+    do {
+      try persistTransition(context: context, state: state)
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "event_sink_persist_transition_failed",
+        context: RuntimeLogContext(
+          runID: context.runID.rawValue
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   @inline(never)
@@ -32,7 +57,19 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
 
     guard let update else { return }
 
-    try? persistEvent(event, update: update)
+    do {
+      try persistEvent(event, update: update)
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "event_sink_persist_event_failed",
+        context: RuntimeLogContext(
+          runID: update.runID.rawValue,
+          sessionID: event.sessionID.rawValue
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   private func eventUpdate(for event: AgentRawEvent) -> (
@@ -96,7 +133,19 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
   }
 
   public func runDidComplete(_ result: AgentRunResult) {
-    try? persistCompletion(result)
+    do {
+      try persistCompletion(result)
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "event_sink_persist_completion_failed",
+        context: RuntimeLogContext(
+          runID: result.context.runID.rawValue,
+          sessionID: result.sessionID.rawValue
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   private func persistStart(_ startInfo: AgentRunStartInfo) throws {
@@ -321,12 +370,12 @@ public final class SQLiteAgentRunEventSink: AgentRunEventSink, @unchecked Sendab
     )
   }
 
-  func testingProviderMessageText(from rawJSONObject: Any) -> String? {
-    ProviderSessionSnapshotExtractor.messageText(from: rawJSONObject)
+  func testingProviderMessageText(from value: JSONValue) -> String? {
+    ProviderSessionSnapshotExtractor.messageText(from: value)
   }
 
-  func testingProviderTokenUsage(from rawJSONObject: Any) -> TokenUsage? {
-    ProviderSessionSnapshotExtractor.tokenUsage(from: rawJSONObject)
+  func testingProviderTokenUsage(from value: JSONValue) -> TokenUsage? {
+    ProviderSessionSnapshotExtractor.tokenUsage(from: value)
   }
 
   func testingClearEventCount(for runID: RunID) {

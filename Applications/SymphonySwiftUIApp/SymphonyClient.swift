@@ -233,12 +233,13 @@ public final class URLSessionSymphonyAPIClient: SymphonyAPIClientProtocol, @unch
 
 extension URLSessionWebSocketTask.Message {
   fileprivate var payloadData: Data {
-    let value = Mirror(reflecting: self).children.first?.value
-    let defaultData = Data()
-    let reflectedData = (value as? Data) ?? defaultData
-    if let text = value as? String {
+    switch self {
+    case .string(let text):
       return Data(text.utf8)
+    case .data(let data):
+      return data
+    @unknown default:
+      return Data()
     }
-    return reflectedData
   }
 }

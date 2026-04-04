@@ -136,7 +136,9 @@ public final class CachedIssueProgressReportGenerator: IssueProgressReportGenera
 
     // commitMetadata is guaranteed non-empty by the guard in buildReport(),
     // so analyzedCommits → commits is also non-empty.
-    let summaryCommit = commits.last!
+    guard let summaryCommit = commits.last else {
+      preconditionFailure("commits must be non-empty; buildReport() guards commitMetadata")
+    }
 
     let syntaxHealth = syntaxRunner.syntaxHealth(
       in: workspacePath,
@@ -207,10 +209,10 @@ public final class CachedIssueProgressReportGenerator: IssueProgressReportGenera
         characterCount: textMetrics.characterCount,
         byteCount: textMetrics.byteCount
       )
-      if largestFile == nil || summary.byteCount > largestFile!.byteCount {
+      if summary.byteCount > (largestFile?.byteCount ?? -1) {
         largestFile = summary
       }
-      if smallestFile == nil || summary.byteCount < smallestFile!.byteCount {
+      if summary.byteCount < (smallestFile?.byteCount ?? .max) {
         smallestFile = summary
       }
     }

@@ -15,13 +15,17 @@ struct StubRepositorySyntaxHealthRunner: RepositorySyntaxHealthRunning {
   }
 }
 
+// SAFETY: @unchecked Sendable — config properties set at init;
+// `loadedBlobBatches` protected by `lock`.
 final class StubGitCommandRunner: GitCommandRunning, @unchecked Sendable {
+  private let lock = NSLock()
   var headCommitID: String
   var commitMetadata: [StubCommitMetadata]
   var treeEntriesByCommit: [String: [StubTreeEntry]]
   var activitiesByCommit: [String: RepositoryGitActivitySummary]
   var blobMetricsByID: [String: BlobMetrics]
-  private(set) var loadedBlobBatches = [[String]]()
+  private var _loadedBlobBatches = [[String]]()
+  var loadedBlobBatches: [[String]] { lock.withLock { _loadedBlobBatches } }
 
   init(
     headCommitID: String,
@@ -74,7 +78,7 @@ final class StubGitCommandRunner: GitCommandRunning, @unchecked Sendable {
   }
 
   func loadBlobMetrics(in workspacePath: String, blobIDs: [String]) throws -> [String: BlobMetrics] {
-    loadedBlobBatches.append(blobIDs)
+    lock.withLock { _loadedBlobBatches.append(blobIDs) }
     return blobIDs.reduce(into: [:]) { partialResult, blobID in
       partialResult[blobID] = blobMetricsByID[blobID]
     }

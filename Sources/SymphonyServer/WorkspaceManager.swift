@@ -80,7 +80,18 @@ public final class WorkspaceManager: WorkspaceManaging, @unchecked Sendable {
       }
     }
 
-    try? fileManager.removeItem(atPath: path)
+    do {
+      try fileManager.removeItem(atPath: path)
+    } catch {
+      RuntimeLogger.log(
+        level: .warning,
+        event: "workspace_removal_failed",
+        context: RuntimeLogContext(
+          metadata: ["workspace_path": path]
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   public func validateContainment(path: String) throws {

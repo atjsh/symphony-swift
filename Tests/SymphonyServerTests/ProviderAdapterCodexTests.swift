@@ -79,18 +79,17 @@ import Testing
 }
 
 @Test func codexEventInferenceAndInspectionCoverUnknownItemAndErrorBranches() {
+  let unknownItemJSON = #"{"method":"item/started","params":{"item":{"type":"reasoning"}}}"#
   #expect(
-    EventKindInference.inferCodex(
-      method: "item/started",
-      json: ["params": ["item": ["type": "reasoning"]]]
-    ) == nil
-  )
-  #expect(
-    ProviderEventInspection.eventType(
-      from: ["error": ["message": "boom"]],
+    EventKindInference.infer(
+      from: unknownItemJSON,
       provider: .codex
-    ) == "error"
+    ) == .unknown
   )
+
+  let errorJSON = #"{"error":{"message":"boom"}}"#
+  let descriptor = ProviderEventInspection.describe(from: errorJSON, provider: .codex)
+  #expect(descriptor.eventType == "error")
 }
 
 @Test func codexAdapterStartSession() async throws {

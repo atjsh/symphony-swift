@@ -68,33 +68,30 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
     let (query, variables) = GitHubGraphQL.issueStatesByIDsQuery(issueIDs: rawIDs)
     let data = try await transport.execute(query: query, variables: variables)
 
-    let json: [String: Any]
-    let dataObj: [String: Any]
+    let parsed: JSONValue
+    let dataObj: [String: JSONValue]
     do {
-      guard
-        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let parsedData = parsed["data"] as? [String: Any]
-      else {
+      parsed = try JSONDecoder().decode(JSONValue.self, from: data)
+      guard let dataValue = parsed["data"]?.objectValue else {
         throw GitHubTrackerError.unexpectedResponseStructure("Cannot parse state response")
       }
-      json = parsed
-      dataObj = parsedData
+      dataObj = dataValue
     } catch let error as GitHubTrackerError {
       throw error
     } catch {
       throw GitHubTrackerError.decodingFailed(error.localizedDescription)
     }
-    _ = json
+    _ = parsed
 
     var result: [IssueID: String] = [:]
     for (_, value) in dataObj {
-      guard let node = value as? [String: Any] else { continue }
+      guard let node = value.objectValue else { continue }
 
-      if let id = node["id"] as? String, let state = node["state"] as? String {
+      if let id = node["id"]?.stringValue, let state = node["state"]?.stringValue {
         result[IssueID(id)] = state
-      } else if let content = node["content"] as? [String: Any],
-        let id = content["id"] as? String,
-        let state = content["state"] as? String
+      } else if let content = node["content"]?.objectValue,
+        let id = content["id"]?.stringValue,
+        let state = content["state"]?.stringValue
       {
         result[IssueID(id)] = state
       }
@@ -136,18 +133,16 @@ public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
       """
 
     let data = try await transport.execute(query: query, variables: nil)
-    guard
-      let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let dataObj = json["data"] as? [String: Any]
-    else {
+    let parsed = try JSONDecoder().decode(JSONValue.self, from: data)
+    guard let dataObj = parsed["data"]?.objectValue else {
       throw GitHubTrackerError.unexpectedResponseStructure("Cannot parse project ID response")
     }
 
     let ownerKey = projectOwnerType == "organization" ? "organization" : "user"
     guard
-      let ownerObj = dataObj[ownerKey] as? [String: Any],
-      let projectObj = ownerObj["projectV2"] as? [String: Any],
-      let projectID = projectObj["id"] as? String
+      let ownerObj = dataObj[ownerKey]?.objectValue,
+      let projectObj = ownerObj["projectV2"]?.objectValue,
+      let projectID = projectObj["id"]?.stringValue
     else {
       throw GitHubTrackerError.unexpectedResponseStructure(
         "Cannot find projectV2.id in response")

@@ -80,6 +80,7 @@ public protocol AgentRunning: Sendable {
   func cancelRun(runID: RunID) async throws
 }
 
+// SAFETY: @unchecked Sendable — `_lastEventAt` and `_stallError` accessed through `lock.withLock`.
 private final class StallWatchState: @unchecked Sendable {
   private let lock = NSLock()
   private var _lastEventAt: Date
@@ -110,6 +111,8 @@ private final class StallWatchState: @unchecked Sendable {
 
 // MARK: - Agent Runner
 
+// SAFETY: @unchecked Sendable — `_activeRuns` accessed through `lock.withLock`.
+// Other fields are immutable (`let`).
 public final class AgentRunner: AgentRunning, @unchecked Sendable {
   private let lock = NSLock()
   private let workspaceManager: any WorkspaceManaging
@@ -318,7 +321,19 @@ public final class AgentRunner: AgentRunning, @unchecked Sendable {
 
           if stallDetector.isStalled(lastEventAt: stallState.lastEventAt) {
             stallState.markStalled(timeoutMS: stallTimeoutMS)
-            try? await adapter.cancelSession(sessionID: sessionID)
+            do {
+              try await adapter.cancelSession(sessionID: sessionID)
+            } catch {
+              RuntimeLogger.log(
+                level: .warning,
+                event: "stall_cancel_session_failed",
+                context: RuntimeLogContext(
+                  sessionID: sessionID.rawValue,
+                  metadata: ["stall_timeout_ms": String(stallTimeoutMS)]
+                ),
+                error: String(describing: error)
+              )
+            }
             break
           }
         }
@@ -451,6 +466,8 @@ private func isTimeoutError(_ error: Error?) -> Bool {
 private func redactedLogMessage(_ message: String) -> String {
   var redacted = message
 
+  // Patterns are compile-time string constants; construction cannot fail.
+  // swiftlint:disable force_try
   let tokenRules: [(NSRegularExpression, String)] = [
     (
       try! NSRegularExpression(pattern: #"(?i)\bbearer\s+[A-Za-z0-9._-]+"#),
@@ -463,6 +480,7 @@ private func redactedLogMessage(_ message: String) -> String {
       "[REDACTED]"
     ),
   ]
+  // swiftlint:enable force_try
 
   for (rule, replacement) in tokenRules {
     redacted = rule.stringByReplacingMatches(

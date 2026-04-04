@@ -3,6 +3,8 @@ import SymphonyShared
 
 // MARK: - Orchestrator (Section 8)
 
+// SAFETY: @unchecked Sendable — all mutable state (_tracker, _config) is
+// exclusively accessed through `lock.withLock`.
 public final class Orchestrator: @unchecked Sendable {
   private let lock = NSLock()
   private var _tracker: any TrackerAdapting

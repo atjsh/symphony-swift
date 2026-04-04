@@ -27,7 +27,13 @@ doctor:
     swift run --quiet --scratch-path {{harness_scratch_path}} harness doctor
 
 lint:
-    swift package plugin --allow-writing-to-package-directory swiftlint
+    swift package plugin --allow-writing-to-package-directory swiftlint lint
+
+lint-fix:
+    swift package plugin --allow-writing-to-package-directory swiftlint --fix
+
+coverage *subjects:
+    swift run --quiet --scratch-path {{harness_scratch_path}} harness test --enable-code-coverage {{subjects}}
 
 # Serial preflight recipes for spec closeout work. These intentionally avoid
 # parallel runs because the shared scratch-path cache can distort coverage data

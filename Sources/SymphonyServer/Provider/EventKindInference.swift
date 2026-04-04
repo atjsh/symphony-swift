@@ -5,32 +5,30 @@ import SymphonyShared
 
 enum EventKindInference {
   static func infer(from rawJSON: String, provider: ProviderName) -> NormalizedEventKind {
-    guard let data = rawJSON.data(using: .utf8),
-      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return .unknown }
+    guard let message = ProviderJSONMessage.parse(rawJSON) else { return .unknown }
 
     switch provider {
     case .codex:
-      return inferCodex(json)
+      return inferCodex(message)
     case .claudeCode:
-      return inferClaudeCode(json)
+      return inferClaudeCode(message)
     case .copilotCLI:
-      return inferCopilotCLI(json)
+      return inferCopilotCLI(message)
     }
   }
 
-  private static func inferCodex(_ json: [String: Any]) -> NormalizedEventKind {
-    if json["error"] != nil {
+  private static func inferCodex(_ msg: ProviderJSONMessage) -> NormalizedEventKind {
+    if msg.error != nil {
       return .error
     }
 
-    if let method = json["method"] as? String {
-      if let kind = inferCodex(method: method, json: json) {
+    if let method = msg.method {
+      if let kind = inferCodex(method: method, msg: msg) {
         return kind
       }
     }
 
-    guard let type = json["type"] as? String else { return .unknown }
+    guard let type = msg.type else { return .unknown }
     if codexApprovalLikeIdentifier(type) {
       return .approvalRequest
     }
@@ -47,8 +45,8 @@ enum EventKindInference {
     }
   }
 
-  static func inferCodex(method: String, json: [String: Any]) -> NormalizedEventKind? {
-    if isCodexApprovalEvent(method: method, json: json) {
+  static func inferCodex(method: String, msg: ProviderJSONMessage) -> NormalizedEventKind? {
+    if isCodexApprovalEvent(method: method, msg: msg) {
       return .approvalRequest
     }
 
@@ -61,35 +59,33 @@ enum EventKindInference {
     case "item/agentMessage/delta":
       return .message
     case "item/started", "item/completed":
-      switch codexItemType(in: json) {
+      switch codexItemType(in: msg) {
       case "agentMessage":
         return .message
       case "commandExecution":
         return method == "item/started" ? .toolCall : .toolResult
       default:
-        return codexApprovalLikePayload(in: json) ? .approvalRequest : nil
+        return codexApprovalLikePayload(in: msg) ? .approvalRequest : nil
       }
     default:
       return nil
     }
   }
 
-  private static func codexItemType(in json: [String: Any]) -> String? {
-    let params = json["params"] as? [String: Any]
-    let item = params?["item"] as? [String: Any]
-    return item?["type"] as? String
+  private static func codexItemType(in msg: ProviderJSONMessage) -> String? {
+    msg.paramsString("item", "type")
   }
 
-  private static func isCodexApprovalEvent(method: String, json: [String: Any]) -> Bool {
-    codexApprovalLikeIdentifier(method) || codexApprovalLikePayload(in: json)
+  private static func isCodexApprovalEvent(method: String, msg: ProviderJSONMessage) -> Bool {
+    codexApprovalLikeIdentifier(method) || codexApprovalLikePayload(in: msg)
   }
 
-  private static func codexApprovalLikePayload(in json: [String: Any]) -> Bool {
-    codexApprovalCandidateStrings(in: json).contains(where: codexApprovalLikeIdentifier)
+  private static func codexApprovalLikePayload(in msg: ProviderJSONMessage) -> Bool {
+    codexApprovalCandidateStrings(in: msg).contains(where: codexApprovalLikeIdentifier)
   }
 
-  private static func codexApprovalCandidateStrings(in json: [String: Any]) -> [String] {
-    let paths = [
+  private static func codexApprovalCandidateStrings(in msg: ProviderJSONMessage) -> [String] {
+    let paths: [[String]] = [
       ["type"],
       ["method"],
       ["params", "item", "type"],
@@ -110,18 +106,36 @@ enum EventKindInference {
       ["result", "request", "kind"],
     ]
 
-    return paths.compactMap { stringValue(at: $0, in: json) }
+    return paths.compactMap { stringValue(at: $0, in: msg) }
   }
 
-  private static func stringValue(at path: [String], in json: [String: Any]) -> String? {
+  private static func stringValue(at path: [String], in msg: ProviderJSONMessage) -> String? {
     guard let first = path.first else { return nil }
-    guard let value = json[first] else { return nil }
-    if path.count == 1 {
-      return value as? String
-    }
 
-    guard let nested = value as? [String: Any] else { return nil }
-    return stringValue(at: Array(path.dropFirst()), in: nested)
+    // Top-level field access
+    let topValue: JSONValue?
+    switch first {
+    case "type": return msg.type
+    case "method": return msg.method
+    case "params":
+      guard let params = msg.params else { return nil }
+      return nestedStringValue(at: Array(path.dropFirst()), in: params)
+    case "result":
+      guard let result = msg.result else { return nil }
+      return nestedStringValue(at: Array(path.dropFirst()), in: result)
+    default:
+      topValue = nil
+    }
+    return topValue?.stringValue
+  }
+
+  private static func nestedStringValue(at path: [String], in obj: [String: JSONValue]) -> String? {
+    guard let first = path.first, let value = obj[first] else { return nil }
+    if path.count == 1 {
+      return value.stringValue
+    }
+    guard let nested = value.objectValue else { return nil }
+    return nestedStringValue(at: Array(path.dropFirst()), in: nested)
   }
 
   private static func codexApprovalLikeIdentifier(_ identifier: String?) -> Bool {
@@ -160,8 +174,8 @@ enum EventKindInference {
     return false
   }
 
-  private static func inferClaudeCode(_ json: [String: Any]) -> NormalizedEventKind {
-    guard let type = json["type"] as? String else { return .unknown }
+  private static func inferClaudeCode(_ msg: ProviderJSONMessage) -> NormalizedEventKind {
+    guard let type = msg.type else { return .unknown }
     switch type {
     case "assistant", "text", "message", "result": return .message
     case "tool_use": return .toolCall
@@ -173,24 +187,24 @@ enum EventKindInference {
     }
   }
 
-  private static func inferCopilotCLI(_ json: [String: Any]) -> NormalizedEventKind {
-    if let method = json["method"] as? String,
+  private static func inferCopilotCLI(_ msg: ProviderJSONMessage) -> NormalizedEventKind {
+    if let method = msg.method,
       ["session/request_permission", "requestPermission"].contains(method)
     {
       return .approvalRequest
     }
-    if let method = json["method"] as? String, ["session/update", "sessionUpdate"].contains(method)
+    if let method = msg.method, ["session/update", "sessionUpdate"].contains(method)
     {
       return .status
     }
-    if copilotPromptStopReason(from: json) != nil {
+    if msg.resultString("stopReason") != nil {
       return .status
     }
-    if json["error"] != nil {
+    if msg.error != nil {
       return .error
     }
 
-    guard let type = json["type"] as? String ?? json["event"] as? String else { return .unknown }
+    guard let type = msg.type ?? msg.event else { return .unknown }
     switch type {
     case "message", "update", "text": return .message
     case "tool_call": return .toolCall
@@ -211,9 +225,7 @@ struct ProviderEventDescriptor {
 
 enum ProviderEventInspection {
   static func describe(from rawJSON: String, provider: ProviderName) -> ProviderEventDescriptor {
-    guard let data = rawJSON.data(using: .utf8),
-      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else {
+    guard let msg = ProviderJSONMessage.parse(rawJSON) else {
       return ProviderEventDescriptor(
         eventType: "unknown",
         normalizedKind: .unknown,
@@ -221,9 +233,9 @@ enum ProviderEventInspection {
       )
     }
 
-    let eventType = eventType(from: json, provider: provider)
+    let eventType = eventType(from: msg, provider: provider)
     let normalizedKind = EventKindInference.infer(from: rawJSON, provider: provider)
-    let isTerminal = isTerminalEvent(json, provider: provider)
+    let isTerminal = isTerminalEvent(msg, provider: provider)
     return ProviderEventDescriptor(
       eventType: eventType,
       normalizedKind: normalizedKind,
@@ -231,37 +243,34 @@ enum ProviderEventInspection {
     )
   }
 
-  static func eventType(from json: [String: Any], provider: ProviderName) -> String {
+  static func eventType(from msg: ProviderJSONMessage, provider: ProviderName) -> String {
     switch provider {
     case .codex:
-      if json["error"] != nil {
+      if msg.error != nil {
         return "error"
       }
-      return json["method"] as? String ?? json["type"] as? String ?? "unknown"
+      return msg.method ?? msg.type ?? "unknown"
     case .claudeCode:
-      return json["type"] as? String ?? "unknown"
+      return msg.type ?? "unknown"
     case .copilotCLI:
-      if json["error"] != nil {
+      if msg.error != nil {
         return "error"
       }
-      if json["result"] != nil {
+      if msg.result != nil {
         return "result"
       }
-      return json["method"] as? String ?? json["type"] as? String ?? json["event"] as? String
-        ?? "unknown"
+      return msg.method ?? msg.type ?? msg.event ?? "unknown"
     }
   }
 
-  private static func isTerminalEvent(_ json: [String: Any], provider: ProviderName) -> Bool {
+  private static func isTerminalEvent(_ msg: ProviderJSONMessage, provider: ProviderName) -> Bool {
     switch provider {
     case .codex:
-      let method = json["method"] as? String
-      return ["turn/completed", "turn/failed", "turn/cancelled", "turn/interrupted"].contains(method)
+      return ["turn/completed", "turn/failed", "turn/cancelled", "turn/interrupted"].contains(msg.method)
     case .claudeCode:
-      let type = json["type"] as? String
-      return ["result", "error"].contains(type)
+      return ["result", "error"].contains(msg.type)
     case .copilotCLI:
-      return copilotPromptStopReason(from: json) != nil || json["error"] != nil
+      return msg.resultString("stopReason") != nil || msg.error != nil
     }
   }
 }

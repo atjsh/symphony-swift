@@ -1,4 +1,5 @@
 import Foundation
+import SymphonyShared
 
 // MARK: - Process Launching Abstraction
 
@@ -204,8 +205,8 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
         let string = String(data: data, encoding: .utf8)?
           .trimmingCharacters(in: .whitespacesAndNewlines),
         let messageData = string.data(using: .utf8),
-        let json = try? JSONSerialization.jsonObject(with: messageData) as? [String: Any],
-        json["method"] as? String == "turn/interrupt"
+        let json = try? JSONDecoder().decode(ProviderJSONMessage.self, from: messageData),
+        json.method == "turn/interrupt"
       {
         _interruptCount += 1
       }

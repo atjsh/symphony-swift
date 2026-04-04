@@ -155,6 +155,10 @@ extension SymphonyHarnessTool {
       let queue = scheduledRun.requiresExclusiveDestination ? exclusiveQueue : concurrentQueue
       queue.async { [self] in
         defer { group.leave() }
+        // Subject execution failures are fatal in the harness context:
+        // a failed subject run should crash the harness process rather than
+        // silently produce partial results.
+        // swiftlint:disable:next force_try
         let result = try! executeScheduledSubjectRun(
           scheduledRun,
           for: request,

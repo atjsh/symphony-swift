@@ -281,9 +281,9 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
     finishSuccessfully: @escaping @Sendable () -> Void,
     continuation: AsyncThrowingStream<AgentRawEvent, Error>.Continuation
   ) {
-    let jsonObject = protocolJSONObject(from: line)
+    let msg = protocolJSONMessage(from: line)
     timeoutMonitor.cancelReadTimeout()
-    if let threadID = codexStartupThreadID(from: jsonObject) {
+    if let threadID = codexStartupThreadID(from: msg) {
       sessionState.recordThreadID(threadID)
       if let startupState,
         let turnStartMessage = startupState.turnStartMessageIfNeeded(threadID: threadID)
@@ -302,11 +302,11 @@ public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
       }
     }
 
-    if let turnID = codexTurnID(from: jsonObject) {
+    if let turnID = codexTurnID(from: msg) {
       sessionState.recordTurnID(turnID)
     }
 
-    if shouldSuppressSuccessfulCodexResponse(jsonObject) {
+    if shouldSuppressSuccessfulCodexResponse(msg) {
       return
     }
 

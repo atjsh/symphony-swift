@@ -4,6 +4,8 @@ import SymphonyShared
 
 // MARK: - Orchestrator Engine
 
+// SAFETY: @unchecked Sendable — all mutable state (_state, _workflow, _loopTask,
+// _runtime) is exclusively accessed through `lock.withLock`.
 public final class OrchestratorEngine: @unchecked Sendable {
   private let lock = NSLock()
   private var _state: OrchestratorEngineState = .idle
@@ -78,10 +80,13 @@ public final class OrchestratorEngine: @unchecked Sendable {
 
         // Poll loop
         while !Task.isCancelled {
-          if let orchestrator = self.activeOrchestrator,
-            let result = try? await orchestrator.tick()
-          {
-            await observer.engineTickCompleted(result)
+          if let orchestrator = self.activeOrchestrator {
+            do {
+              let result = try await orchestrator.tick()
+              await observer.engineTickCompleted(result)
+            } catch {
+              await observer.engineError(error, context: "tick")
+            }
           }
 
           do {
@@ -252,7 +257,19 @@ public final class OrchestratorEngine: @unchecked Sendable {
       let terminalIssues = try await tracker.fetchIssuesByStates(config.tracker.terminalStates)
       for issue in terminalIssues {
         let key = WorkspaceKey(issue.identifier.rawValue)
-        try? workspaceManager.removeWorkspace(for: key, hooks: config.hooks)
+        do {
+          try workspaceManager.removeWorkspace(for: key, hooks: config.hooks)
+        } catch {
+          RuntimeLogger.log(
+            level: .warning,
+            event: "startup_cleanup_workspace_removal_failed",
+            context: RuntimeLogContext(
+              issueIdentifier: issue.identifier.rawValue,
+              metadata: ["workspace_key": key.rawValue]
+            ),
+            error: String(describing: error)
+          )
+        }
       }
     } catch {
       await observer.engineError(error, context: "startupCleanup")
@@ -271,6 +288,8 @@ private struct EngineRuntime {
 
 // MARK: - Engine Orchestrator Delegate
 
+// SAFETY: @unchecked Sendable — all mutable state (_workspaceManager, _agentRunner,
+// _config, _promptTemplate, _orchestrator) is exclusively accessed through `lock.withLock`.
 final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
   private let lock = NSLock()
   private let observer: any EngineEventObserving
@@ -300,7 +319,19 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
   func orchestratorDidSyncIssues(_ issues: [Issue]) async {
     guard let stateStore else { return }
     for issue in issues {
-      try? stateStore.upsertIssue(issue)
+      do {
+        try stateStore.upsertIssue(issue)
+      } catch {
+        RuntimeLogger.log(
+          level: .error,
+          event: "issue_sync_persistence_failed",
+          context: RuntimeLogContext(
+            issueID: issue.id.rawValue,
+            issueIdentifier: issue.identifier.rawValue
+          ),
+          error: String(describing: error)
+        )
+      }
     }
   }
 
@@ -314,7 +345,20 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
     let snapshot = dependencySnapshot()
     if cleanup {
       let key = WorkspaceKey(issueIdentifier.rawValue)
-      try? snapshot.workspaceManager.removeWorkspace(for: key, hooks: snapshot.config.hooks)
+      do {
+        try snapshot.workspaceManager.removeWorkspace(for: key, hooks: snapshot.config.hooks)
+      } catch {
+        RuntimeLogger.log(
+          level: .warning,
+          event: "cancel_workspace_removal_failed",
+          context: RuntimeLogContext(
+            issueID: issueID.rawValue,
+            issueIdentifier: issueIdentifier.rawValue,
+            metadata: ["workspace_key": key.rawValue]
+          ),
+          error: String(describing: error)
+        )
+      }
     }
     let runID = RunID(UUID().uuidString)
     let context = RunContext(
@@ -323,7 +367,19 @@ final class EngineOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendabl
   }
 
   func orchestratorDidRefreshSnapshot(issue: Issue) async {
-    try? stateStore?.upsertIssue(issue)
+    do {
+      try stateStore?.upsertIssue(issue)
+    } catch {
+      RuntimeLogger.log(
+        level: .error,
+        event: "snapshot_refresh_persistence_failed",
+        context: RuntimeLogContext(
+          issueID: issue.id.rawValue,
+          issueIdentifier: issue.identifier.rawValue
+        ),
+        error: String(describing: error)
+      )
+    }
   }
 
   func orchestratorDidRetry(issue: Issue, record: RetryRecord) async {

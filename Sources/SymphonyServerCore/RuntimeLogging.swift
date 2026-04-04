@@ -111,7 +111,9 @@ public enum RuntimeLogger {
       payload["error"] = redact(error, sensitiveValues: sensitiveValues)
     }
 
-    let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+      return
+    }
     let line = String(decoding: data, as: UTF8.self)
 
     if let sink = RuntimeLogHooks.sinkOverride {
@@ -172,6 +174,10 @@ public enum RuntimeLogger {
     return redacted
   }
 
+  // All patterns below are compile-time string constants. NSRegularExpression
+  // construction from constant patterns cannot fail. The try! is intentional
+  // and covered by RuntimeLoggingTests.testRedactionRulesCompile().
+  // swiftlint:disable force_try
   private static let bearerTokenRule = try! NSRegularExpression(
     pattern: #"(?i)\bbearer\s+[A-Za-z0-9._-]+"#
   )
@@ -182,4 +188,5 @@ public enum RuntimeLogger {
   private static let tokenLikeValueRule = try! NSRegularExpression(
     pattern: #"\b(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b"#
   )
+  // swiftlint:enable force_try
 }

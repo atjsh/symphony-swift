@@ -65,25 +65,24 @@ struct ValidationGalleryInspectorView: View {
     }
   }
 
-  private var emptyInspectorContent: AnyView {
-    AnyView(
-      VStack(alignment: .leading, spacing: 20) {
-        Spacer(minLength: 0)
-        ValidationGalleryInspectorEmptyState(
-          hasActiveFilters: store.hasActiveFilters,
-          onClearFilters: store.hasActiveFilters ? { store.clearFilters() } : nil
-        )
-        Spacer(minLength: 0)
+  @ViewBuilder
+  private var emptyInspectorContent: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      Spacer(minLength: 0)
+      ValidationGalleryInspectorEmptyState(
+        hasActiveFilters: store.hasActiveFilters,
+        onClearFilters: store.hasActiveFilters ? { store.clearFilters() } : nil
+      )
+      Spacer(minLength: 0)
 
-        if let snapshot {
-          bundleContextDisclosure(snapshot: snapshot)
-        } else {
-          EmptyView()
-        }
+      if let snapshot {
+        bundleContextDisclosure(snapshot: snapshot)
+      } else {
+        EmptyView()
       }
-      .padding(20)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    )
+    }
+    .padding(20)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 
   private func bundleContextDisclosure(snapshot: ValidationBundleSnapshot) -> some View {

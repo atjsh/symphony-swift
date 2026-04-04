@@ -10,13 +10,13 @@ public enum ConfigResolver {
   ) throws -> String {
     var result = value
     let pattern = "\\$([A-Za-z_][A-Za-z0-9_]*)"
-    // Pattern is a compile-time constant; construction cannot fail.
-    let regex = try! NSRegularExpression(pattern: pattern)
+    let regex = try NSRegularExpression(pattern: pattern)
 
     let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
     for match in matches.reversed() {
-      let fullRange = Range(match.range, in: result)!
-      let varNameRange = Range(match.range(at: 1), in: result)!
+      guard let fullRange = Range(match.range, in: result),
+        let varNameRange = Range(match.range(at: 1), in: result)
+      else { continue }
       let varName = String(result[varNameRange])
       if let envValue = environment[varName] {
         result.replaceSubrange(fullRange, with: envValue)

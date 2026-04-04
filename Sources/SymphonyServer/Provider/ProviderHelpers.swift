@@ -3,6 +3,7 @@ import SymphonyShared
 
 // MARK: - Stream Finish State
 
+// SAFETY: @unchecked Sendable — `_finished` accessed through `lock.withLock`.
 final class StreamFinishState: @unchecked Sendable {
   private let lock = NSLock()
   private var _finished = false
@@ -53,17 +54,14 @@ func protocolLines(from output: String) -> [String] {
     .filter { !$0.isEmpty }
 }
 
-func protocolJSONObject(from line: String) -> [String: Any]? {
-  guard let data = line.data(using: .utf8) else { return nil }
-  return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+func protocolJSONMessage(from line: String) -> ProviderJSONMessage? {
+  ProviderJSONMessage.parse(line)
 }
 
-func copilotProviderSessionID(from jsonObject: [String: Any]?) -> String? {
-  guard let result = jsonObject?["result"] as? [String: Any] else { return nil }
-  return result["sessionId"] as? String
+func copilotProviderSessionID(from msg: ProviderJSONMessage?) -> String? {
+  msg?.resultString("sessionId")
 }
 
-func copilotPromptStopReason(from jsonObject: [String: Any]?) -> String? {
-  guard let result = jsonObject?["result"] as? [String: Any] else { return nil }
-  return result["stopReason"] as? String
+func copilotPromptStopReason(from msg: ProviderJSONMessage?) -> String? {
+  msg?.resultString("stopReason")
 }

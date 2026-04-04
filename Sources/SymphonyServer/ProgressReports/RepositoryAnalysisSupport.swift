@@ -418,6 +418,7 @@ private struct GlobPattern {
   init(_ pattern: String) {
     // regexPattern(for:) always produces valid patterns – all non-glob characters
     // are escaped via NSRegularExpression.escapedPattern(for:).
+    // swiftlint:disable:next force_try
     self.regex = try! NSRegularExpression(pattern: Self.regexPattern(for: pattern))
   }
 

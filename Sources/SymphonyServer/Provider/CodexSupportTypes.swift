@@ -4,6 +4,7 @@ import SymphonyServerCore
 
 // MARK: - Codex Session State
 
+// SAFETY: @unchecked Sendable — all mutable state accessed through `lock.withLock`.
 final class CodexSessionState: @unchecked Sendable {
   private let lock = NSLock()
   private let sequenceCounter = SessionSequenceCounter()
@@ -62,6 +63,7 @@ final class CodexSessionState: @unchecked Sendable {
 
 // MARK: - Codex Session Registry
 
+// SAFETY: @unchecked Sendable — `states` dictionary accessed through `lock.withLock`.
 final class CodexSessionRegistry: @unchecked Sendable {
   private let lock = NSLock()
   private var states: [SessionID: CodexSessionState] = [:]
@@ -103,6 +105,8 @@ enum CodexTerminalOutcome: String, Sendable {
 
 // MARK: - Codex Timeout Monitor
 
+// SAFETY: @unchecked Sendable — all mutable state (timeout tasks, terminal error)
+// accessed through `lock.withLock`.
 final class CodexTimeoutMonitor: @unchecked Sendable {
   private let lock = NSLock()
   private var readTimeoutTask: Task<Void, Never>?
@@ -188,6 +192,8 @@ final class CodexTimeoutMonitor: @unchecked Sendable {
 
 // MARK: - Codex Startup State
 
+// SAFETY: @unchecked Sendable — `didSendTurnStart` accessed through `lock.withLock`.
+// Other fields are immutable (`let`).
 final class CodexStartupState: @unchecked Sendable {
   private let lock = NSLock()
   private let issueIdentifier: String
@@ -224,6 +230,7 @@ final class CodexStartupState: @unchecked Sendable {
 
 // MARK: - Codex Output Buffer
 
+// SAFETY: @unchecked Sendable — `remainder` accessed through `lock.withLock`.
 final class CodexOutputBuffer: @unchecked Sendable {
   private let lock = NSLock()
   private var remainder = ""

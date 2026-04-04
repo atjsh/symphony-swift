@@ -354,6 +354,8 @@ struct GitHubTrackerAdapterEdgeCaseTests {
 }
 // MARK: - URLSessionGraphQLTransport Tests
 
+// SAFETY: @unchecked Sendable — URLProtocol subclass pattern requires static mutable
+// state via nonisolated(unsafe). Tests set static properties before making requests.
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var responseData: Data?
   nonisolated(unsafe) static var responseStatusCode: Int = 200

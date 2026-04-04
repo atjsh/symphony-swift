@@ -97,7 +97,11 @@ public struct EventCursor: Codable, Hashable, Sendable, CustomStringConvertible 
   private static func encode(_ payload: CursorPayload) -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
-    let data = try! encoder.encode(payload)
+    // CursorPayload is a trivial Codable struct; encoding cannot fail
+    // under normal conditions. If it does, return empty string as defensive fallback.
+    guard let data = try? encoder.encode(payload) else {
+      return ""
+    }
     return data.base64URLEncodedString()
   }
 

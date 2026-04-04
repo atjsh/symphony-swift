@@ -114,7 +114,8 @@ let package = Package(
         "SymphonyXcodeValidation",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
-      path: "Sources/SymphonyXcodeValidationCLI"
+      path: "Sources/SymphonyXcodeValidationCLI",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
     ),
     .executableTarget(
       name: "harness",

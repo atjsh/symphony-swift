@@ -17,12 +17,15 @@ struct TestCoveragePreviewFormatter {
         lines.append("")
         lines.append(contentsOf: renderSubject(result, repositoryRoot: repositoryRoot))
       }
-    } catch {
-      let error = error as! PreviewArtifactError
+    } catch let error as PreviewArtifactError {
       lines.append("")
       lines.append("coverage preview unavailable")
       lines.append("reason \(error.reason)")
       lines.append("expected \(error.expectedPath.path)")
+    } catch {
+      lines.append("")
+      lines.append("coverage preview unavailable")
+      lines.append("reason \(error)")
     }
 
     return lines.joined(separator: "\n")
@@ -49,13 +52,19 @@ struct TestCoveragePreviewFormatter {
         inspectionTextPath: inspectionTextPath,
         repositoryRoot: repositoryRoot
       )
-    } catch {
-      let error = error as! PreviewArtifactError
+    } catch let error as PreviewArtifactError {
       return [
         "subject \(result.subject)",
         "coverage preview unavailable",
         "reason \(error.reason)",
         "expected \(error.expectedPath.path)",
+        "artifacts \(artifactRoot.path)",
+      ]
+    } catch {
+      return [
+        "subject \(result.subject)",
+        "coverage preview unavailable",
+        "reason \(error)",
         "artifacts \(artifactRoot.path)",
       ]
     }

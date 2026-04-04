@@ -17,7 +17,7 @@ struct ProviderSessionSnapshot: Sendable {
     providerThreadID: String? = nil,
     providerTurnID: String? = nil,
     providerRunID: String? = nil,
-    tokenUsage: TokenUsage = try! TokenUsage(),
+    tokenUsage: TokenUsage = .empty,
     latestRateLimitPayload: String? = nil,
     lastAgentMessage: String? = nil,
     latestSequence: EventSequence? = nil
@@ -61,49 +61,49 @@ enum ProviderSessionSnapshotExtractor {
   static func update(from event: AgentRawEvent, storedSequence: EventSequence)
     -> ProviderSessionSnapshotUpdate
   {
-    let rawJSONObject = parseJSONObject(from: event.rawJSON)
+    let rawJSONValue = parseJSONValue(from: event.rawJSON)
     return ProviderSessionSnapshotUpdate(
-      providerSessionID: rawJSONObject.flatMap {
+      providerSessionID: rawJSONValue.flatMap {
         firstString(for: ["provider_session_id", "session_id", "sessionId"], in: $0)
       },
-      providerThreadID: rawJSONObject.flatMap {
+      providerThreadID: rawJSONValue.flatMap {
         nestedObjectID(for: "thread", in: $0)
           ?? firstString(for: ["provider_thread_id", "thread_id", "threadId"], in: $0)
       },
-      providerTurnID: rawJSONObject.flatMap {
+      providerTurnID: rawJSONValue.flatMap {
         nestedObjectID(for: "turn", in: $0)
           ?? firstString(for: ["provider_turn_id", "turn_id", "turnId"], in: $0)
       },
-      providerRunID: rawJSONObject.flatMap {
+      providerRunID: rawJSONValue.flatMap {
         firstString(for: ["provider_run_id", "run_id", "runId"], in: $0)
       },
-      tokenUsage: rawJSONObject.flatMap(tokenUsage(from:)),
-      latestRateLimitPayload: rawJSONObject.flatMap(rateLimitPayload(from:)),
-      lastAgentMessage: lastAgentMessage(from: event, rawJSONObject: rawJSONObject),
+      tokenUsage: rawJSONValue.flatMap(tokenUsage(from:)),
+      latestRateLimitPayload: rawJSONValue.flatMap(rateLimitPayload(from:)),
+      lastAgentMessage: lastAgentMessage(from: event, rawJSONValue: rawJSONValue),
       latestSequence: storedSequence
     )
   }
 
-  private static func parseJSONObject(from rawJSON: String) -> Any? {
+  private static func parseJSONValue(from rawJSON: String) -> JSONValue? {
     guard let data = rawJSON.data(using: .utf8) else { return nil }
-    return try? JSONSerialization.jsonObject(with: data)
+    return try? JSONDecoder().decode(JSONValue.self, from: data)
   }
 
-  static func tokenUsage(from rawJSONObject: Any) -> TokenUsage? {
-    if let usageObject = firstValue(
+  static func tokenUsage(from value: JSONValue) -> TokenUsage? {
+    if let usageValue = firstValue(
       for: ["usage", "token_usage", "tokenUsage", "tokens", "tokenUsageTotals"],
-      in: rawJSONObject
+      in: value
     ),
-      let usage = tokenUsageObject(from: usageObject)
+      let usage = tokenUsageObject(from: usageValue)
     {
       return usage
     }
 
-    return tokenUsageObject(from: rawJSONObject)
+    return tokenUsageObject(from: value)
   }
 
-  private static func tokenUsageObject(from rawJSONObject: Any) -> TokenUsage? {
-    guard let json = rawJSONObject as? [String: Any] else { return nil }
+  private static func tokenUsageObject(from value: JSONValue) -> TokenUsage? {
+    guard let json = value.objectValue else { return nil }
     let inputTokens = firstInt(for: ["input_tokens", "inputTokens"], in: json)
     let outputTokens = firstInt(for: ["output_tokens", "outputTokens"], in: json)
     let totalTokens = firstInt(for: ["total_tokens", "totalTokens"], in: json)
@@ -115,28 +115,30 @@ enum ProviderSessionSnapshotExtractor {
     )
   }
 
-  private static func rateLimitPayload(from rawJSONObject: Any) -> String? {
+  private static func rateLimitPayload(from value: JSONValue) -> String? {
     guard
-      let rateLimitObject = firstValue(
+      let rateLimitValue = firstValue(
         for: ["rate_limit", "rate_limits", "rateLimit", "rateLimits"],
-        in: rawJSONObject
+        in: value
       )
     else { return nil }
-    return jsonString(from: rateLimitObject)
+    return jsonString(from: rateLimitValue)
   }
 
-  private static func lastAgentMessage(from event: AgentRawEvent, rawJSONObject: Any?) -> String? {
-    guard event.normalizedKind == .message, let rawJSONObject else { return nil }
-    return messageText(from: rawJSONObject)
+  private static func lastAgentMessage(from event: AgentRawEvent, rawJSONValue: JSONValue?)
+    -> String?
+  {
+    guard event.normalizedKind == .message, let rawJSONValue else { return nil }
+    return messageText(from: rawJSONValue)
   }
 
-  static func messageText(from rawJSONObject: Any) -> String? {
-    if let string = rawJSONObject as? String {
+  static func messageText(from value: JSONValue) -> String? {
+    if case .string(let string) = value {
       let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
       return trimmed.isEmpty ? nil : trimmed
     }
 
-    if let array = rawJSONObject as? [Any] {
+    if case .array(let array) = value {
       for item in array {
         if let text = messageText(from: item) {
           return text
@@ -145,16 +147,16 @@ enum ProviderSessionSnapshotExtractor {
       return nil
     }
 
-    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    guard let json = value.objectValue else { return nil }
 
     for key in ["message", "content", "text"] {
-      if let value = json[key], let text = messageText(from: value) {
+      if let nested = json[key], let text = messageText(from: nested) {
         return text
       }
     }
 
     for key in ["payload", "data", "delta"] {
-      if let value = json[key], let text = messageText(from: value) {
+      if let nested = json[key], let text = messageText(from: nested) {
         return text
       }
     }
@@ -162,8 +164,8 @@ enum ProviderSessionSnapshotExtractor {
     return nil
   }
 
-  private static func firstString(for keys: [String], in rawJSONObject: Any) -> String? {
-    if let array = rawJSONObject as? [Any] {
+  private static func firstString(for keys: [String], in value: JSONValue) -> String? {
+    if case .array(let array) = value {
       for item in array {
         if let string = firstString(for: keys, in: item) {
           return string
@@ -172,21 +174,21 @@ enum ProviderSessionSnapshotExtractor {
       return nil
     }
 
-    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    guard let json = value.objectValue else { return nil }
     guard !keys.isEmpty else { return nil }
     for key in keys {
-      if let value = json[key] {
-        if let string = stringValue(from: value) {
+      if let nested = json[key] {
+        if let string = stringValue(from: nested) {
           return string
         }
-        if let string = firstString(for: keys, in: value) {
+        if let string = firstString(for: keys, in: nested) {
           return string
         }
       }
     }
 
-    for value in json.values {
-      if let string = firstString(for: keys, in: value) {
+    for nested in json.values {
+      if let string = firstString(for: keys, in: nested) {
         return string
       }
     }
@@ -194,25 +196,25 @@ enum ProviderSessionSnapshotExtractor {
     return nil
   }
 
-  private static func firstValue(for keys: [String], in rawJSONObject: Any) -> Any? {
-    if let array = rawJSONObject as? [Any] {
+  private static func firstValue(for keys: [String], in value: JSONValue) -> JSONValue? {
+    if case .array(let array) = value {
       for item in array {
-        if let value = firstValue(for: keys, in: item) {
-          return value
+        if let found = firstValue(for: keys, in: item) {
+          return found
         }
       }
       return nil
     }
 
-    guard let json = rawJSONObject as? [String: Any] else { return nil }
+    guard let json = value.objectValue else { return nil }
     for key in keys {
-      if let value = json[key] {
-        return value
+      if let found = json[key] {
+        return found
       }
     }
 
-    for value in json.values {
-      if let nestedValue = firstValue(for: keys, in: value) {
+    for nested in json.values {
+      if let nestedValue = firstValue(for: keys, in: nested) {
         return nestedValue
       }
     }
@@ -220,8 +222,8 @@ enum ProviderSessionSnapshotExtractor {
     return nil
   }
 
-  private static func nestedObjectID(for objectKey: String, in rawJSONObject: Any) -> String? {
-    if let array = rawJSONObject as? [Any] {
+  private static func nestedObjectID(for objectKey: String, in value: JSONValue) -> String? {
+    if case .array(let array) = value {
       for item in array {
         if let identifier = nestedObjectID(for: objectKey, in: item) {
           return identifier
@@ -230,16 +232,16 @@ enum ProviderSessionSnapshotExtractor {
       return nil
     }
 
-    guard let json = rawJSONObject as? [String: Any] else { return nil }
-    if let nested = json[objectKey] as? [String: Any],
+    guard let json = value.objectValue else { return nil }
+    if let nested = json[objectKey]?.objectValue,
       let idValue = nested["id"],
       let identifier = stringValue(from: idValue)
     {
       return identifier
     }
 
-    for value in json.values {
-      if let identifier = nestedObjectID(for: objectKey, in: value) {
+    for nested in json.values {
+      if let identifier = nestedObjectID(for: objectKey, in: nested) {
         return identifier
       }
     }
@@ -247,45 +249,47 @@ enum ProviderSessionSnapshotExtractor {
     return nil
   }
 
-  private static func firstInt(for keys: [String], in json: [String: Any]) -> Int? {
+  private static func firstInt(for keys: [String], in json: [String: JSONValue]) -> Int? {
     for key in keys {
-      if let value = json[key], let intValue = intValue(from: value) {
-        return intValue
+      if let value = json[key], let intVal = intValue(from: value) {
+        return intVal
       }
     }
     return nil
   }
 
-  private static func intValue(from value: Any) -> Int? {
-    if let intValue = value as? Int {
-      return intValue
-    }
-    if let number = value as? NSNumber {
-      return number.intValue
-    }
-    if let string = value as? String {
+  private static func intValue(from value: JSONValue) -> Int? {
+    switch value {
+    case .int(let intVal):
+      return intVal
+    case .double(let doubleVal):
+      return Int(doubleVal)
+    case .string(let string):
       return Int(string)
+    default:
+      return nil
     }
-    return nil
   }
 
-  private static func stringValue(from value: Any) -> String? {
-    if let string = value as? String {
+  private static func stringValue(from value: JSONValue) -> String? {
+    switch value {
+    case .string(let string):
       let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
       return trimmed.isEmpty ? nil : trimmed
+    case .int(let intVal):
+      return String(intVal)
+    case .double(let doubleVal):
+      return String(doubleVal)
+    default:
+      return nil
     }
-    if let number = value as? NSNumber {
-      return number.stringValue
-    }
-    return nil
   }
 
-  private static func jsonString(from value: Any) -> String? {
-    if let string = value as? String {
+  private static func jsonString(from value: JSONValue) -> String? {
+    if case .string(let string) = value {
       return string
     }
-    guard JSONSerialization.isValidJSONObject(value),
-      let data = try? JSONSerialization.data(withJSONObject: value),
+    guard let data = try? JSONEncoder().encode(value),
       let string = String(data: data, encoding: .utf8)
     else { return nil }
     return string

@@ -3,6 +3,7 @@ import SymphonyShared
 
 // MARK: - Retry Queue (Section 8.5)
 
+// SAFETY: @unchecked Sendable — `_entries` is exclusively accessed through `lock`.
 public final class RetryQueue: @unchecked Sendable {
   private let lock = NSLock()
   private var _entries: [IssueID: RetryRecord] = [:]

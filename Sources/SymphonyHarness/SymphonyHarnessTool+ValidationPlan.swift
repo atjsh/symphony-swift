@@ -197,9 +197,11 @@ extension SymphonyHarnessTool {
       return []
     }
 
-    let regex = try! NSRegularExpression(
+    guard let regex = try? NSRegularExpression(
       pattern: #"PRODUCT_BUNDLE_IDENTIFIER = ([A-Za-z0-9._-]+);"#
-    )
+    ) else {
+      return []
+    }
     let contentsRange = NSRange(contents.startIndex..., in: contents)
     let matches = regex.matches(in: contents, range: contentsRange)
     var identifiers = [String]()
