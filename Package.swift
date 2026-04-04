@@ -107,6 +107,16 @@ let package = Package(
       plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
     ),
     .target(
+      name: "SymphonyXcodeValidationServer",
+      dependencies: [
+        "SymphonyXcodeValidation",
+        "SymphonyXcodeValidationServerCore",
+        .product(name: "Hummingbird", package: "hummingbird"),
+      ],
+      path: "Sources/SymphonyXcodeValidationServer",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
+    ),
+    .target(
       name: "SymphonyValidationGallery",
       dependencies: ["SymphonyXcodeValidation"],
       path: "Sources/SymphonyValidationGallery",
