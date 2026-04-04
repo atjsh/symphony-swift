@@ -81,7 +81,7 @@ struct AgentRunnerCancelTests {
       #"{"method":"turn/started","params":{"threadId":"thread-interrupt","turn":{"id":"turn-interrupt"}}}"#
         + "\n")
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("events processed") { sink.events.count >= 2 }
     try await runner.cancelRun(runID: ctx.runID)
     #expect(stubProcess.interruptCount == 1)
     #expect(stubProcess.terminationCount == 0)
@@ -149,7 +149,7 @@ struct AgentRunnerProviderSelectionTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value
@@ -178,7 +178,7 @@ struct AgentRunnerProviderSelectionTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value
@@ -213,7 +213,7 @@ struct AgentRunnerPromptRenderingTests {
         promptTemplate: "Please fix: {{issue.title}}")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value
@@ -242,7 +242,7 @@ struct AgentRunnerPromptRenderingTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value

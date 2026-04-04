@@ -124,13 +124,12 @@ struct AgentRunnerLifecycleTests {
         promptTemplate: "Fix: {{issue.title}}")
     }
 
-    // Give time for adapter to call startSession and set up stream
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
 
     // Emit some events
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
     stubProcess.simulateOutput("{\"type\":\"tool_call\"}\n")
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("events processed") { sink.events.count >= 2 }
 
     // Complete the process
     stubProcess.simulateTermination(exitCode: 0)
@@ -188,9 +187,9 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("event processed") { sink.events.count >= 1 }
     stubProcess.simulateTermination(exitCode: 1)
 
     let result = await task.value
@@ -219,7 +218,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-failed"}}}"# + "\n")
     stubProcess.simulateOutput(
@@ -252,7 +251,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupted"}}}"# + "\n")
     stubProcess.simulateOutput(
@@ -286,7 +285,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-completed"}}}"# + "\n")
     stubProcess.simulateOutput(
@@ -347,7 +346,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-timeout"}}}"# + "\n")
 
@@ -481,7 +480,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value

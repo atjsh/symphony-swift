@@ -25,11 +25,11 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
     stubProcess.simulateOutput("{\"type\":\"tool_call\"}\n")
     stubProcess.simulateOutput("{\"type\":\"status\"}\n")
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("events processed") { sink.events.count >= 3 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value
@@ -55,7 +55,7 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     _ = await task.value
@@ -82,7 +82,7 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 1)
 
     _ = await task.value
@@ -114,7 +114,7 @@ struct AgentRunnerWorkspaceTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     _ = await task.value
@@ -167,7 +167,7 @@ struct AgentRunnerStallDetectionTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
     let result = await task.value
@@ -198,7 +198,7 @@ struct AgentRunnerStallDetectionTests {
     }
 
     // Wait for streaming to begin, send one event, then go silent to trigger stall.
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
 
     while sink.events.isEmpty {
@@ -236,7 +236,7 @@ struct AgentRunnerStallDetectionTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
     try await Task.sleep(nanoseconds: 20_000_000)
     stubProcess.simulateOutput("{\"type\":\"tool_call\"}\n")
@@ -273,7 +273,7 @@ struct AgentRunnerStallDetectionTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
 
     while sink.events.isEmpty {

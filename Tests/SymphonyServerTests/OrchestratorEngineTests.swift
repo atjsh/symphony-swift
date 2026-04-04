@@ -59,15 +59,14 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    // Give time for the engine to start and complete at least one tick
-    try await Task.sleep(nanoseconds: 200_000_000)
+    try await bootstrapWaitUntil("engine starts") { engine.state == .running }
 
     #expect(engine.state == OrchestratorEngineState.running)
     #expect(observer.stateChanges.contains(.starting))
     #expect(observer.stateChanges.contains(.running))
 
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
     #expect(engine.state == .stopped)
   }
 
@@ -79,14 +78,14 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine starts") { engine.state == .running }
 
     #expect(throws: OrchestratorEngineError.self) {
       try engine.start()
     }
 
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
   }
 
   @Test func engineCompletesTickCycles() async throws {
@@ -99,9 +98,9 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 300_000_000)
+    try await bootstrapWaitUntil("tick completed") { !observer.tickResults.isEmpty }
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
 
     #expect(!observer.tickResults.isEmpty)
   }
@@ -118,18 +117,16 @@ struct OrchestratorEngineTests {
     try engine.start()
     defer { engine.stop() }
 
-    let didStart = try await waitUntil {
+    try await bootstrapWaitUntil("engine starts") {
       engine.state == OrchestratorEngineState.running
     }
-    #expect(didStart)
 
     let baselineTickCount = observer.tickResults.count
     engine.requestRefresh()
 
-    let didRefresh = try await waitUntil {
+    try await bootstrapWaitUntil("refresh tick completes") {
       observer.tickResults.count > baselineTickCount
     }
-    #expect(didRefresh)
   }
 
   @Test func engineRequestRefreshWithoutActiveOrchestratorReturnsWithoutObserverSignals()
@@ -222,20 +219,18 @@ struct OrchestratorEngineTests {
     try engine.start()
     defer { engine.stop() }
 
-    let didStart = try await waitUntil {
+    try await bootstrapWaitUntil("engine starts") {
       engine.state == OrchestratorEngineState.running
     }
 
-    #expect(didStart)
     #expect(stubRunner.executeRunCount == 0)
 
     engine.reloadWorkflow(updatedWorkflow)
 
-    let didDispatch = try await waitUntil {
+    try await bootstrapWaitUntil("run dispatched") {
       stubRunner.executeRunCount == 1
     }
 
-    #expect(didDispatch)
     #expect(stubRunner.lastConfig?.tracker.activeStates == ["Queued"])
     #expect(stubRunner.lastPromptTemplate == "Updated {{issue.title}}")
   }
@@ -267,10 +262,9 @@ struct OrchestratorEngineTests {
     try engine.start()
     defer { engine.stop() }
 
-    let didStart = try await waitUntil {
+    try await bootstrapWaitUntil("engine starts") {
       engine.state == OrchestratorEngineState.running
     }
-    #expect(didStart)
 
     engine.reloadWorkflow(
       makeWorkflow(
@@ -279,11 +273,10 @@ struct OrchestratorEngineTests {
         promptTemplate: "Broken prompt"
       ))
 
-    let didReportReloadError = try await waitUntil {
+    try await bootstrapWaitUntil("reload error reported") {
       observer.errors.contains { $0.context == "reload" }
     }
 
-    #expect(didReportReloadError)
     #expect(engine.config.polling.intervalMS == initialWorkflow.config.polling.intervalMS)
     #expect(engine.config.tracker.activeStates == initialWorkflow.config.tracker.activeStates)
   }
@@ -317,10 +310,9 @@ struct OrchestratorEngineTests {
       try engine.start()
       defer { engine.stop() }
 
-      let didStart = try await waitUntil {
+      try await bootstrapWaitUntil("engine starts") {
         engine.state == OrchestratorEngineState.running
       }
-      #expect(didStart)
 
       engine.reloadWorkflow(
         makeWorkflow(
@@ -329,10 +321,9 @@ struct OrchestratorEngineTests {
           promptTemplate: "Broken prompt"
         ))
 
-      let didReportReloadError = try await waitUntil {
+      try await bootstrapWaitUntil("reload error reported") {
         observer.errors.contains { $0.context == "reload" }
       }
-      #expect(didReportReloadError)
     }
 
     let reloadLog = try #require(
@@ -376,9 +367,9 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 300_000_000)
+    try await bootstrapWaitUntil("engine running") { engine.state == .running }
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
 
     #expect(observer.stateChanges.contains(.running))
     // Cleanup errors for non-existent workspaces are swallowed
@@ -394,7 +385,7 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 200_000_000)
+    try await bootstrapWaitUntil("engine stops after failure") { engine.state == .stopped }
 
     #expect(engine.state == .stopped)
     #expect(!observer.errors.isEmpty)
@@ -420,16 +411,16 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 150_000_000)
+    try await bootstrapWaitUntil("engine starts") { engine.state == .running }
     engine.stop()
-    try await Task.sleep(nanoseconds: 150_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
     #expect(engine.state == .stopped)
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 150_000_000)
+    try await bootstrapWaitUntil("engine restarts") { engine.state == .running }
     #expect(engine.state == OrchestratorEngineState.running)
     engine.stop()
-    try await Task.sleep(nanoseconds: 150_000_000)
+    try await bootstrapWaitUntil("engine stops again") { engine.state == .stopped }
   }
 
   @Test func engineStartupCleanupErrorIsReportedToObserver() async throws {
@@ -446,9 +437,11 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 300_000_000)
+    try await bootstrapWaitUntil("cleanup error reported") {
+      observer.errors.contains { $0.context == "startupCleanup" }
+    }
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
 
     #expect(observer.errors.contains { $0.context == "startupCleanup" })
   }
@@ -487,9 +480,9 @@ struct OrchestratorEngineTests {
     )
 
     try engine.start()
-    try await Task.sleep(nanoseconds: 250_000_000)
+    try await bootstrapWaitUntil("run dispatched") { !observer.dispatches.isEmpty }
     engine.stop()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await bootstrapWaitUntil("engine stops") { engine.state == .stopped }
 
     #expect(!observer.dispatches.isEmpty)
     #expect(!observer.completions.isEmpty)

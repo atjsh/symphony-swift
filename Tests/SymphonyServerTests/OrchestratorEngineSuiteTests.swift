@@ -203,19 +203,4 @@ struct WorkflowReloaderTests {
   }
 }
 
-func waitUntil(
-  timeoutMS: Int = 1_000,
-  pollIntervalMS: Int = 25,
-  condition: @escaping @Sendable () -> Bool
-) async throws -> Bool {
-  let deadline = Date().addingTimeInterval(Double(timeoutMS) / 1000)
-  while Date() <= deadline {
-    if condition() {
-      return true
-    }
-    try await Task.sleep(nanoseconds: UInt64(pollIntervalMS) * 1_000_000)
-  }
-  return condition()
-}
-
 // swiftlint:enable force_try
