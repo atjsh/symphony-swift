@@ -16,15 +16,20 @@ struct ValidationGalleryThumbnailView: View {
   var minimumHeight: CGFloat = 180
   var maximumHeight: CGFloat = 220
 
+  @State private var loadedImage: Image?
+
   var body: some View {
     Group {
-      if isAvailable, let image = galleryImage {
+      if isAvailable, let image = loadedImage {
         image
           .resizable()
           .scaledToFit()
           .frame(maxWidth: .infinity, minHeight: minimumHeight, maxHeight: maximumHeight)
           .background(Color.secondary.opacity(0.08))
           .accessibilityHidden(true)
+      } else if isAvailable {
+        Color.secondary.opacity(0.08)
+          .frame(maxWidth: .infinity, minHeight: minimumHeight, maxHeight: maximumHeight)
       } else {
         ContentUnavailableView(
           "Missing Image",
@@ -35,22 +40,16 @@ struct ValidationGalleryThumbnailView: View {
       }
     }
     .accessibilityHidden(true)
-  }
-
-  private var galleryImage: Image? {
-    #if os(macOS)
-      if let image = NSImage(contentsOf: url) {
-        return Image(nsImage: image)
-      }
-    #endif
-
-    #if os(iOS)
-      if let image = UIImage(contentsOfFile: url.path) {
-        return Image(uiImage: image)
-      }
-    #endif
-
-    return nil
+    .task(id: url) {
+      loadedImage = nil
+      guard isAvailable else { return }
+      let image = await ValidationGalleryThumbnailLoader.shared.thumbnail(
+        for: url,
+        maxPixelSize: Int(maximumHeight * 2)
+      )
+      guard !Task.isCancelled else { return }
+      loadedImage = image
+    }
   }
 }
 
