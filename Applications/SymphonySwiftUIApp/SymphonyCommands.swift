@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Commands
 
 struct SymphonyCommands: Commands {
-  @ObservedObject private var commandModel: SymphonyCommandModel
+  var commandModel: SymphonyCommandModel
 
   init(model: SymphonyOperatorModel) {
     self.commandModel = SymphonyCommandModel(model: model)
@@ -38,7 +38,8 @@ struct SymphonyCommands: Commands {
 // MARK: - Command Model
 
 @MainActor
-final class SymphonyCommandModel: ObservableObject {
+@Observable
+final class SymphonyCommandModel {
   let model: SymphonyOperatorModel
 
   init(model: SymphonyOperatorModel) {
