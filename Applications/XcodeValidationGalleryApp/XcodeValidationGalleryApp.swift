@@ -84,6 +84,8 @@ struct XcodeValidationGalleryApp: App {
     #if os(macOS)
     .defaultLaunchBehavior(.presented)
     .defaultSize(width: 1480, height: 920)
+    .windowResizability(.contentMinSize)
+    .windowToolbarStyle(.automatic)
     #endif
     .commands {
       CommandGroup(after: .newItem) {
