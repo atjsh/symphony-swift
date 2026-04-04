@@ -2,8 +2,15 @@
   "configurations" : [
     {
       "id" : "A1010000-0000-4000-8000-000000000001",
-      "name" : "Default",
+      "name" : "Light Appearance",
       "options" : {
+      }
+    },
+    {
+      "id" : "A1010000-0000-4000-8000-000000000002",
+      "name" : "Dark Appearance",
+      "options" : {
+        "uiAppearance" : "dark"
       }
     }
   ],

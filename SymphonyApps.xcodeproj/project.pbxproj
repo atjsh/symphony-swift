@@ -29,6 +29,7 @@
 		A101000000000000000000A7 /* XcodeValidationGalleryUITestAssertHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101000000000000000000A6 /* XcodeValidationGalleryUITestAssertHelpers.swift */; };
 		A101000000000000000000A9 /* XcodeValidationGalleryUITestNavigationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101000000000000000000A8 /* XcodeValidationGalleryUITestNavigationHelpers.swift */; };
 		A101000000000000000000AB /* XcodeValidationGalleryUITestCommentHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101000000000000000000AA /* XcodeValidationGalleryUITestCommentHelpers.swift */; };
+		A101000000000000000000B1 /* XcodeValidationGalleryRunnerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101000000000000000000B0 /* XcodeValidationGalleryRunnerUITests.swift */; };
 		A5EB66BF435A82DF797E81AF /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = 4C68215C3CE80F18F246B0B0 /* SymphonyShared */; };
 		C45294D9DCCA2247107643E5 /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */; };
 /* End PBXBuildFile section */
@@ -88,6 +89,7 @@
 		A101000000000000000000A6 /* XcodeValidationGalleryUITestAssertHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeValidationGalleryUITestAssertHelpers.swift; sourceTree = "<group>"; };
 		A101000000000000000000A8 /* XcodeValidationGalleryUITestNavigationHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeValidationGalleryUITestNavigationHelpers.swift; sourceTree = "<group>"; };
 		A101000000000000000000AA /* XcodeValidationGalleryUITestCommentHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeValidationGalleryUITestCommentHelpers.swift; sourceTree = "<group>"; };
+		A101000000000000000000B0 /* XcodeValidationGalleryRunnerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeValidationGalleryRunnerUITests.swift; sourceTree = "<group>"; };
 		A10100000000000000000007 /* XcodeValidationGalleryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = XcodeValidationGalleryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20200000000000000000001 /* SymphonyUITestCase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymphonyUITestCase.swift; sourceTree = "<group>"; };
@@ -257,6 +259,7 @@
 				A101000000000000000000A6 /* XcodeValidationGalleryUITestAssertHelpers.swift */,
 				A101000000000000000000A8 /* XcodeValidationGalleryUITestNavigationHelpers.swift */,
 				A101000000000000000000AA /* XcodeValidationGalleryUITestCommentHelpers.swift */,
+				A101000000000000000000B0 /* XcodeValidationGalleryRunnerUITests.swift */,
 			);
 			path = XcodeValidationGalleryAppUITests;
 			sourceTree = "<group>";
@@ -537,6 +540,7 @@
 				A101000000000000000000A7 /* XcodeValidationGalleryUITestAssertHelpers.swift in Sources */,
 				A101000000000000000000A9 /* XcodeValidationGalleryUITestNavigationHelpers.swift in Sources */,
 				A101000000000000000000AB /* XcodeValidationGalleryUITestCommentHelpers.swift in Sources */,
+				A101000000000000000000B1 /* XcodeValidationGalleryRunnerUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
