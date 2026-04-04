@@ -11,6 +11,11 @@ included:
   - Tests/SymphonyHarnessCLITests
   - Sources/SymphonyXcodeValidation
   - Tests/SymphonyXcodeValidationTests
+  - Sources/SymphonyXcodeValidationServerCore
+  - Tests/SymphonyXcodeValidationServerCoreTests
+  - Sources/SymphonyXcodeValidationServer
+  - Tests/SymphonyXcodeValidationServerTests
+  - Sources/SymphonyXcodeValidationServerCLI
   - Sources/SymphonyValidationGallery
   - Tests/SymphonyValidationGalleryTests
   - Applications/SymphonySwiftUIApp
