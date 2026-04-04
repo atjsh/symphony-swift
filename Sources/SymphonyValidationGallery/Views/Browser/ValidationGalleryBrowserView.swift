@@ -55,7 +55,7 @@ private struct ValidationGalleryRegularBrowserView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
+      LazyVStack(alignment: .leading, spacing: 20) {
         ValidationGallerySummaryHeader(snapshot: snapshot)
         ValidationGalleryFilterStatusBar(store: store)
 

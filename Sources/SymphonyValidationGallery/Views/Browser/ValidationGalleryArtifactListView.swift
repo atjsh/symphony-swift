@@ -6,8 +6,7 @@ struct ValidationGalleryRegularArtifactList: View {
   let onSelectArtifact: (ValidationGalleryArtifact.ID?) -> Void
 
   var body: some View {
-    VStack(spacing: 0) {
-      ForEach(Array(artifacts.enumerated()), id: \.element.id) { index, artifact in
+    ForEach(artifacts) { artifact in
         Button {
           onSelectArtifact(artifact.id)
         } label: {
@@ -55,12 +54,10 @@ struct ValidationGalleryRegularArtifactList: View {
         .accessibilityIdentifier(
           "artifact-card-\(ValidationGalleryFormatting.accessibilitySlug(for: artifact))"
         )
-
-        if index < artifacts.count - 1 {
+        .overlay(alignment: .bottom) {
           Divider()
             .padding(.leading, 82)
         }
-      }
     }
   }
 }
