@@ -173,7 +173,6 @@ struct OperatorEndpointEditorView: View {
       }
     }
 
-
     private var localServerSections: some View {
       Group {
         Section {

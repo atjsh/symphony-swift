@@ -6,7 +6,6 @@ import Testing
 @testable import SymphonyServerCore
 @testable import SymphonyShared
 
-
 @Suite("OrchestratorEngineState")
 struct OrchestratorEngineStateTests {
   @Test func rawValues() {

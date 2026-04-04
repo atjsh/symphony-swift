@@ -219,7 +219,6 @@ struct WorkflowAuthoringEditorView<ConnectionPicker: View>: View {
     }
   }
 
-
   private var serverStorageSectionContent: some View {
     Group {
       workflowTextField(

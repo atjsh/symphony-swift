@@ -5,7 +5,6 @@ import Testing
 @testable import SymphonyServer
 @testable import SymphonyServerCore
 
-
 @Suite("AgentRunResult")
 struct AgentRunResultTests {
   @Test func initAndEquality() throws {
@@ -495,4 +494,3 @@ struct AgentRunnerLifecycleTests {
 }
 
 // MARK: - AgentRunner Cancel Tests
-

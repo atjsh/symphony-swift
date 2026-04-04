@@ -136,4 +136,3 @@ import Testing
   #expect(capabilities.xcresulttoolAvailable)
   #expect(capabilities.llvmCovCommand == .xcrun)
 }
-

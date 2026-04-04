@@ -270,4 +270,3 @@ public struct HarnessCoverageViolation: Codable, Hashable, Sendable {
     )
   }
 }
-

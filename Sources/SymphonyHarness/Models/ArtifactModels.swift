@@ -261,4 +261,3 @@ public struct DiagnosticsReport: Codable, Hashable, Sendable {
     issues.allSatisfy { $0.severity != .error }
   }
 }
-

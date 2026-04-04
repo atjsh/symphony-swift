@@ -2,7 +2,6 @@ import Foundation
 
 #if os(macOS)
 
-
 struct ValidationScenario: Sendable {
   let subject: ValidationSubject
   let phase: RunPhase

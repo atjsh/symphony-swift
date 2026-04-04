@@ -4,7 +4,6 @@ import Foundation
 
 extension XcodeValidationRunner {
 
-
   public func run(_ request: ValidationRequest) throws -> ValidationSummary {
     try waitForAsyncResult {
       try await self.runAsync(request)

@@ -263,7 +263,7 @@ enum SwiftPMCoverageScope: String, CaseIterable, Sendable {
   }
 }
 
-fileprivate struct SwiftPMCoverageTargetScope: Sendable {
+private struct SwiftPMCoverageTargetScope: Sendable {
   let targetName: String
   let relativeRoots: [String]
 }

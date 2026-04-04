@@ -369,4 +369,3 @@ struct ValidationGalleryLoadedImage {
   let image: Image
   let pixelSize: CGSize
 }
-

@@ -402,4 +402,3 @@ import Testing
     resolved.xcodeDestination
       == "platform=iOS Simulator,id=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
 }
-

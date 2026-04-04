@@ -6,7 +6,6 @@ import Testing
 @testable import SymphonyServerCore
 @testable import SymphonyShared
 
-
 @Suite("EngineOrchestratorDelegate")
 struct EngineOrchestratorDelegateTests {
   @Test func delegateDispatchNotifiesObserver() async throws {

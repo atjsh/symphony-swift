@@ -323,4 +323,3 @@ import Testing
         == "iPhone 17 (AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA)")
   }
 }
-

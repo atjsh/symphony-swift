@@ -323,4 +323,3 @@ import Testing
   // Prompt
   #expect(definition.promptTemplate.contains("super agent"))
 }
-

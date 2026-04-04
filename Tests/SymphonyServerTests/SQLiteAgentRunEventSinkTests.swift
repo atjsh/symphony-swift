@@ -487,4 +487,3 @@ struct SQLiteAgentRunEventSinkTests {
     #expect(reopenedSession.latestRateLimitPayload == #"{"remaining":100}"#)
   }
 }
-

@@ -344,4 +344,3 @@ import Testing
   #expect(artifacts.jsonPath.lastPathComponent == "coverage.json")
   #expect(artifacts.textPath.lastPathComponent == "coverage.txt")
 }
-

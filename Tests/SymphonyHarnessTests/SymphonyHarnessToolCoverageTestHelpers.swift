@@ -23,7 +23,6 @@ struct ThrowingDoctorService: DoctorServicing {
   }
 }
 
-
 final class RoutedProcessRunner: ProcessRunning, @unchecked Sendable {
   private let handler:
     @Sendable (String, [String], [String: String], URL?, ProcessObservation?) throws ->

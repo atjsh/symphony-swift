@@ -373,4 +373,3 @@ extension ToolchainCapabilities {
     llvmCovCommand: .direct
   )
 }
-

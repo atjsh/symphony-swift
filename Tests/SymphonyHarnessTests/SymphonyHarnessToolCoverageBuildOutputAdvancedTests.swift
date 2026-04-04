@@ -290,4 +290,3 @@ func buildToolHarnessWritesPackageInspectionFromCommitHarnessExecutionBeforeArti
   )
   _ = tool
 }
-

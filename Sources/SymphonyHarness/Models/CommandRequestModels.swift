@@ -154,10 +154,6 @@ struct HarnessCommandRequest: Sendable {
 
 struct HooksInstallRequest: Sendable {
   let currentDirectory: URL
-
-  init(currentDirectory: URL) {
-    self.currentDirectory = currentDirectory
-  }
 }
 
 struct ArtifactsCommandRequest: Sendable {
@@ -165,13 +161,6 @@ struct ArtifactsCommandRequest: Sendable {
   let latest: Bool
   let runID: String?
   let currentDirectory: URL
-
-  init(command: BuildCommandFamily, latest: Bool, runID: String?, currentDirectory: URL) {
-    self.command = command
-    self.latest = latest
-    self.runID = runID
-    self.currentDirectory = currentDirectory
-  }
 }
 
 public struct DoctorCommandRequest: Sendable {
@@ -202,23 +191,9 @@ struct SimSetServerRequest: Sendable {
   let host: String?
   let port: Int?
   let currentDirectory: URL
-
-  init(serverURL: String?, scheme: String?, host: String?, port: Int?, currentDirectory: URL)
-  {
-    self.serverURL = serverURL
-    self.scheme = scheme
-    self.host = host
-    self.port = port
-    self.currentDirectory = currentDirectory
-  }
 }
 
 struct SimBootRequest: Sendable {
   let simulator: String?
   let currentDirectory: URL
-
-  init(simulator: String?, currentDirectory: URL) {
-    self.simulator = simulator
-    self.currentDirectory = currentDirectory
-  }
 }

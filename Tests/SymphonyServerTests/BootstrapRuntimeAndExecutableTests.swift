@@ -272,4 +272,3 @@ func bootstrapEnvironmentSQLitePathFallsBackToHomeDirectoryWhenApplicationSuppor
   #expect(transcript.contains("[SymphonyServer] failed to start:"))
   #expect(transcript.contains(invalidDatabaseURL.path))
 }
-

@@ -145,4 +145,3 @@ final class CollectingEventSink: AgentRunEventSink, @unchecked Sendable {
 }
 
 // MARK: - AgentRunResult Tests
-

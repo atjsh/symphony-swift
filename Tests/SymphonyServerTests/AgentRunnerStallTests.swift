@@ -5,7 +5,6 @@ import Testing
 @testable import SymphonyServer
 @testable import SymphonyServerCore
 
-
 @Suite("AgentRunner Event Sink")
 struct AgentRunnerEventSinkTests {
   @Test func eventsAreForwardedToSink() async throws {

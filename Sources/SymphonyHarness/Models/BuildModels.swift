@@ -450,4 +450,3 @@ public struct CoverageReport: Codable, Hashable, Sendable {
     self.targets = targets
   }
 }
-

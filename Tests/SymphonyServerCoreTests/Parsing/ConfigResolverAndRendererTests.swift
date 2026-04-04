@@ -186,4 +186,3 @@ import Testing
     template: "Desc: {{issue.description}} URL: {{issue.url}}", issue: issue, attempt: 1)
   #expect(rendered == "Desc:  URL: ")
 }
-

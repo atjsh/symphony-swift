@@ -484,4 +484,3 @@ public struct ValidationSummary: Codable, Equatable, Sendable {
     self.unresolvedBlockers = unresolvedBlockers
   }
 }
-

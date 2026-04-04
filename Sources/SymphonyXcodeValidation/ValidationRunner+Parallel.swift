@@ -202,7 +202,6 @@ extension XcodeValidationRunner {
     }
   }
 
-
 }
 
 #endif

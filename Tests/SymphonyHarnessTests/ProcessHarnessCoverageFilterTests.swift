@@ -326,4 +326,3 @@ import Testing
     #expect(artifacts.report.executableLines == 8)
   }
 }
-

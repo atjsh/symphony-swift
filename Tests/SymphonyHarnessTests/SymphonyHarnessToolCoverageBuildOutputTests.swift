@@ -264,4 +264,3 @@ import Testing
         "invocation: harness harness --minimum-coverage 50.00 --output-mode quiet"))
   }
 }
-

@@ -445,4 +445,3 @@ import Testing
   #expect(errorLog.entry.path == "/api/v1/issues/missing")
   #expect(!errorLog.line.contains("ghp_api_secret"))
 }
-

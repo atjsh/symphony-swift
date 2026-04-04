@@ -365,4 +365,3 @@ import Testing
   let workspace = try discovery.discover(from: repoRoot)
   #expect(workspace.xcodeWorkspacePath?.lastPathComponent == "Symphony.xcworkspace")
 }
-

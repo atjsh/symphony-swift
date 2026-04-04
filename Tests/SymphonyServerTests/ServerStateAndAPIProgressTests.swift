@@ -5,7 +5,6 @@ import Testing
 @testable import SymphonyServer
 @testable import SymphonyServerCore
 
-
 @Test func apiRouterServesIssueProgressReports() throws {
   let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-progress.sqlite3")
   let fixture = try makeFixtureRecords()

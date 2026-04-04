@@ -427,4 +427,3 @@ import Testing
   #expect(startingLog.entry.component == "StructuredBootstrap")
   #expect(startingLog.entry.endpoint == "http://127.0.0.1:8089")
 }
-

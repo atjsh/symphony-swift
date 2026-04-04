@@ -4,7 +4,7 @@ import Testing
 
 @testable import SymphonySwiftUIApp
 
-fileprivate struct EventKindExpectation: @unchecked Sendable, CustomTestStringConvertible {
+private struct EventKindExpectation: @unchecked Sendable, CustomTestStringConvertible {
   let kind: String
   let expectedTitle: String
   let expectedRowStyle: SymphonyEventPresentation.RowStyle
@@ -23,7 +23,7 @@ fileprivate struct EventKindExpectation: @unchecked Sendable, CustomTestStringCo
   ]
 }
 
-fileprivate struct FallbackDetailExpectation: @unchecked Sendable, CustomTestStringConvertible {
+private struct FallbackDetailExpectation: @unchecked Sendable, CustomTestStringConvertible {
   let providerEventType: String
   let normalizedEventKind: String
   let expectedDetail: String
@@ -37,7 +37,7 @@ fileprivate struct FallbackDetailExpectation: @unchecked Sendable, CustomTestStr
   ]
 }
 
-fileprivate struct HumanizedItemExpectation: @unchecked Sendable, CustomTestStringConvertible {
+private struct HumanizedItemExpectation: @unchecked Sendable, CustomTestStringConvertible {
   let input: String?
   let expected: String?
 

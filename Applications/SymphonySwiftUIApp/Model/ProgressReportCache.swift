@@ -123,10 +123,6 @@ actor OperatorProgressReportCacheStore {
 struct DefaultOperatorProgressReportCache: OperatorProgressReportCaching {
   private let store: OperatorProgressReportCacheStore
 
-  private init(store: OperatorProgressReportCacheStore) {
-    self.store = store
-  }
-
   static func makeDefault(
     containerFactory: () throws -> ModelContainer = {
       try ModelContainer(for: OperatorProgressReportCacheRecord.self)

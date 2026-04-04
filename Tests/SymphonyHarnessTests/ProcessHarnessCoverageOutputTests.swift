@@ -395,4 +395,3 @@ import Testing
   #expect(
     manager.recursiveFiles(in: [URL(fileURLWithPath: "/tmp/missing", isDirectory: true)]).isEmpty)
 }
-

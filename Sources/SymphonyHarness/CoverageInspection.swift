@@ -443,4 +443,3 @@ public struct SwiftPMCoverageInspector {
     return ranges
   }
 }
-

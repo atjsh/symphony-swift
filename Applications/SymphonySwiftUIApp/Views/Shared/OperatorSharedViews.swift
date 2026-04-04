@@ -345,7 +345,7 @@ struct EmptyStatePanel: View {
   let theme: OperatorTheme
   let systemImage: String
   let title: String
-  var detail: String? = nil
+  var detail: String?
 
   var body: some View {
     OperatorEmptyStateContent(

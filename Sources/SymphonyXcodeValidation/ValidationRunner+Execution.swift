@@ -345,7 +345,6 @@ extension XcodeValidationRunner {
     )
   }
 
-
 }
 
 #endif

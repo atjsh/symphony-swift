@@ -118,14 +118,14 @@ extension SymphonyUITestCase {
         return true
       }
 
-      if (checkpoint == "root" || checkpoint == "root-landscape"),
+      if checkpoint == "root" || checkpoint == "root-landscape",
         issue.compactDescription == "Text clipped"
       {
         return true
       }
-      if (checkpoint == "root" || checkpoint == "root-landscape"),
-        (issue.compactDescription == "Contrast failed"
-          || issue.compactDescription == "Contrast nearly passed")
+      if checkpoint == "root" || checkpoint == "root-landscape",
+        issue.compactDescription == "Contrast failed"
+          || issue.compactDescription == "Contrast nearly passed"
       {
         return true
       }
@@ -164,8 +164,8 @@ extension SymphonyUITestCase {
         return true
       }
       if issue.compactDescription == "Element has no description",
-        (issueDescription.contains("Element:Group")
-          || issueDescription.contains("Element:TouchBar"))
+        issueDescription.contains("Element:Group")
+          || issueDescription.contains("Element:TouchBar")
       {
         return true
       }

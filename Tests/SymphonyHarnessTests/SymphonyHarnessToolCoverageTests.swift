@@ -241,4 +241,3 @@ import Testing
           .appendingPathComponent("subjects/SymphonySwiftUIApp/summary.txt").path))
   }
 }
-

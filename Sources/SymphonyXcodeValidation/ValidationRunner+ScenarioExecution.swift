@@ -479,7 +479,6 @@ extension XcodeValidationRunner {
     return .ready(buildArtifact)
   }
 
-
 }
 
 #endif

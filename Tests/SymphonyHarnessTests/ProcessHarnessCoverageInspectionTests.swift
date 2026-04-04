@@ -366,4 +366,3 @@ func commitHarnessExecuteInspectsPackageViolationsBeforeCoverageLoadersRewriteSw
   #expect(enriched[0].uncoveredFunctions == ["$s4Main4failyyF", "$s4Main5emptyyyF"])
   #expect(enriched[0].missingLineRanges == [CoverageLineRange(startLine: 2, endLine: 2)])
 }
-

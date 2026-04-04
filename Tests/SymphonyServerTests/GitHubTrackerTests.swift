@@ -93,7 +93,6 @@ struct GitHubGraphQLQueryTests {
   }
 }
 
-
 // MARK: - GitHub Tracker Adapter Tests
 
 @Suite("GitHubTrackerAdapter")

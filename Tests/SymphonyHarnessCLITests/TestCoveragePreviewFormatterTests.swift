@@ -304,4 +304,3 @@ import Testing
     #expect(output.contains("file \(externalPath) 50.00% (2/4)"))
   }
 }
-

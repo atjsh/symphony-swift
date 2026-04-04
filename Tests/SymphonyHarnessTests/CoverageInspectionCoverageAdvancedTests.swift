@@ -356,4 +356,3 @@ import Testing
       CoverageLineRange(startLine: 5, endLine: 6),
     ]) == "3,5-6")
 }
-

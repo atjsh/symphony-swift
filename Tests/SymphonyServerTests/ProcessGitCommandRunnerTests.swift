@@ -7,8 +7,8 @@ import Testing
 
 struct StubProcessRunner: ProcessRunning {
   var result: Result<Data, Error> = .success(Data())
-  private(set) var lastArguments: [String]? = nil
-  private(set) var lastStandardInput: Data? = nil
+  private(set) var lastArguments: [String]?
+  private(set) var lastStandardInput: Data?
 
   // Record-capable variant using a class wrapper for mutation tracking
   final class Recorder: ProcessRunning, @unchecked Sendable {
