@@ -68,18 +68,20 @@ public final class ValidationGalleryStore {
 
   var commentsByBundleRoot = [String: [ValidationGalleryArtifact.ID: [ValidationGalleryComment]]]()
 
-  let loader: any ValidationBundleLoading
-  let recentBundleStore: any ValidationRecentBundlePersisting
-  let workspacePreferencesStore: any ValidationGalleryWorkspacePreferencesPersisting
+  let _loadFromSource: @Sendable (ValidationBundleSource) async throws -> ValidationBundleSnapshot
+  let _loadRecentBundles: @Sendable () async throws -> [ValidationRecentBundle]
+  let _saveRecentBundles: @Sendable ([ValidationRecentBundle]) async throws -> Void
+  let _loadWorkspacePreferences: () throws -> ValidationGalleryWorkspacePreferences?
+  let _saveWorkspacePreferences: (ValidationGalleryWorkspacePreferences) throws -> Void
   let makeBookmark: @Sendable (URL) throws -> Data?
   let resolveBookmark: @Sendable (Data) throws -> ValidationResolvedBookmark
   let now: @Sendable () -> Date
   var activeAccess: ValidationScopedResourceAccess?
 
-  public init(
-    loader: any ValidationBundleLoading,
-    recentBundleStore: any ValidationRecentBundlePersisting,
-    workspacePreferencesStore: any ValidationGalleryWorkspacePreferencesPersisting
+  public init<Loader: ValidationBundleLoading, BundleStore: ValidationRecentBundlePersisting, PrefsStore: ValidationGalleryWorkspacePreferencesPersisting>(
+    loader: Loader,
+    recentBundleStore: BundleStore,
+    workspacePreferencesStore: PrefsStore
       = UserDefaultsValidationGalleryWorkspacePreferencesStore(),
     makeBookmark: @escaping @Sendable (URL) throws -> Data? = { url in
       #if os(macOS)
@@ -119,9 +121,11 @@ public final class ValidationGalleryStore {
     },
     now: @escaping @Sendable () -> Date = Date.init
   ) {
-    self.loader = loader
-    self.recentBundleStore = recentBundleStore
-    self.workspacePreferencesStore = workspacePreferencesStore
+    self._loadFromSource = { source in try await loader.load(from: source) }
+    self._loadRecentBundles = { try await recentBundleStore.loadRecentBundles() }
+    self._saveRecentBundles = { try await recentBundleStore.saveRecentBundles($0) }
+    self._loadWorkspacePreferences = { try workspacePreferencesStore.loadWorkspacePreferences() }
+    self._saveWorkspacePreferences = { try workspacePreferencesStore.saveWorkspacePreferences($0) }
     self.makeBookmark = makeBookmark
     self.resolveBookmark = resolveBookmark
     self.now = now

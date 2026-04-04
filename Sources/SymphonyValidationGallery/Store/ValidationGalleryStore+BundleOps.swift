@@ -4,7 +4,7 @@ extension ValidationGalleryStore {
 
   public func restoreRecents() async {
     do {
-      recentBundles = try await recentBundleStore.loadRecentBundles()
+      recentBundles = try await _loadRecentBundles()
         .sorted { $0.lastOpenedAt > $1.lastOpenedAt }
     } catch {
       self.error = .loadFailed(error.localizedDescription)
@@ -40,7 +40,7 @@ extension ValidationGalleryStore {
     }
 
     do {
-      let snapshot = try await loader.load(from: source)
+      let snapshot = try await _loadFromSource(source)
       self.snapshot = snapshot
 
       if rememberRecent {
@@ -127,18 +127,18 @@ extension ValidationGalleryStore {
       lastOpenedAt: now()
     )
 
-    var recents = try await recentBundleStore.loadRecentBundles()
+    var recents = try await _loadRecentBundles()
     recents.removeAll { $0.id == recentBundle.id }
     recents.insert(recentBundle, at: 0)
     if recents.count > 8 {
       recents.removeSubrange(8...)
     }
 
-    try await recentBundleStore.saveRecentBundles(recents)
+    try await _saveRecentBundles(recents)
     recentBundles = recents
   }
 
   func persistWorkspacePreferences() {
-    try? workspacePreferencesStore.saveWorkspacePreferences(workspacePreferences)
+    try? _saveWorkspacePreferences(workspacePreferences)
   }
 }

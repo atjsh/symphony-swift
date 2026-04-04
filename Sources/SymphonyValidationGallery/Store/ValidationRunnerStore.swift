@@ -23,16 +23,24 @@ public final class ValidationRunnerStore {
 
   private(set) var activeRunID: RunID?
   private var pollingTask: Task<Void, Never>?
-  private let client: any ValidationServerConnecting
+  private let _startRun: @Sendable (StartRunRequest) async throws -> RunID
+  private let _pollStatus: @Sendable (RunID, Int?) async throws -> RunStatusResponse
+  private let _fetchSummary: @Sendable (RunID) async throws -> RunSummaryResponse
+  private let _cancelRun: @Sendable (RunID) async throws -> Void
+  private let _healthCheck: @Sendable () async throws -> Bool
   private let pollingInterval: Duration
 
   // MARK: - Init
 
-  public init(
-    client: any ValidationServerConnecting,
+  public init<Client: ValidationServerConnecting>(
+    client: Client,
     pollingInterval: Duration = .seconds(2)
   ) {
-    self.client = client
+    self._startRun = { try await client.startRun($0) }
+    self._pollStatus = { try await client.pollStatus($0, afterLine: $1) }
+    self._fetchSummary = { try await client.fetchSummary($0) }
+    self._cancelRun = { try await client.cancelRun($0) }
+    self._healthCheck = { try await client.healthCheck() }
     self.pollingInterval = pollingInterval
   }
 
@@ -49,7 +57,7 @@ public final class ValidationRunnerStore {
 
   public func checkConnection() async {
     do {
-      isConnected = try await client.healthCheck()
+      isConnected = try await _healthCheck()
     } catch {
       isConnected = false
     }
@@ -65,7 +73,7 @@ public final class ValidationRunnerStore {
     )
 
     do {
-      let runID = try await client.startRun(request)
+      let runID = try await _startRun(request)
       activeRunID = runID
       runStatus = .running
       startPolling(for: runID)
@@ -80,7 +88,7 @@ public final class ValidationRunnerStore {
     pollingTask?.cancel()
     pollingTask = nil
     do {
-      try await client.cancelRun(runID)
+      try await _cancelRun(runID)
     } catch {
       // Best effort — run may have already ended.
     }
@@ -91,7 +99,7 @@ public final class ValidationRunnerStore {
   public func fetchSummary() async {
     guard let runID = activeRunID else { return }
     do {
-      let response = try await client.fetchSummary(runID)
+      let response = try await _fetchSummary(runID)
       completedSummary = response.summary
     } catch {
       errorMessage = "Failed to fetch summary: \(error)"
@@ -124,7 +132,7 @@ public final class ValidationRunnerStore {
       while !Task.isCancelled {
         do {
           try await Task.sleep(for: self.pollingInterval)
-          let status = try await self.client.pollStatus(runID, afterLine: lastLineIndex)
+          let status = try await self._pollStatus(runID, lastLineIndex)
 
           await MainActor.run {
             self.logLines.append(contentsOf: status.logLines)
