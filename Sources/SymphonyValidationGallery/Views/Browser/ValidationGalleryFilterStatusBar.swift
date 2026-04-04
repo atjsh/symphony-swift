@@ -83,6 +83,7 @@ struct ValidationGallerySelectionFeedbackStrip: View {
         .buttonStyle(.borderless)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("dismiss-feedback-strip-button")
     }
     .padding(12)
     .background(

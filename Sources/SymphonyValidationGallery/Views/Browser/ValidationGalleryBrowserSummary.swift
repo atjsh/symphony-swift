@@ -56,6 +56,7 @@ struct ValidationGallerySummaryHeader: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("toggle-bundle-location-button")
         .accessibilityHint("Shows the bundle path used to load this validation snapshot.")
 
         if isBundleLocationExpanded {
@@ -142,5 +143,8 @@ struct ValidationGallerySummaryStat: View {
           .foregroundStyle(.primary)
       }
     }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(label)
+    .accessibilityValue(value)
   }
 }
