@@ -140,11 +140,7 @@ final class XcodeValidationGalleryExportController {
 
   private let environment: [String: String]
   private let exportCoordinator: any ValidationGalleryCommentExportPreparing
-  #if os(macOS)
-    private let folderSaver: (any XcodeValidationGalleryCommentExportSaving)?
-  #else
-    private let folderSaver: (any XcodeValidationGalleryCommentExportSaving)? = nil
-  #endif
+  private let folderSaver: (any XcodeValidationGalleryCommentExportSaving)?
 
   init(
     environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -155,6 +151,8 @@ final class XcodeValidationGalleryExportController {
     self.exportCoordinator = exportCoordinator
     #if os(macOS)
       self.folderSaver = folderSaver ?? NSSavePanelValidationGalleryCommentExportSaver()
+    #else
+      self.folderSaver = folderSaver
     #endif
   }
 
@@ -203,17 +201,15 @@ final class XcodeValidationGalleryExportController {
         return
       }
 
-      #if os(macOS)
-        if let folderSaver {
-          lastExportURL = try folderSaver.save(preparedExport)
-          lastRoute = .macOSFolder
-          self.request = nil
-          if lastExportURL != nil {
-            showFeedback(for: preparedExport.payload.comments.count)
-          }
-          return
+      if let folderSaver {
+        lastExportURL = try folderSaver.save(preparedExport)
+        lastRoute = .macOSFolder
+        self.request = nil
+        if lastExportURL != nil {
+          showFeedback(for: preparedExport.payload.comments.count)
         }
-      #endif
+        return
+      }
 
       packageDocument = XcodeValidationGalleryCommentExportPackageDocument(preparedExport: preparedExport)
       packageDefaultFilename = preparedExport.rootDirectoryName

@@ -58,6 +58,7 @@ struct OperatorProgressPanel: View {
           ProgressInspectorContent(theme: theme, progressModel: progressModel)
         }
       }
+      .scrollEdgeEffectStyle(.soft, for: .top)
     } else {
       HStack(alignment: .top, spacing: theme.sectionSpacing) {
         ProgressCommitList(theme: theme, progressModel: progressModel)
@@ -72,6 +73,7 @@ struct OperatorProgressPanel: View {
             syntaxPanel(report: report)
           }
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
 
         ProgressInspectorContent(theme: theme, progressModel: progressModel)
           .frame(width: 300)
@@ -98,6 +100,7 @@ struct OperatorProgressPanel: View {
         }
 
         Button("Refresh Report", systemImage: "arrow.clockwise", action: refreshReport)
+          .symbolEffect(.rotate, isActive: progressModel.isRefreshing)
           .disabled(progressModel.isLoading || progressModel.isRefreshing)
           .operatorSecondaryActionButton()
           .accessibilityIdentifier("refresh-progress-report-button")
@@ -365,6 +368,7 @@ private struct ProgressStateContent: View {
           detail: message
         )
         Button("Refresh Report", systemImage: "arrow.clockwise", action: refreshReport)
+          .symbolEffect(.rotate, isActive: isRefreshing)
           .disabled(isLoading || isRefreshing)
           .operatorSecondaryActionButton()
       }

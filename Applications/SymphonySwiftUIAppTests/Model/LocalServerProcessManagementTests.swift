@@ -215,7 +215,7 @@
       #expect(manager.statusSnapshot.state == .failed)
     }
 
-    @Test func transcriptLinesAccumulate() async {
+    @Test func transcriptLinesAccumulate() async throws {
       let launcher = StubProcessLauncher()
       launcher.controller = StubProcessController(pid: 14)
       launcher.onLaunch = { onOutput, _ in
@@ -229,6 +229,7 @@
 
       await manager.start(request: makeLaunchRequest())
 
+      try await waitUntil { manager.statusSnapshot.transcript.contains("[SymphonyServer] ready") }
       #expect(manager.statusSnapshot.transcript.contains("[SymphonyServer] starting"))
       #expect(manager.statusSnapshot.transcript.contains("[SymphonyServer] ready"))
     }

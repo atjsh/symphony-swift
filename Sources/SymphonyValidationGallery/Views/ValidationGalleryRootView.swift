@@ -9,6 +9,7 @@ public struct ValidationGalleryRootView: View {
   let isModalPresentationActive: Bool
   @State private var sheetRoute: ValidationGalleryArtifactSheetRoute?
   @State private var pendingExportScope: ValidationGalleryCommentExportScope?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   public init(
     store: ValidationGalleryStore,
@@ -28,37 +29,30 @@ public struct ValidationGalleryRootView: View {
 
   public var body: some View {
     Group {
-      #if os(macOS)
-        if store.snapshot == nil {
-          NavigationStack {
-            browserView(compact: false)
-              .navigationTitle("Validation Gallery")
-          }
-        } else {
-          NavigationSplitView {
-            ValidationGallerySidebar(store: store, onOpenRecent: { recent in
-              Task { await store.openRecent(recent) }
-            })
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
-          } content: {
-            browserView(compact: false)
-              .navigationSplitViewColumnWidth(
-                min: regularBrowserColumnMinimumWidth,
-                ideal: regularBrowserColumnIdealWidth,
-                max: regularBrowserColumnMaximumWidth
-              )
-          } detail: {
-            inspectorView
-              .navigationSplitViewColumnWidth(min: 520, ideal: 700, max: 960)
-          }
-          .navigationSplitViewStyle(.balanced)
+      if horizontalSizeClass == .regular, store.snapshot != nil {
+        NavigationSplitView {
+          ValidationGallerySidebar(store: store, onOpenRecent: { recent in
+            Task { await store.openRecent(recent) }
+          })
+          .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
+        } content: {
+          browserView(compact: false)
+            .navigationSplitViewColumnWidth(
+              min: regularBrowserColumnMinimumWidth,
+              ideal: regularBrowserColumnIdealWidth,
+              max: regularBrowserColumnMaximumWidth
+            )
+        } detail: {
+          inspectorView
+            .navigationSplitViewColumnWidth(min: 520, ideal: 700, max: 960)
         }
-      #else
+        .navigationSplitViewStyle(.balanced)
+      } else {
         NavigationStack {
-          browserView(compact: true)
-          .navigationTitle("Validation Gallery")
+          browserView(compact: horizontalSizeClass != .regular)
+            .navigationTitle("Validation Gallery")
         }
-      #endif
+      }
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Validation Gallery")
@@ -66,9 +60,8 @@ public struct ValidationGalleryRootView: View {
     .accessibilityHidden(isModalPresentationActive)
     .searchable(text: $store.searchText, prompt: "Filter artifacts")
     .toolbar {
-      #if os(macOS)
-        if store.snapshot != nil {
-          ToolbarItem(placement: .secondaryAction) {
+      if horizontalSizeClass == .regular, store.snapshot != nil {
+        ToolbarItem(placement: .secondaryAction) {
             HStack(spacing: 0) {
               ControlGroup {
                 Button {
@@ -171,8 +164,7 @@ public struct ValidationGalleryRootView: View {
             .accessibilityValue(previewEmphasisAccessibilityValue)
             .accessibilityIdentifier("workspace-preview-emphasis-picker")
           }
-        }
-      #endif
+      }
 
       ToolbarItemGroup(placement: .primaryAction) {
         Button("Open Bundle", systemImage: "folder.badge.plus", action: onOpenBundle)
@@ -212,24 +204,18 @@ public struct ValidationGalleryRootView: View {
           .accessibilityIdentifier("comments-exported-toast")
       }
     }
-    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryAddPointComment)) { _ in
-      guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else {
-        return
-      }
-      presentSheet(for: selectedArtifact, mode: .addPointComment)
-    }
-    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryAddAreaComment)) { _ in
-      guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else {
-        return
-      }
-      presentSheet(for: selectedArtifact, mode: .addAreaComment)
-    }
-    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryExportSelectedComments)) { _ in
-      requestSelectedArtifactExport()
-    }
-    .onReceive(NotificationCenter.default.publisher(for: .validationGalleryExportBundleComments)) { _ in
-      requestBundleExport()
-    }
+    .focusedValue(\.galleryCommandActions, ValidationGalleryCommandActions(
+      addPointComment: {
+        guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else { return }
+        presentSheet(for: selectedArtifact, mode: .addPointComment)
+      },
+      addAreaComment: {
+        guard let selectedArtifact = store.selectedArtifact, store.canCommentSelectedArtifact else { return }
+        presentSheet(for: selectedArtifact, mode: .addAreaComment)
+      },
+      exportSelectedComments: { requestSelectedArtifactExport() },
+      exportBundleComments: { requestBundleExport() }
+    ))
     .onChange(of: sheetRoute?.id) { _, routeID in
       guard routeID == nil, let pendingExportScope else {
         return
@@ -336,11 +322,7 @@ public struct ValidationGalleryRootView: View {
       onExportComments: requestSelectedArtifactExport
     )
 
-    #if os(macOS)
-      detailView.presentationSizing(.page)
-    #else
-      detailView
-    #endif
+    detailView.presentationSizing(.page)
   }
 
   private func presentSheet(
@@ -386,11 +368,34 @@ private struct ValidationGalleryArtifactSheetRoute: Identifiable, Equatable {
   }
 }
 
-private extension Notification.Name {
-  static let validationGalleryAddPointComment = Notification.Name("ValidationGalleryAddPointComment")
-  static let validationGalleryAddAreaComment = Notification.Name("ValidationGalleryAddAreaComment")
-  static let validationGalleryExportSelectedComments = Notification.Name("ValidationGalleryExportSelectedComments")
-  static let validationGalleryExportBundleComments = Notification.Name("ValidationGalleryExportBundleComments")
+public struct ValidationGalleryCommandActions {
+  public let addPointComment: () -> Void
+  public let addAreaComment: () -> Void
+  public let exportSelectedComments: () -> Void
+  public let exportBundleComments: () -> Void
+
+  public init(
+    addPointComment: @escaping () -> Void,
+    addAreaComment: @escaping () -> Void,
+    exportSelectedComments: @escaping () -> Void,
+    exportBundleComments: @escaping () -> Void
+  ) {
+    self.addPointComment = addPointComment
+    self.addAreaComment = addAreaComment
+    self.exportSelectedComments = exportSelectedComments
+    self.exportBundleComments = exportBundleComments
+  }
+}
+
+public struct ValidationGalleryCommandActionsKey: FocusedValueKey {
+  public typealias Value = ValidationGalleryCommandActions
+}
+
+public extension FocusedValues {
+  var galleryCommandActions: ValidationGalleryCommandActions? {
+    get { self[ValidationGalleryCommandActionsKey.self] }
+    set { self[ValidationGalleryCommandActionsKey.self] = newValue }
+  }
 }
 
 private struct ValidationGallerySidebar: View {

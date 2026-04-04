@@ -29,6 +29,7 @@ struct LogTimelinePanel: View {
         }
         .padding(.vertical, 4)
       }
+      .scrollEdgeEffectStyle(.soft, for: .top)
       .accessibilityIdentifier("logs-list")
     }
   }

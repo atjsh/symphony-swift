@@ -35,19 +35,15 @@ private struct OperatorLogFilterBar: View {
   @Binding var selection: OperatorLogFilter
 
   var body: some View {
-    #if os(macOS)
-      if theme.compact {
-        scrollingFilterBar
-      } else {
+    if theme.compact {
+      scrollingFilterBar
+    } else {
+      #if os(macOS)
         OperatorLogsPane.makeSegmentedLogFilterPicker(selection: $selection)
-      }
-    #else
-      if theme.compact {
-        scrollingFilterBar
-      } else {
+      #else
         glassFilterBar
-      }
-    #endif
+      #endif
+    }
   }
 
   private var glassFilterBar: some View {

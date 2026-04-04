@@ -209,6 +209,11 @@ final class XcodeValidationGalleryAppUITests: XCTestCase {
 
       launchApp(withFixtureBundle: true)
 
+      // Regular-width iPad uses NavigationSplitView; drill-in is compact-only.
+      if element("validation-gallery-sidebar").waitForExistence(timeout: 3) {
+        throw XCTSkip("Regular-width iPad uses NavigationSplitView; drill-in is compact-only.")
+      }
+
       let screenshotItem = artifactBrowserElement(slug: "macos-app-tests-progress-report-base-screenshot")
       XCTAssertTrue(screenshotItem.waitForExistence(timeout: 5), app.debugDescription)
       screenshotItem.tap()
@@ -273,7 +278,7 @@ final class XcodeValidationGalleryAppUITests: XCTestCase {
         app.debugDescription
       )
     #else
-      throw XCTSkip("Workspace toolbar controls are macOS-only.")
+      throw XCTSkip("Workspace preferences persistence relaunch test runs on macOS only.")
     #endif
   }
 

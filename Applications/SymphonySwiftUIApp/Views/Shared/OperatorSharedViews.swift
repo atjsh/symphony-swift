@@ -179,6 +179,7 @@ struct StatePill: View {
   var body: some View {
     HStack(spacing: 6) {
       Image(systemName: statusSymbol(text))
+        .contentTransition(.symbolEffect(.replace))
         .foregroundStyle(foregroundColor)
       Text(text)
         .foregroundStyle(foregroundColor)

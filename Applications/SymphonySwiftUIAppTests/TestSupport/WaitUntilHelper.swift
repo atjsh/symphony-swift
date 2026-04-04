@@ -17,3 +17,20 @@ func waitUntil(
     try await Task.sleep(for: pollInterval)
   }
 }
+
+@MainActor
+func waitUntil(
+  timeout: Duration = .seconds(5),
+  pollInterval: Duration = .milliseconds(10),
+  condition: @escaping @MainActor () async -> Bool
+) async throws {
+  let clock = ContinuousClock()
+  let deadline = clock.now.advanced(by: timeout)
+  while !(await condition()) {
+    if clock.now >= deadline {
+      Issue.record("Timed out waiting for async condition.")
+      return
+    }
+    try await Task.sleep(for: pollInterval)
+  }
+}

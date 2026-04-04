@@ -260,7 +260,7 @@ struct OperatorModelProgressReportTests {
     #expect(viewModel.selectedMetric == .bytes)
     #expect(viewModel.chartPoints.isEmpty == false)
 
-    try await Task.sleep(for: .milliseconds(50))
+    try await waitUntil { await cache.storedSnapshots.last?.selectedMetric == .bytes }
     let storedSnapshots = await cache.storedSnapshots
     #expect(storedSnapshots.last?.selectedMetric == .bytes)
   }
@@ -483,8 +483,7 @@ struct OperatorModelProgressReportTests {
     // After successful load, changing metric triggers persist
     vm.selectMetric(.characters)
 
-    // Wait briefly for async persist
-    try await Task.sleep(for: .milliseconds(50))
+    try await waitUntil { await !cache.storedSnapshots.isEmpty }
     let stored = await cache.storedSnapshots
     #expect(!stored.isEmpty)
   }

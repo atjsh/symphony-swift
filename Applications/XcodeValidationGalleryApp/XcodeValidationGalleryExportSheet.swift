@@ -7,9 +7,7 @@ struct XcodeValidationGalleryExportSheet: View {
   @Bindable var store: ValidationGalleryStore
 
   @Environment(\.dismiss) private var dismiss
-  #if os(iOS)
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-  #endif
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     let commentCount = controller.commentCount(using: store)
@@ -131,11 +129,7 @@ struct XcodeValidationGalleryExportSheet: View {
   }
 
   private var sheetDetents: Set<PresentationDetent> {
-    #if os(iOS)
-      dynamicTypeSize.isAccessibilitySize ? [.large] : [.large]
-    #else
-      [.medium, .large]
-    #endif
+    dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large]
   }
 
 }

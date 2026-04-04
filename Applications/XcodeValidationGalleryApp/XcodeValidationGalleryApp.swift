@@ -57,6 +57,7 @@ struct XcodeValidationGalleryApp: App {
   @State private var importController: XcodeValidationGalleryImportController
   @State private var exportController: XcodeValidationGalleryExportController
   @State private var hasBootstrapped = false
+  @FocusedValue(\.galleryCommandActions) private var galleryActions
 
   init() {
     let environment = ProcessInfo.processInfo.environment
@@ -72,68 +73,64 @@ struct XcodeValidationGalleryApp: App {
   }
 
   var body: some Scene {
+    WindowGroup {
+      rootView
+    }
     #if os(macOS)
-      WindowGroup {
-        rootView
-      }
-      .defaultLaunchBehavior(.presented)
-      .defaultSize(width: 1480, height: 920)
-      .commands {
-        CommandGroup(after: .newItem) {
-          Button("Open Validation Bundle…") {
-            importController.request(.bundle)
-          }
-          .keyboardShortcut("o", modifiers: [.command])
+    .defaultLaunchBehavior(.presented)
+    .defaultSize(width: 1480, height: 920)
+    #endif
+    .commands {
+      CommandGroup(after: .newItem) {
+        Button("Open Validation Bundle…") {
+          importController.request(.bundle)
+        }
+        .keyboardShortcut("o", modifiers: [.command])
 
-          Button("Open Manifest File…") {
-            importController.request(.manifest)
-          }
-          .keyboardShortcut("o", modifiers: [.command, .shift])
+        Button("Open Manifest File…") {
+          importController.request(.manifest)
+        }
+        .keyboardShortcut("o", modifiers: [.command, .shift])
 
-          if store.recentBundles.isEmpty == false {
-            Divider()
-            Menu("Open Recent") {
-              ForEach(store.recentBundles) { recent in
-                Button(ValidationGalleryFormatting.recentBundleMenuTitle(recent)) {
-                  Task { await store.openRecent(recent) }
-                }
+        if store.recentBundles.isEmpty == false {
+          Divider()
+          Menu("Open Recent") {
+            ForEach(store.recentBundles) { recent in
+              Button(ValidationGalleryFormatting.recentBundleMenuTitle(recent)) {
+                Task { await store.openRecent(recent) }
               }
             }
-          }
-
-          if store.canCommentSelectedArtifact {
-            Divider()
-            Menu("Comments") {
-              Button("Add Point Comment") {
-                NotificationCenter.default.post(name: Notification.Name("ValidationGalleryAddPointComment"), object: nil)
-              }
-              .keyboardShortcut(";", modifiers: [.command])
-
-              Button("Add Area Comment") {
-                NotificationCenter.default.post(name: Notification.Name("ValidationGalleryAddAreaComment"), object: nil)
-              }
-              .keyboardShortcut(";", modifiers: [.command, .shift])
-
-              Button("Export Comments") {
-                NotificationCenter.default.post(name: Notification.Name("ValidationGalleryExportSelectedComments"), object: nil)
-              }
-              .keyboardShortcut("c", modifiers: [.command, .shift])
-            }
-          }
-
-          if store.hasCommentsInCurrentBundle {
-            Button("Export Bundle Comments") {
-              NotificationCenter.default.post(name: Notification.Name("ValidationGalleryExportBundleComments"), object: nil)
-            }
-            .keyboardShortcut("b", modifiers: [.command, .shift])
           }
         }
+
+        if store.canCommentSelectedArtifact {
+          Divider()
+          Menu("Comments") {
+            Button("Add Point Comment") {
+              galleryActions?.addPointComment()
+            }
+            .keyboardShortcut(";", modifiers: [.command])
+
+            Button("Add Area Comment") {
+              galleryActions?.addAreaComment()
+            }
+            .keyboardShortcut(";", modifiers: [.command, .shift])
+
+            Button("Export Comments") {
+              galleryActions?.exportSelectedComments()
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+          }
+        }
+
+        if store.hasCommentsInCurrentBundle {
+          Button("Export Bundle Comments") {
+            galleryActions?.exportBundleComments()
+          }
+          .keyboardShortcut("b", modifiers: [.command, .shift])
+        }
       }
-    #else
-      WindowGroup {
-        rootView
-      }
-    #endif
+    }
   }
 
   @MainActor

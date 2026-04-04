@@ -179,9 +179,7 @@ struct ValidationGalleryInspectorRow: View {
   let value: String
   var monospace = false
 
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -205,11 +203,9 @@ struct ValidationGalleryInspectorRow: View {
   }
 
   private var valueLineLimit: Int? {
-    #if os(iOS)
-      if horizontalSizeClass == .compact {
-        return monospace ? 6 : nil
-      }
-    #endif
+    if horizontalSizeClass == .compact {
+      return monospace ? 6 : nil
+    }
 
     return monospace ? 4 : 2
   }

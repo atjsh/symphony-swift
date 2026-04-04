@@ -9,6 +9,10 @@ public struct SymphonyOperatorRootView: View {
   @State private var serverEditorMode: ServerEditorMode = .localServer
   private let compactOverride: Bool?
 
+  #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+  #endif
+
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
@@ -50,8 +54,8 @@ public struct SymphonyOperatorRootView: View {
       OperatorSidebarView(
         model: model,
         theme: theme,
-        openLocalServerEditor: makeServerEditorAction(mode: .localServer),
-        openExistingServerEditor: makeServerEditorAction(mode: .existingServer),
+        openLocalServerEditor: makeOpenEditorAction(mode: .localServer),
+        openExistingServerEditor: makeOpenEditorAction(mode: .existingServer),
         selectIssue: makeIssueSelectionHandler()
       )
     } detail: {
@@ -60,23 +64,20 @@ public struct SymphonyOperatorRootView: View {
           model: model,
           theme: theme,
           selectRun: makeRunSelectionHandler(),
-          openLocalServerEditor: makeServerEditorAction(mode: .localServer),
-          openExistingServerEditor: makeServerEditorAction(mode: .existingServer)
+          openLocalServerEditor: { openWindow(id: "server-editor") },
+          openExistingServerEditor: { openWindow(id: "server-editor") }
         )
+        .backgroundExtensionEffect()
       #else
         OperatorDetailView(
           model: model,
           theme: theme,
           selectRun: makeRunSelectionHandler()
         )
+        .backgroundExtensionEffect()
       #endif
     }
     .navigationSplitViewStyle(.balanced)
-    .searchable(
-      text: $model.issueSearchText,
-      placement: .sidebar,
-      prompt: "Search issues"
-    )
     .toolbar {
       #if os(iOS)
         if isCompact, model.selectedIssueID != nil, columnVisibility == .detailOnly {
@@ -88,6 +89,7 @@ public struct SymphonyOperatorRootView: View {
 
       ToolbarItem(placement: .primaryAction) {
         Button("Refresh", systemImage: "arrow.clockwise", action: makeRefreshAction())
+          .symbolEffect(.rotate, isActive: model.isRefreshing)
           .disabled(model.isConnecting || model.isRefreshing)
           .accessibilityIdentifier("refresh-button")
       }
@@ -105,15 +107,19 @@ public struct SymphonyOperatorRootView: View {
         ToolbarItem(placement: .primaryAction) {
           Button(
             "Server",
-            systemImage: "slider.horizontal.3",
-            action: makeServerEditorAction(mode: .localServer)
-          )
+            systemImage: "slider.horizontal.3"
+          ) {
+            openWindow(id: "server-editor")
+          }
           .accessibilityIdentifier("server-editor-button")
         }
       #endif
     }
     #if os(macOS)
       .frame(minWidth: 1024, idealWidth: 1280, minHeight: 680, idealHeight: 820, alignment: .topLeading)
+      .onReceive(NotificationCenter.default.publisher(for: .symphonyOpenServerEditor)) { _ in
+        openWindow(id: "server-editor")
+      }
     #endif
     .sheet(isPresented: $isEndpointEditorPresented, content: makeEndpointEditorSheet)
   }
@@ -134,6 +140,18 @@ extension SymphonyOperatorRootView {
       #endif
       isEndpointEditorPresented = true
     }
+  }
+
+  @MainActor
+  func makeOpenEditorAction(mode: ServerEditorMode) -> () -> Void {
+    #if os(macOS)
+      return {
+        model.prepareLocalServerEditor(mode: mode)
+        openWindow(id: "server-editor")
+      }
+    #else
+      return makeServerEditorAction(mode: mode)
+    #endif
   }
 
   func makeConnectAction() -> () -> Void {

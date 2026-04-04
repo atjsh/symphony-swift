@@ -23,6 +23,7 @@ public enum ValidationCommandBuilder {
       "-testPlan", planConfiguration.testPlanName,
       "-destination", destination.xcodeDestination,
       "-derivedDataPath", derivedDataPath.path,
+      "-skipPackagePluginValidation",
     ]
     switch buildProfile {
     case .fast:
@@ -61,6 +62,7 @@ public enum ValidationCommandBuilder {
       "-xctestrun", xctestrunPath.path,
       "-destination", destination.xcodeDestination,
       "-resultBundlePath", resultBundlePath.path,
+      "-skipPackagePluginValidation",
     ]
     if buildProfile == .fast {
       arguments += ["-enableCodeCoverage", "NO"]

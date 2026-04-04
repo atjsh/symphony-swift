@@ -42,7 +42,13 @@ struct OperatorSidebarView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: theme.sectionSpacing) {
+    IssueSidebarList(
+      theme: theme,
+      model: model,
+      issueSelection: issueSelection,
+      selectIssue: selectIssue
+    )
+    .safeAreaInset(edge: .top, spacing: 0) {
       OperatorServerStatusSummaryView(
         theme: theme,
         model: model,
@@ -53,16 +59,15 @@ struct OperatorSidebarView: View {
         openLocalServerEditor: openLocalServerEditor,
         openExistingServerEditor: openExistingServerEditor
       )
-
-      IssueSidebarList(
-        theme: theme,
-        model: model,
-        issueSelection: issueSelection,
-        selectIssue: selectIssue
-      )
+      .padding(.horizontal, theme.pagePadding)
+      .padding(.bottom, theme.sectionSpacing)
     }
-    .padding(theme.pagePadding)
     .navigationTitle("Symphony")
+    .searchable(
+      text: Bindable(model).issueSearchText,
+      placement: .sidebar,
+      prompt: "Search issues"
+    )
     .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 380)
   }
 }
@@ -271,8 +276,10 @@ private struct OperatorServerStatusSummaryView: View {
     VStack(alignment: .leading, spacing: theme.blockSpacing) {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: health != nil ? "server.rack" : "bolt.horizontal.circle")
+          .contentTransition(.symbolEffect(.replace))
           .font(.title3.weight(.semibold))
           .foregroundStyle(statusColor)
+          .symbolEffect(.breathe, isActive: health != nil)
           .accessibilityHidden(true)
 
         VStack(alignment: .leading, spacing: 4) {
@@ -443,6 +450,7 @@ private struct IssueSidebarList: View {
     #if os(macOS)
       .environment(\.defaultMinListRowHeight, 60)
     #endif
+    .scrollEdgeEffectStyle(.soft, for: .top)
     .accessibilityIdentifier("issue-list")
 
     if theme.compact {

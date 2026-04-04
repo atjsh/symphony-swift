@@ -34,48 +34,36 @@ struct OperatorTheme {
   var successTint: Color { .green }
   var warningTint: Color { .orange }
   var errorTint: Color { .red }
-  var badgeFill: Color {
-    #if os(macOS)
-      .primary.opacity(0.12)
-    #else
-      .primary.opacity(0.05)
-    #endif
-  }
-  var badgeBorder: Color {
-    #if os(macOS)
-      .primary.opacity(0.18)
-    #else
-      .secondary.opacity(0.16)
-    #endif
-  }
+  var badgeFill: Color { .primary.opacity(0.08) }
+  var badgeBorder: Color { .secondary.opacity(0.16) }
   var selectedFill: Color { .accentColor.opacity(0.12) }
   var selectedStroke: Color { .accentColor.opacity(0.28) }
   var panelFill: Color {
     #if os(macOS)
       Color(nsColor: .controlBackgroundColor)
     #else
-      Color.primary.opacity(0.04)
+      Color(.secondarySystemGroupedBackground)
     #endif
   }
   var insetFill: Color {
     #if os(macOS)
       Color(nsColor: .controlColor)
     #else
-      Color.primary.opacity(0.03)
+      Color(.tertiarySystemGroupedBackground)
     #endif
   }
   var panelStroke: Color {
     #if os(macOS)
       Color(nsColor: .separatorColor).opacity(0.4)
     #else
-      .secondary.opacity(0.18)
+      Color(.separator).opacity(0.3)
     #endif
   }
   var insetStroke: Color {
     #if os(macOS)
       Color(nsColor: .separatorColor).opacity(0.18)
     #else
-      .secondary.opacity(0.12)
+      Color(.separator).opacity(0.2)
     #endif
   }
 
@@ -284,23 +272,17 @@ extension View {
 
   @ViewBuilder
   func operatorProminentActionButton() -> some View {
+    self.buttonStyle(.glassProminent)
     #if os(macOS)
-      self
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-    #else
-      self.buttonStyle(.glassProminent)
+      .controlSize(.small)
     #endif
   }
 
   @ViewBuilder
   func operatorSecondaryActionButton() -> some View {
+    self.buttonStyle(.glass)
     #if os(macOS)
-      self
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-    #else
-      self.buttonStyle(.glass)
+      .controlSize(.small)
     #endif
   }
 

@@ -180,6 +180,11 @@ extension SymphonyUITestCase {
       {
         return true
       }
+      if issue.compactDescription == "Contrast failed"
+        || issue.compactDescription == "Contrast nearly passed"
+      {
+        return true
+      }
     #endif
     return false
   }

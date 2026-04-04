@@ -114,21 +114,30 @@ struct SymphonyApp: App {
   }
 
   var body: some Scene {
+    WindowGroup {
+      ContentView(model: model)
+        .task {
+          if isUITesting { await model.connect() }
+        }
+    }
+    .defaultSize(width: 1280, height: 820)
     #if os(macOS)
-      WindowGroup {
-        ContentView(model: model)
-          .task {
-            if isUITesting { await model.connect() }
-          }
+      .defaultPosition(.center)
+    #endif
+    .windowResizability(.contentMinSize)
+    .restorationBehavior(.automatic)
+    #if os(macOS)
+      .commands {
+        SymphonyCommands(model: model)
       }
-      .defaultSize(width: 1280, height: 820)
-    #else
-      WindowGroup {
-        ContentView(model: model)
-          .task {
-            if isUITesting { await model.connect() }
-          }
+    #endif
+    #if os(macOS)
+      Window("Server", id: "server-editor") {
+        OperatorEndpointEditorView(model: model, initialMode: .localServer)
       }
+      .windowResizability(.contentSize)
+      .restorationBehavior(.disabled)
+      .defaultPosition(.center)
     #endif
   }
 }

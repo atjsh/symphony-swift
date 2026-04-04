@@ -169,6 +169,7 @@ struct OperatorDetailView: View {
           }
         }
       }
+      .scrollEdgeEffectStyle(.soft, for: .top)
       .accessibilityIdentifier("overview-scroll")
     case .sessions:
       ScrollView {
@@ -183,6 +184,7 @@ struct OperatorDetailView: View {
           RecentSessionsPanel(theme: theme, sessions: detail.recentSessions)
         }
       }
+      .scrollEdgeEffectStyle(.soft, for: .top)
       .accessibilityIdentifier("sessions-scroll")
     case .logs:
       OperatorLogsPane(model: model, theme: theme)
