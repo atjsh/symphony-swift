@@ -28,6 +28,7 @@ let package = Package(
     .library(name: "SymphonyXcodeValidationServerCore", targets: ["SymphonyXcodeValidationServerCore"]),
     .executable(name: "symphony-server", targets: ["SymphonyServerCLI"]),
     .executable(name: "harness", targets: ["harness"]),
+    .executable(name: "xcode-validation-server", targets: ["SymphonyXcodeValidationServerRunner"]),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -117,6 +118,15 @@ let package = Package(
       plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
     ),
     .target(
+      name: "SymphonyXcodeValidationServerCLI",
+      dependencies: [
+        "SymphonyXcodeValidationServer",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Sources/SymphonyXcodeValidationServerCLI",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
+    ),
+    .target(
       name: "SymphonyValidationGallery",
       dependencies: ["SymphonyXcodeValidation"],
       path: "Sources/SymphonyValidationGallery",
@@ -143,6 +153,11 @@ let package = Package(
       name: "SymphonyXcodeValidationRunner",
       dependencies: ["SymphonyXcodeValidationCLI"],
       path: "Sources/SymphonyXcodeValidationRunner"
+    ),
+    .executableTarget(
+      name: "SymphonyXcodeValidationServerRunner",
+      dependencies: ["SymphonyXcodeValidationServerCLI"],
+      path: "Sources/SymphonyXcodeValidationServerRunner"
     ),
     .executableTarget(
       name: "SymphonyServerCLI",
