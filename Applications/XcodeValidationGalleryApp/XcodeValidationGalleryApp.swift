@@ -50,10 +50,12 @@ final class XcodeValidationGalleryImportController {
   }
 }
 
+import SymphonyXcodeValidationServerCore
 
 @main
 struct XcodeValidationGalleryApp: App {
   @State private var store: ValidationGalleryStore
+  @State private var runnerStore: ValidationRunnerStore
   @State private var importController: XcodeValidationGalleryImportController
   @State private var exportController: XcodeValidationGalleryExportController
   @State private var hasBootstrapped = false
@@ -68,6 +70,9 @@ struct XcodeValidationGalleryApp: App {
         workspacePreferencesStore: Self.makeWorkspacePreferencesStore(environment: environment)
       )
     )
+    let serverURL = URL(string: environment["XCODE_VALIDATION_SERVER_URL"] ?? "http://127.0.0.1:8090")
+      ?? URL(string: "http://127.0.0.1:8090")!  // swiftlint:disable:this force_unwrapping
+    _runnerStore = State(initialValue: ValidationRunnerStore(serverURL: serverURL))
     _importController = State(initialValue: XcodeValidationGalleryImportController(environment: environment))
     _exportController = State(initialValue: XcodeValidationGalleryExportController(environment: environment))
   }
@@ -156,6 +161,23 @@ struct XcodeValidationGalleryApp: App {
   }
 
   private var rootView: some View {
+    TabView {
+      Tab("Gallery", systemImage: "photo.on.rectangle") {
+        galleryContentView
+      }
+      .accessibilityIdentifier("galleryTab")
+
+      Tab("Runner", systemImage: "play.rectangle") {
+        ValidationRunnerView(store: runnerStore)
+      }
+      .accessibilityIdentifier("runnerTab")
+    }
+    .task {
+      await bootstrapIfNeeded()
+    }
+  }
+
+  private var galleryContentView: some View {
     ValidationGalleryRootView(
       store: store,
       onOpenBundle: { importController.request(.bundle) },
@@ -182,9 +204,6 @@ struct XcodeValidationGalleryApp: App {
       }
     } message: {
       Text(exportController.error?.errorDescription ?? "Unknown export error.")
-    }
-    .task {
-      await bootstrapIfNeeded()
     }
     .sheet(
       item: Binding(
