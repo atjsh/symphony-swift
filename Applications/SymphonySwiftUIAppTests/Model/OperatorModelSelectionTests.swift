@@ -55,9 +55,7 @@ struct OperatorModelSelectionTests {
     let model = SymphonyOperatorModel(client: client)
     await model.connect()
     await model.selectIssue(issueSummary)
-    for _ in 0..<20 where model.logEvents.count < 2 {
-      try await Task.sleep(for: .milliseconds(50))
-    }
+    try await waitUntil("live events received") { model.logEvents.count >= 2 }
 
     #expect(model.issueDetail?.issue.id.rawValue == "issue-42")
     #expect(model.runDetail?.runID.rawValue == "run-42")
@@ -159,9 +157,8 @@ struct OperatorModelSelectionTests {
     client.streamError = TestModelFailure.failed("stream")
 
     await model.selectRun(RunID("run-42"))
-    for _ in 0..<20 where model.liveStatus == "Connecting live stream" || model.liveStatus == "Live"
-    {
-      try await Task.sleep(for: .milliseconds(20))
+    try await waitUntil("live status updates") {
+      model.liveStatus != "Connecting live stream" && model.liveStatus != "Live"
     }
 
     #expect(model.liveStatus == "stream")

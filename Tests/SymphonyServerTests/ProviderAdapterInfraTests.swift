@@ -129,7 +129,7 @@ import Testing
 
 // MARK: - DefaultProcessLauncher Tests
 
-@Test func defaultProcessLauncherLaunchSuccess() throws {
+@Test func defaultProcessLauncherLaunchSuccess() async throws {
   let launcher = DefaultProcessLauncher()
   let tmpDir = NSTemporaryDirectory()
   let process = try launcher.launch(
@@ -143,8 +143,7 @@ import Testing
   process.onOutput { data in received.withLock { $0.append(data) } }
   process.onTermination { code in terminated.withLock { $0 = code } }
 
-  // Wait for the process to terminate
-  Thread.sleep(forTimeInterval: 1.0)
+  try await bootstrapWaitUntil("process terminates") { terminated.withLock { $0 } != nil }
 
   #expect(terminated.withLock { $0 } == 0)
 }

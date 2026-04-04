@@ -158,9 +158,7 @@ struct OperatorModelLogManagementTests {
 
     let sortedModel = SymphonyOperatorModel(client: client)
     await sortedModel.selectRun(RunID("run-42"))
-    for _ in 0..<20 where sortedModel.logEvents.count < 2 {
-      try await Task.sleep(for: .milliseconds(20))
-    }
+    try await waitUntil("events sorted") { sortedModel.logEvents.count >= 2 }
     #expect(sortedModel.logEvents.map(\.sequence.rawValue) == [1, 2])
 
     let hangingClient = MockSymphonyAPIClient()
@@ -179,14 +177,12 @@ struct OperatorModelLogManagementTests {
       var model: SymphonyOperatorModel? = SymphonyOperatorModel(client: hangingClient)
       weakModel = model
       await model?.selectRun(RunID("run-42"))
-      for _ in 0..<20 where hangingClient.streamStartCount == 0 {
-        try await Task.sleep(for: .milliseconds(20))
-      }
+      try await waitUntil("stream starts") { hangingClient.streamStartCount > 0 }
       model = nil
     }
 
-    for _ in 0..<20 where weakModel != nil || hangingClient.streamTerminationCount == 0 {
-      try await Task.sleep(for: .milliseconds(20))
+    try await waitUntil("model deallocated") {
+      weakModel == nil && hangingClient.streamTerminationCount > 0
     }
 
     #expect(weakModel == nil)

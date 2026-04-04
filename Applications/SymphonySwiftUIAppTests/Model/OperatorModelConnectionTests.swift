@@ -80,9 +80,7 @@ struct OperatorModelConnectionTests {
 
     model.selectedIssueID = issueSummary.issueID
     await model.connect()
-    for _ in 0..<20 where model.liveStatus != "Ended" {
-      try await Task.sleep(for: .milliseconds(20))
-    }
+    try await waitUntil("model loads detail") { model.liveStatus == "Ended" }
 
     #expect(client.issueDetailRequests == [IssueID("issue-42")])
     #expect(model.issueDetail?.issue.id == IssueID("issue-42"))
