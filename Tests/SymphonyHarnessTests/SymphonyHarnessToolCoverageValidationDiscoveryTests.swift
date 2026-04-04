@@ -62,8 +62,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let tool = SymphonyHarnessTool(
       workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
@@ -127,7 +127,7 @@ import Testing
       xcodeProjectPath: nil
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "SymphonyHarness"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "SymphonyHarness"] {
         return StubProcessRunner.failure("build failed")
       }
       return StubProcessRunner.success()
@@ -290,8 +290,8 @@ import Testing
     )
     let concurrency = InvocationConcurrencyBox()
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "SymphonyShared"]
-        || arguments == ["build", "--product", "harness"]
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "SymphonyShared"]
+        || arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "harness"]
       {
         concurrency.enterSynchronizingUntilStarted(expectedCount: 2)
         defer { concurrency.leave() }
@@ -434,10 +434,10 @@ import Testing
 
     let subjectRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count == 4,
+        arguments.count == 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
         concurrency.enterSynchronizingUntilStarted(expectedCount: 2)
         defer { concurrency.leave() }
@@ -455,8 +455,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
     let tool = SymphonyHarnessTool(

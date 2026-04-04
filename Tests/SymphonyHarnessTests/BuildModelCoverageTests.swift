@@ -198,8 +198,8 @@ import Testing
     lineCoverage: 0.8)
   let harness = HarnessReport(
     minimumCoveragePercent: 100,
-    testsInvocation: "swift test --enable-code-coverage",
-    coveragePathInvocation: "swift test --show-code-coverage-path",
+    testsInvocation: "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage",
+    coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
     packageCoverage: packageReport,
     clientCoverageInvocation: "harness test SymphonySwiftUIApp --json",
     clientCoverage: coverageReport,
@@ -217,8 +217,8 @@ import Testing
 
   let cleanHarness = HarnessReport(
     minimumCoveragePercent: 100,
-    testsInvocation: "swift test --enable-code-coverage",
-    coveragePathInvocation: "swift test --show-code-coverage-path",
+    testsInvocation: "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage",
+    coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
     packageCoverage: packageReport,
     clientCoverageInvocation: "client",
     clientCoverage: coverageReport,
@@ -311,8 +311,8 @@ import Testing
 
   let skippedHarness = HarnessReport(
     minimumCoveragePercent: 100,
-    testsInvocation: "swift test --enable-code-coverage",
-    coveragePathInvocation: "swift test --show-code-coverage-path",
+    testsInvocation: "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage",
+    coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
     packageCoverage: packageReport,
     clientCoverageInvocation: nil,
     clientCoverage: nil,

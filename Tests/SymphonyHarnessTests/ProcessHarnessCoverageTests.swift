@@ -42,7 +42,7 @@ import Testing
     let harness = HarnessReport(
       minimumCoveragePercent: 100,
       testsInvocation: "swift test",
-      coveragePathInvocation: "swift test --show-code-coverage-path",
+      coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
       packageCoverage: PackageCoverageReport(
         scope: "scope",
         coveredLines: 2,
@@ -130,7 +130,7 @@ import Testing
       report: HarnessReport(
         minimumCoveragePercent: 100,
         testsInvocation: "swift test",
-        coveragePathInvocation: "swift test --show-code-coverage-path",
+        coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
         packageCoverage: harness.packageCoverage,
         clientCoverageInvocation: nil,
         clientCoverage: nil,

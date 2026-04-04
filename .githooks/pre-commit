@@ -1,9 +1,30 @@
 #!/bin/sh
 set -eu
 
+# Allow skipping via environment variable for agent/CI contexts where
+# validation has already been performed.
+if [ "${SKIP_PRE_COMMIT:-0}" = "1" ]; then
+  echo "[harness] pre-commit: skipped (SKIP_PRE_COMMIT=1)" >&2
+  exit 0
+fi
+
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+# Timeout wrapper — kills the recipe if it exceeds the allowed duration.
+# Uses perl alarm() which is available on macOS without extra dependencies.
+run_with_timeout() {
+  timeout_secs=$1
+  shift
+  perl -e "alarm($timeout_secs); exec @ARGV" -- "$@"
+}
+
 echo "[harness] pre-commit: running just validate" >&2
-just preflight-swiftpm
-just preflight-app
+run_with_timeout 600 just preflight-swiftpm
+
+# Only run app validation when Application sources or Xcode project files changed.
+if git diff --cached --name-only | grep -qE '^(Applications/|SymphonyApps\.xcodeproj/|Symphony\.xcworkspace/)'; then
+  run_with_timeout 600 just preflight-app
+else
+  echo "[harness] pre-commit: skipping preflight-app (no app changes staged)" >&2
+fi

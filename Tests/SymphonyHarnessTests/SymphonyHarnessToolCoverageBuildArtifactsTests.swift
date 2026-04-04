@@ -55,7 +55,7 @@ import Testing
     }
 
     let runBuildFailRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.failure("run build failed")
       }
       return StubProcessRunner.success()
@@ -123,10 +123,10 @@ import Testing
     }
 
     let noExecutableRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.success("/tmp/Build\n")
       }
       return StubProcessRunner.success()
@@ -276,17 +276,17 @@ import Testing
         currentDirectory: repoRoot
       )
     )
-    #expect(runDryRun.contains("swift build --product symphony-server"))
-    #expect(runDryRun.contains("swift build --show-bin-path"))
+    #expect(runDryRun.contains("swift build --scratch-path .build/swiftpm-cache --product symphony-server"))
+    #expect(runDryRun.contains("swift build --scratch-path .build/swiftpm-cache --show-bin-path"))
     #expect(runDryRun.contains("<built-product>/symphony-server"))
 
     let pathFailureRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.failure("no swiftpm coverage path")
       }
       return StubProcessRunner.success()
@@ -302,11 +302,11 @@ import Testing
 
     let emptyFailurePathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return CommandResult(exitStatus: 1, stdout: "", stderr: "")
       }
       return StubProcessRunner.success()
@@ -322,11 +322,11 @@ import Testing
 
     let emptyPathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success("\n")
       }
       return StubProcessRunner.success()
@@ -342,11 +342,11 @@ import Testing
 
     let throwingCoverageRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         struct GenericFailure: Error {}
         throw GenericFailure()
       }
@@ -362,10 +362,10 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: throwingOutput))
 
     let binPathFailureRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.failure("bin path failed")
       }
       return StubProcessRunner.success()
@@ -399,10 +399,10 @@ import Testing
     }
 
     let emptyBinPathRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.success("\n")
       }
       return StubProcessRunner.success()

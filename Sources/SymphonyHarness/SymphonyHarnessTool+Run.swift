@@ -165,7 +165,7 @@ extension SymphonyHarnessTool {
     let startedAt = Date()
     let buildResult = try processRunner.run(
       command: "swift",
-      arguments: ["build", "--product", productName],
+      arguments: ["build", "--scratch-path", scratchPath, "--product", productName],
       environment: [:],
       currentDirectory: workspace.projectRoot,
       observation: nil
@@ -177,7 +177,7 @@ extension SymphonyHarnessTool {
     if buildResult.exitStatus == 0 {
       let binPathResult = try processRunner.run(
         command: "swift",
-        arguments: ["build", "--show-bin-path"],
+        arguments: ["build", "--scratch-path", scratchPath, "--show-bin-path"],
         environment: [:],
         currentDirectory: workspace.projectRoot,
         observation: nil

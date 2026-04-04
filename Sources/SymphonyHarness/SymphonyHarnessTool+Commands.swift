@@ -137,11 +137,13 @@ extension SymphonyHarnessTool {
   }
 
   func renderSwiftBuildCommandLine(productName: String) -> String {
-    ShellQuoting.render(command: "swift", arguments: ["build", "--product", productName])
+    ShellQuoting.render(
+      command: "swift",
+      arguments: ["build", "--scratch-path", scratchPath, "--product", productName])
   }
 
   func renderSwiftTestCommandLine(filter: String, enableCodeCoverage: Bool) -> String {
-    var arguments = ["test"]
+    var arguments = ["test", "--scratch-path", scratchPath]
     if enableCodeCoverage { arguments.append("--enable-code-coverage") }
     arguments += ["--filter", filter]
     return ShellQuoting.render(command: "swift", arguments: arguments)
@@ -151,7 +153,7 @@ extension SymphonyHarnessTool {
     let resolvedBinPath = binPath.map { "\($0)/\(productName)" } ?? "<built-product>/\(productName)"
     return [
       renderSwiftBuildCommandLine(productName: productName),
-      ShellQuoting.render(command: "swift", arguments: ["build", "--show-bin-path"]),
+      ShellQuoting.render(command: "swift", arguments: ["build", "--scratch-path", scratchPath, "--show-bin-path"]),
       ShellQuoting.render(command: resolvedBinPath, arguments: []),
     ].joined(separator: "\n")
   }

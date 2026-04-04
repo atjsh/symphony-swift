@@ -228,12 +228,12 @@ import Testing
     )
 
     #expect(!buildOutput.contains("\n"))
-    #expect(buildOutput == "swift build --product symphony-server")
+    #expect(buildOutput == "swift build --scratch-path .build/swiftpm-cache --product symphony-server")
     #expect(!buildOutput.contains("xcodebuild"))
     let testLines = testOutput.split(separator: "\n").map(String.init)
     #expect(testLines.count == 2)
-    #expect(testLines[0] == "swift test --enable-code-coverage --filter SymphonyServerTests")
-    #expect(testLines[1] == "swift test --show-code-coverage-path")
+    #expect(testLines[0] == "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage --filter SymphonyServerTests")
+    #expect(testLines[1] == "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path")
     #expect(
       !FileManager.default.fileExists(
         atPath: repoRoot.appendingPathComponent(".build/harness").path))
@@ -260,8 +260,8 @@ import Testing
 
     let lines = output.split(separator: "\n").map(String.init)
     #expect(lines.count == 2)
-    #expect(lines[0] == "swift test --enable-code-coverage --filter SymphonyServerTests")
-    #expect(lines[1] == "swift test --show-code-coverage-path")
+    #expect(lines[0] == "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage --filter SymphonyServerTests")
+    #expect(lines[1] == "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path")
     #expect(
       !FileManager.default.fileExists(
         atPath: repoRoot.appendingPathComponent(".build/harness").path))

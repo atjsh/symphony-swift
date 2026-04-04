@@ -27,10 +27,16 @@ doctor:
     swift run --quiet --scratch-path {{harness_scratch_path}} harness doctor
 
 lint:
-    swift package plugin --allow-writing-to-package-directory swiftlint lint
+    swift package --scratch-path {{harness_scratch_path}} plugin --allow-writing-to-package-directory swiftlint lint
 
 lint-fix:
-    swift package plugin --allow-writing-to-package-directory swiftlint --fix
+    swift package --scratch-path {{harness_scratch_path}} plugin --allow-writing-to-package-directory swiftlint --fix
+
+# Kill stale SwiftPM processes to recover from hung terminals or lock contention.
+kill-swift:
+    pkill -f "swift-test|swift-build|swiftpm-testing-helper|swift-package" 2>/dev/null || true
+    sleep 2
+    @echo "Cleared stale SwiftPM processes."
 
 coverage *subjects:
     swift run --quiet --scratch-path {{harness_scratch_path}} harness test --enable-code-coverage {{subjects}}

@@ -78,7 +78,7 @@ extension SymphonyHarnessTool {
     let startedAt = Date()
     let result = try processRunner.run(
       command: "swift",
-      arguments: ["build", "--product", productName],
+      arguments: ["build", "--scratch-path", scratchPath, "--product", productName],
       environment: [:],
       currentDirectory: workspace.projectRoot,
       observation: nil
@@ -246,7 +246,7 @@ extension SymphonyHarnessTool {
     let startedAt = Date()
     let result = try processRunner.run(
       command: "swift",
-      arguments: ["test", "--enable-code-coverage", "--filter", testFilter],
+      arguments: ["test", "--scratch-path", scratchPath, "--enable-code-coverage", "--filter", testFilter],
       environment: [:],
       currentDirectory: workspace.projectRoot,
       observation: nil
@@ -258,7 +258,7 @@ extension SymphonyHarnessTool {
       do {
         let coveragePathResult = try processRunner.run(
           command: "swift",
-          arguments: ["test", "--show-code-coverage-path"],
+          arguments: ["test", "--scratch-path", scratchPath, "--show-code-coverage-path"],
           environment: [:],
           currentDirectory: workspace.projectRoot,
           observation: nil

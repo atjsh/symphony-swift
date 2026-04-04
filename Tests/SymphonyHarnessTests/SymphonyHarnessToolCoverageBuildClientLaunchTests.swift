@@ -12,10 +12,10 @@ import Testing
       xcodeProjectPath: nil
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.success("/tmp/Build\n")
       }
       return StubProcessRunner.success()
@@ -58,8 +58,8 @@ import Testing
     #expect(runner.startedDetachedExecutions[0].executablePath == "/tmp/Build/symphony-server")
     #expect(runner.startedDetachedExecutions[0].environment == ["CUSTOM": "1"])
     let serverSummary = try String(contentsOf: URL(fileURLWithPath: serverOutput), encoding: .utf8)
-    #expect(serverSummary.contains("swift build --product symphony-server"))
-    #expect(serverSummary.contains("swift build --show-bin-path"))
+    #expect(serverSummary.contains("swift build --scratch-path .build/swiftpm-cache --product symphony-server"))
+    #expect(serverSummary.contains("swift build --scratch-path .build/swiftpm-cache --show-bin-path"))
 
     let clientRunner = RoutedProcessRunner { command, arguments, environment, _, _ in
       let invocation = ([command] + arguments).joined(separator: " ")

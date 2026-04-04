@@ -9,11 +9,13 @@ public struct CommandResult: Sendable {
   public let exitStatus: Int32
   public let stdout: String
   public let stderr: String
+  public let timedOut: Bool
 
-  public init(exitStatus: Int32, stdout: String, stderr: String) {
+  public init(exitStatus: Int32, stdout: String, stderr: String, timedOut: Bool = false) {
     self.exitStatus = exitStatus
     self.stdout = stdout
     self.stderr = stderr
+    self.timedOut = timedOut
   }
 
   public var combinedOutput: String {
@@ -26,17 +28,20 @@ public struct CommandResult: Sendable {
 public struct ProcessObservation: Sendable {
   public let label: String
   public let staleInterval: TimeInterval
+  public let maxStaleInterval: TimeInterval?
   public let onStaleSignal: (@Sendable (String) -> Void)?
   public let onLine: (@Sendable (ProcessStream, String) -> Void)?
 
   public init(
     label: String,
     staleInterval: TimeInterval = 15,
+    maxStaleInterval: TimeInterval? = nil,
     onStaleSignal: (@Sendable (String) -> Void)? = nil,
     onLine: (@Sendable (ProcessStream, String) -> Void)? = nil
   ) {
     self.label = label
     self.staleInterval = staleInterval
+    self.maxStaleInterval = maxStaleInterval
     self.onStaleSignal = onStaleSignal
     self.onLine = onLine
   }
@@ -48,7 +53,8 @@ public protocol ProcessRunning: Sendable {
     arguments: [String],
     environment: [String: String],
     currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?,
+    timeout: TimeInterval?
   ) throws -> CommandResult
 
   func startDetached(
@@ -72,7 +78,25 @@ extension ProcessRunning {
       arguments: arguments,
       environment: environment,
       currentDirectory: currentDirectory,
-      observation: nil
+      observation: nil,
+      timeout: nil
+    )
+  }
+
+  public func run(
+    command: String,
+    arguments: [String],
+    environment: [String: String],
+    currentDirectory: URL?,
+    observation: ProcessObservation?
+  ) throws -> CommandResult {
+    try run(
+      command: command,
+      arguments: arguments,
+      environment: environment,
+      currentDirectory: currentDirectory,
+      observation: observation,
+      timeout: nil
     )
   }
 }
@@ -85,7 +109,8 @@ public struct SystemProcessRunner: ProcessRunning {
     arguments: [String],
     environment: [String: String] = [:],
     currentDirectory: URL? = nil,
-    observation: ProcessObservation? = nil
+    observation: ProcessObservation? = nil,
+    timeout: TimeInterval? = nil
   ) throws -> CommandResult {
     let process = Process()
     let stdoutPipe = Pipe()
@@ -105,7 +130,7 @@ public struct SystemProcessRunner: ProcessRunning {
     let stdoutCollector = DataCollector()
     let stderrCollector = DataCollector()
     let staleController = observation.map {
-      StaleSignalController(observation: $0, collector: stderrCollector)
+      StaleSignalController(observation: $0, collector: stderrCollector, process: process)
     }
     let stdoutLineEmitter = LineEmitter(stream: .stdout, observation: observation)
     let stderrLineEmitter = LineEmitter(stream: .stderr, observation: observation)
@@ -135,16 +160,38 @@ public struct SystemProcessRunner: ProcessRunning {
       staleController?.recordOutput()
       stderrLineEmitter.append(data)
     }
+
+    var didTimeout = false
+    var timeoutTimer: DispatchSourceTimer?
+    if let timeout {
+      let timer = DispatchSource.makeTimerSource(
+        queue: DispatchQueue(label: "com.symphony.process-timeout"))
+      timer.schedule(deadline: .now() + timeout)
+      timer.setEventHandler {
+        didTimeout = true
+        process.terminate()
+        DispatchQueue(label: "com.symphony.process-kill").asyncAfter(deadline: .now() + 5) {
+          if process.isRunning {
+            process.interrupt()
+          }
+        }
+      }
+      timeoutTimer = timer
+      timer.resume()
+    }
+
     try process.run()
     process.waitUntilExit()
+    timeoutTimer?.cancel()
     stdoutLineEmitter.finish()
     stderrLineEmitter.finish()
     staleController?.stop()
-    completionGroup.wait()
+    _ = completionGroup.wait(timeout: .now() + 5)
 
     let stdout = String(decoding: stdoutCollector.data, as: UTF8.self)
     let stderr = String(decoding: stderrCollector.data, as: UTF8.self)
-    return CommandResult(exitStatus: process.terminationStatus, stdout: stdout, stderr: stderr)
+    return CommandResult(
+      exitStatus: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: didTimeout)
   }
 
   public func startDetached(
@@ -277,14 +324,17 @@ final class LineEmitter: @unchecked Sendable {
 final class StaleSignalController: @unchecked Sendable {
   private let observation: ProcessObservation
   private let collector: DataCollector
+  private let process: Process
   private let lock = NSLock()
   private var lastOutputAt = Date()
   private var emittedCount = 0
   private var timer: DispatchSourceTimer?
+  private var didEscalate = false
 
-  init(observation: ProcessObservation, collector: DataCollector) {
+  init(observation: ProcessObservation, collector: DataCollector, process: Process) {
     self.observation = observation
     self.collector = collector
+    self.process = process
   }
 
   private let queue = DispatchQueue(label: "com.symphony.stale-signal")
@@ -317,6 +367,7 @@ final class StaleSignalController: @unchecked Sendable {
 
   func signalIfNeeded() {
     let message: String?
+    var shouldKill = false
 
     lock.lock()
     let elapsed = Date().timeIntervalSince(lastOutputAt)
@@ -328,7 +379,28 @@ final class StaleSignalController: @unchecked Sendable {
     } else {
       message = nil
     }
+    if let maxStale = observation.maxStaleInterval, elapsed >= maxStale, !didEscalate {
+      didEscalate = true
+      shouldKill = true
+    }
     lock.unlock()
+
+    if shouldKill {
+      let killMessage =
+        "[harness] \(observation.label) exceeded max stale interval (\(Int(observation.maxStaleInterval!))s) — terminating process"
+      collector.append(Data((killMessage + "\n").utf8))
+      if let onStaleSignal = observation.onStaleSignal {
+        onStaleSignal(killMessage)
+      } else if let data = (killMessage + "\n").data(using: .utf8) {
+        FileHandle.standardError.write(data)
+      }
+      process.terminate()
+      DispatchQueue(label: "com.symphony.stale-kill").asyncAfter(deadline: .now() + 5) { [weak self] in
+        guard let self, self.process.isRunning else { return }
+        self.process.interrupt()
+      }
+      return
+    }
 
     guard let message else {
       return

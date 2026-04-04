@@ -20,14 +20,14 @@ struct StubProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     let key = ([command] + arguments).joined(separator: " ")
     let result = results[key] ?? Self.success()
 
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       cacheCoverageExportSeed(from: result)
-    } else if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    } else if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restoreCachedCoverageExportsIfNeeded()
     }
 
@@ -102,13 +102,13 @@ final class StalePackageCoverageProcessRunner: ProcessRunning, @unchecked Sendab
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(coveragePath.path + "\n")
     }
 
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       lock.lock()
       staleCoverageBeforeSwiftTestRun = FileManager.default.fileExists(atPath: coveragePath.path)
       lock.unlock()
@@ -155,7 +155,7 @@ final class RecordingProcessRunner: ProcessRunning, @unchecked Sendable {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     lock.lock()
     storage.append(([command] + arguments).joined(separator: " "))
@@ -194,7 +194,7 @@ final class GoEnryMaterializationProcessRunner: ProcessRunning, @unchecked Senda
     arguments: [String],
     environment: [String: String],
     currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     _ = environment
     _ = currentDirectory

@@ -32,11 +32,11 @@ import Testing
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()
@@ -109,14 +109,14 @@ import Testing
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count >= 4,
+        arguments.count >= 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()
@@ -270,10 +270,10 @@ import Testing
       xcodeProjectPath: nil
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "SymphonyShared"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "SymphonyShared"] {
         return StubProcessRunner.success("shared built")
       }
-      if command == "swift", arguments == ["build", "--product", "harness"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "harness"] {
         return StubProcessRunner.success("harness built")
       }
       return StubProcessRunner.success()
@@ -349,17 +349,17 @@ import Testing
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyHarnessTests"]
       {
         return StubProcessRunner.success("harness tests")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("server built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.success(repoRoot.appendingPathComponent(".build/debug").path + "\n")
       }
       return StubProcessRunner.success()

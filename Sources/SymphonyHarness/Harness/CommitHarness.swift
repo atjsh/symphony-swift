@@ -26,6 +26,7 @@ public struct CommitHarness {
   private let clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
   private let serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)?
   private let toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving
+  let scratchPath: String
 
   public init(
     processRunner: ProcessRunning = SystemProcessRunner(),
@@ -33,7 +34,8 @@ public struct CommitHarness {
     statusSink: @escaping @Sendable (String) -> Void = { _ in },
     clientCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil,
     serverCoverageLoader: (@Sendable (WorkspaceContext) throws -> CoverageReport)? = nil,
-    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil
+    toolchainCapabilitiesResolver: ToolchainCapabilitiesResolving? = nil,
+    scratchPath: String = ".build/swiftpm-cache"
   ) {
     self.processRunner = processRunner
     self.coverageReporter = coverageReporter
@@ -43,6 +45,7 @@ public struct CommitHarness {
     self.toolchainCapabilitiesResolver =
       toolchainCapabilitiesResolver
       ?? ProcessToolchainCapabilitiesResolver(processRunner: processRunner)
+    self.scratchPath = scratchPath
   }
 
   func run(workspace: WorkspaceContext, request: HarnessCommandRequest) throws
@@ -73,12 +76,13 @@ public struct CommitHarness {
     }
 
     let testsInvocation = ShellQuoting.render(
-      command: "swift", arguments: ["test", "--enable-code-coverage"])
+      command: "swift", arguments: ["test", "--scratch-path", scratchPath, "--enable-code-coverage"])
     let coveragePathInvocation = ShellQuoting.render(
-      command: "swift", arguments: ["test", "--show-code-coverage-path"])
+      command: "swift", arguments: ["test", "--scratch-path", scratchPath, "--show-code-coverage-path"])
     let packageCoveragePath = try Self.resolveSwiftPMCoveragePath(
       processRunner: processRunner,
-      projectRoot: workspace.projectRoot
+      projectRoot: workspace.projectRoot,
+      scratchPath: scratchPath
     )
     try Self.clearExistingCoverageExport(at: packageCoveragePath)
 
@@ -88,14 +92,14 @@ public struct CommitHarness {
     defer { harnessReporter.finish() }
     let testResult = try processRunner.run(
       command: "swift",
-      arguments: ["test", "--enable-code-coverage"],
+      arguments: ["test", "--scratch-path", scratchPath, "--enable-code-coverage"],
       environment: [:],
       currentDirectory: workspace.projectRoot,
       observation: harnessReporter.makeObservation(label: "swift test")
     )
     guard testResult.exitStatus == 0 else {
       throw SymphonyHarnessCommandFailure(
-        message: "Commit harness failed because `swift test --enable-code-coverage` did not pass.")
+        message: "Commit harness failed because `swift test --scratch-path \(scratchPath) --enable-code-coverage` did not pass.")
     }
 
     let coverageReport = try coverageReporter.loadReport(

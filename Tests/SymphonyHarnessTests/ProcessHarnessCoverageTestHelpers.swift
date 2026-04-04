@@ -16,9 +16,9 @@ struct CoverageCommandProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restorePackageCoverageSeed(
         packageCoverageData,
         at: packageCoveragePath
@@ -27,7 +27,7 @@ struct CoverageCommandProcessRunner: ProcessRunning {
       observation?.onStaleSignal?("[harness] swift test still running")
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if arguments.prefix(2) == ["test", "SymphonySwiftUIApp"]
@@ -86,13 +86,13 @@ final class PackageInspectionOverwriteProcessRunner: ProcessRunning, @unchecked 
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if command == "xcrun", arguments == showArguments {
@@ -165,20 +165,20 @@ final class HarnessOutputControlProcessRunner: ProcessRunning, @unchecked Sendab
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     let rendered = ([command] + arguments).joined(separator: " ")
     lock.lock()
     storage.append(rendered)
     lock.unlock()
 
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       observation?.onLine?(.stdout, "Compiling NIOCore AsyncChannel.swift")
       observation?.onLine?(.stderr, "warning: important harness warning")
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if arguments.prefix(2) == ["test", "SymphonySwiftUIApp"]
@@ -202,7 +202,7 @@ final class ProtocolExtensionRunner: ProcessRunning, @unchecked Sendable {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     lastObservationWasNil = observation == nil
     return StubProcessRunner.success()
@@ -222,7 +222,7 @@ struct ObservationCoverageRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     observe(observation)
     return StubProcessRunner.success(stdout)
@@ -249,13 +249,13 @@ struct DualCoverageProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if arguments.prefix(2) == ["test", "SymphonySwiftUIApp"]
@@ -287,13 +287,13 @@ struct ArtifactPathProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       try restorePackageCoverageSeed(packageCoverageData, at: packageCoveragePath)
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if arguments.prefix(2) == ["test", "SymphonySwiftUIApp"]

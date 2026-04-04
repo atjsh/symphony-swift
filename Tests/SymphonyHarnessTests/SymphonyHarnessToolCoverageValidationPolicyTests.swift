@@ -153,10 +153,10 @@ import Testing
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count >= 4,
+        arguments.count >= 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
         try FileManager.default.createDirectory(
           at: coveragePath.deletingLastPathComponent(),
@@ -165,7 +165,7 @@ import Testing
         try coverageJSON.write(to: coveragePath, atomically: true, encoding: .utf8)
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()
@@ -248,14 +248,14 @@ import Testing
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count >= 4,
+        arguments.count >= 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()
@@ -339,14 +339,14 @@ func validateExecutionBridgeCapturesBelowThresholdCoverageFailureFromCommitHarne
 
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count >= 4,
+        arguments.count >= 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()

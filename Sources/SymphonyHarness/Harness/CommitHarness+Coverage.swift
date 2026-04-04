@@ -19,11 +19,12 @@ extension CommitHarness {
 
   static func resolveSwiftPMCoveragePath(
     processRunner: ProcessRunning,
-    projectRoot: URL
+    projectRoot: URL,
+    scratchPath: String = ".build/swiftpm-cache"
   ) throws -> URL {
     let coveragePathResult = try processRunner.run(
       command: "swift",
-      arguments: ["test", "--show-code-coverage-path"],
+      arguments: ["test", "--scratch-path", scratchPath, "--show-code-coverage-path"],
       environment: [:],
       currentDirectory: projectRoot,
       observation: nil

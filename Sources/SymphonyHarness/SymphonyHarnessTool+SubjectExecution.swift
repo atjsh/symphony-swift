@@ -155,23 +155,33 @@ extension SymphonyHarnessTool {
       let queue = scheduledRun.requiresExclusiveDestination ? exclusiveQueue : concurrentQueue
       queue.async { [self] in
         defer { group.leave() }
-        // Subject execution failures are fatal in the harness context:
-        // a failed subject run should crash the harness process rather than
-        // silently produce partial results.
-        // swiftlint:disable:next force_try
-        let result = try! executeScheduledSubjectRun(
-          scheduledRun,
-          for: request,
-          workspace: workspace,
-          sharedRunRoot: plan.sharedRunRoot,
-          sharedRunID: sharedRunID,
-          workerID: index
-        )
-        collector.store(result: result, at: index)
+        do {
+          let result = try executeScheduledSubjectRun(
+            scheduledRun,
+            for: request,
+            workspace: workspace,
+            sharedRunRoot: plan.sharedRunRoot,
+            sharedRunID: sharedRunID,
+            workerID: index
+          )
+          collector.store(result: result, at: index)
+        } catch {
+          statusSink(
+            "[harness] subject \(scheduledRun.subject.name) failed: \(error.localizedDescription)")
+        }
       }
     }
 
-    group.wait()
+    let groupTimeout: TimeInterval = request.command == .build ? 180 : 600
+    let waitResult = group.wait(timeout: .now() + groupTimeout)
+    if waitResult == .timedOut {
+      let pendingSubjects = collector.pendingIndices(total: plan.subjectRuns.count)
+        .map { plan.subjectRuns[$0].subject.name }
+      let message =
+        "[harness] subject execution timed out after \(Int(groupTimeout))s — pending subjects: \(pendingSubjects.joined(separator: ", "))"
+      statusSink(message)
+      throw SymphonyHarnessCommandFailure(message: message)
+    }
 
     return try collector.orderedResults()
   }

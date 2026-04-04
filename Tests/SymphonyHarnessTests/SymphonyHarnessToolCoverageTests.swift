@@ -40,18 +40,18 @@ import Testing
 
     let signals = SignalBox()
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("swift build ok")
       }
-      if command == "swift", arguments == ["test", "--filter", "SymphonyServerTests"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--filter", "SymphonyServerTests"] {
         return StubProcessRunner.success("swift test ok")
       }
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()
@@ -93,11 +93,11 @@ import Testing
     #expect(signals.values.isEmpty)
 
     let failingRunner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.failure("build failed")
       }
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.failure("test failed")
       }
@@ -130,11 +130,11 @@ import Testing
 
     let exportFailRunner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(
           repoRoot.appendingPathComponent("missing-coverage.json").path + "\n")
       }
@@ -165,10 +165,10 @@ import Testing
         runtime: "iOS 18")
     ]
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "SymphonyShared"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "SymphonyShared"] {
         return StubProcessRunner.success("shared built")
       }
-      if command == "swift", arguments == ["build", "--product", "harness"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "harness"] {
         return StubProcessRunner.success("harness built")
       }
       if command == "xcodebuild", arguments.last == "build" {

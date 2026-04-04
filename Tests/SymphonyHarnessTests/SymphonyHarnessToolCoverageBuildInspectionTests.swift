@@ -54,11 +54,11 @@ import Testing
       "xcrun llvm-cov report --show-functions -instr-profile \(profdataPath.path) \(testBinaryPath.path) \(sourcePath.path)"
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerTests"]
       {
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       let rendered = ([command] + arguments).joined(separator: " ")
@@ -311,8 +311,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let tool = SymphonyHarnessTool(
       workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),

@@ -18,7 +18,7 @@ import Testing
     )
     let discovery = RecordingWorkspaceDiscovery(workspace: workspace)
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("server built")
       }
       return StubProcessRunner.success()
@@ -71,16 +71,16 @@ import Testing
     ]
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyServerCoreTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyServerCoreTests"]
       {
         return StubProcessRunner.success("server core tests")
       }
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessCLITests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyHarnessCLITests"]
       {
         return StubProcessRunner.success("harness cli tests")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(
           repoRoot.appendingPathComponent("missing-coverage.json").path + "\n")
       }
@@ -189,15 +189,15 @@ import Testing
     let observedFilters = SignalBox()
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count == 4,
+        arguments.count == 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
-        observedFilters.append(arguments[3])
+        observedFilters.append(arguments[5])
         return StubProcessRunner.success("swift coverage ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(coveragePath.path + "\n")
       }
       return StubProcessRunner.success()

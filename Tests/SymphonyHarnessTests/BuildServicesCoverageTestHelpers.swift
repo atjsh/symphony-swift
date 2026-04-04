@@ -13,7 +13,7 @@ struct BootSequenceProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     responses[counter.next()]
   }
@@ -33,7 +33,7 @@ struct RoutedBuildServicesProcessRunner: ProcessRunning {
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     try handler(command, arguments, environment, currentDirectory, observation)
   }

@@ -39,9 +39,9 @@ import Testing
     do {
       _ = try CommitHarness(
         processRunner: StubProcessRunner(results: [
-          "swift test --show-code-coverage-path": StubProcessRunner.success(
+          "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(
             coveragePath.path + "\n"),
-          "swift test --enable-code-coverage": StubProcessRunner.failure("tests failed"),
+          "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.failure("tests failed"),
         ])
       ).run(
         workspace: workspace,
@@ -50,14 +50,14 @@ import Testing
       )
       Issue.record("Expected failing swift test runs to fail the harness.")
     } catch let error as SymphonyHarnessCommandFailure {
-      #expect(error.message.contains("swift test --enable-code-coverage"))
+      #expect(error.message.contains("swift test --scratch-path .build/swiftpm-cache --enable-code-coverage"))
     }
 
     do {
       _ = try CommitHarness(
         processRunner: StubProcessRunner(results: [
-          "swift test --enable-code-coverage": StubProcessRunner.success(),
-          "swift test --show-code-coverage-path": StubProcessRunner.failure("no path"),
+          "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+          "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.failure("no path"),
         ])
       ).run(
         workspace: workspace,
@@ -72,8 +72,8 @@ import Testing
     do {
       _ = try CommitHarness(
         processRunner: StubProcessRunner(results: [
-          "swift test --enable-code-coverage": StubProcessRunner.success(),
-          "swift test --show-code-coverage-path": StubProcessRunner.success("\n"),
+          "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+          "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success("\n"),
         ])
       ).run(
         workspace: workspace,

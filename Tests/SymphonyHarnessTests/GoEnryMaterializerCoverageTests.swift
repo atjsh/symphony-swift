@@ -227,7 +227,7 @@ private struct FailingLipoProcessRunner: ProcessRunning {
     arguments: [String],
     environment: [String: String],
     currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     if command == "go",
       arguments.count == 5,
@@ -264,7 +264,7 @@ private struct FailingGoBuildProcessRunner: ProcessRunning {
     arguments: [String],
     environment: [String: String],
     currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     if command == "go", arguments.first == "build" {
       return CommandResult(exitStatus: 1, stdout: "", stderr: "cannot find package")

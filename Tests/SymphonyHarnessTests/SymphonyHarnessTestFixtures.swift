@@ -94,13 +94,13 @@ final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable 
 
   func run(
     command: String, arguments: [String], environment: [String: String], currentDirectory: URL?,
-    observation: ProcessObservation?
+    observation: ProcessObservation?, timeout: TimeInterval?
   ) throws -> CommandResult {
     let rendered = ([command] + arguments).joined(separator: " ")
     if let result = extraResults[rendered] {
       return result
     }
-    if command == "swift", arguments == ["test", "--enable-code-coverage"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage"] {
       if let packageCoverageData,
         !FileManager.default.fileExists(atPath: packageCoveragePath)
       {
@@ -113,7 +113,7 @@ final class HarnessInspectionProcessRunner: ProcessRunning, @unchecked Sendable 
       }
       return StubProcessRunner.success()
     }
-    if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+    if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
       return StubProcessRunner.success(packageCoveragePath + "\n")
     }
     if arguments.prefix(2) == ["test", "SymphonySwiftUIApp"] {

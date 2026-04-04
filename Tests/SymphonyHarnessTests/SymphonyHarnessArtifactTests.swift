@@ -162,7 +162,7 @@ import Testing
         destination: ResolvedDestination(
           platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil,
           xcodeDestination: expectedHostMacOSDestination()),
-        invocation: "swift test --enable-code-coverage --filter SymphonyServerTests",
+        invocation: "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage --filter SymphonyServerTests",
         exitStatus: 0,
         combinedOutput: "",
         startedAt: Date(timeIntervalSince1970: 1_700_000_610),
@@ -411,8 +411,8 @@ import Testing
       )
     )
     let runner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success("tests passed\n"),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success("tests passed\n"),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let passingCoverage = CoverageReport(
       coveredLines: 60,

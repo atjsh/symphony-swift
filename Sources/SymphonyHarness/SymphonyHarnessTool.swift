@@ -15,6 +15,7 @@ public final class SymphonyHarnessTool {
   let commitHarness: CommitHarness
   let gitHookInstaller: GitHookInstaller
   let statusSink: @Sendable (String) -> Void
+  let scratchPath: String
 
   public init(
     workspaceDiscovery: WorkspaceDiscovering = WorkspaceDiscovery(),
@@ -28,6 +29,7 @@ public final class SymphonyHarnessTool {
     productLocator: ProductLocator = ProductLocator(),
     commitHarness: CommitHarness? = nil,
     gitHookInstaller: GitHookInstaller? = nil,
+    scratchPath: String = ".build/swiftpm-cache",
     statusSink: @escaping @Sendable (String) -> Void = { message in
       FileHandle.standardError.write(Data((message + "\n").utf8))
     }
@@ -52,12 +54,14 @@ public final class SymphonyHarnessTool {
     self.goEnryMaterializer = GoEnryMaterializer(processRunner: processRunner)
     self.productLocator = productLocator
     self.statusSink = statusSink
+    self.scratchPath = scratchPath
     self.commitHarness =
       commitHarness
       ?? CommitHarness(
         processRunner: processRunner,
         statusSink: statusSink,
-        toolchainCapabilitiesResolver: resolvedToolchainCapabilitiesResolver
+        toolchainCapabilitiesResolver: resolvedToolchainCapabilitiesResolver,
+        scratchPath: scratchPath
       )
     self.gitHookInstaller = gitHookInstaller ?? GitHookInstaller(processRunner: processRunner)
   }
@@ -246,5 +250,11 @@ final class ScheduledRunCollector: @unchecked Sendable {
       }
     }
     return orderedResults
+  }
+
+  func pendingIndices(total: Int) -> [Int] {
+    lock.lock()
+    defer { lock.unlock() }
+    return (0..<total).filter { results[$0] == nil }
   }
 }

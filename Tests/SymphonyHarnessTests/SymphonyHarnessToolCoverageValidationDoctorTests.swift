@@ -44,8 +44,8 @@ import Testing
     )
     let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let subjectRunner = RoutedProcessRunner { _, _, _, _, _ in
       StubProcessRunner.success("subject ok")
@@ -194,8 +194,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let tool = SymphonyHarnessTool(
       workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
@@ -365,8 +365,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let tool = SymphonyHarnessTool(
       workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),

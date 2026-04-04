@@ -366,7 +366,8 @@ import Testing
   let controller = StaleSignalController(
     observation: ProcessObservation(
       label: "idle", staleInterval: 60, onStaleSignal: { staleSignals.append($0) }),
-    collector: collector
+    collector: collector,
+    process: Process()
   )
   controller.signalIfNeeded()
 
@@ -378,7 +379,8 @@ import Testing
   let collector = DataCollector()
   let controller = StaleSignalController(
     observation: ProcessObservation(label: "heartbeat", staleInterval: 0.01),
-    collector: collector
+    collector: collector,
+    process: Process()
   )
 
   Thread.sleep(forTimeInterval: 0.02)

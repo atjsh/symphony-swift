@@ -14,15 +14,15 @@ import Testing
     let observedFilters = SignalBox()
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count == 4,
+        arguments.count == 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
-        observedFilters.append(arguments[3])
+        observedFilters.append(arguments[5])
         return StubProcessRunner.success("ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(
           repoRoot.appendingPathComponent("missing-coverage.json").path + "\n")
       }
@@ -75,16 +75,16 @@ import Testing
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonySharedTests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonySharedTests"]
       {
         return StubProcessRunner.success("shared tests")
       }
       if command == "swift",
-        arguments == ["test", "--enable-code-coverage", "--filter", "SymphonyHarnessCLITests"]
+        arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--enable-code-coverage", "--filter", "SymphonyHarnessCLITests"]
       {
         return StubProcessRunner.success("harness cli tests")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(
           repoRoot.appendingPathComponent("missing-coverage.json").path + "\n")
       }
@@ -135,10 +135,10 @@ import Testing
       xcodeProjectPath: nil
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
-      if command == "swift", arguments == ["build", "--product", "symphony-server"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--product", "symphony-server"] {
         return StubProcessRunner.success("server built")
       }
-      if command == "swift", arguments == ["build", "--show-bin-path"] {
+      if command == "swift", arguments == ["build", "--scratch-path", ".build/swiftpm-cache", "--show-bin-path"] {
         return StubProcessRunner.success(repoRoot.appendingPathComponent(".build/debug").path + "\n")
       }
       return StubProcessRunner.success()
@@ -306,15 +306,15 @@ import Testing
     )
     let runner = RoutedProcessRunner { command, arguments, _, _, _ in
       if command == "swift",
-        arguments.count == 4,
+        arguments.count == 6,
         arguments[0] == "test",
-        arguments[1] == "--enable-code-coverage",
-        arguments[2] == "--filter"
+        arguments[3] == "--enable-code-coverage",
+        arguments[4] == "--filter"
       {
-        observedFilters.append(arguments[3])
+        observedFilters.append(arguments[5])
         return StubProcessRunner.success("ok")
       }
-      if command == "swift", arguments == ["test", "--show-code-coverage-path"] {
+      if command == "swift", arguments == ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"] {
         return StubProcessRunner.success(
           repoRoot.appendingPathComponent("missing-coverage.json").path + "\n")
       }
@@ -322,8 +322,8 @@ import Testing
     }
     let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let tool = SymphonyHarnessTool(
       workspaceDiscovery: StubWorkspaceDiscovery(workspace: workspace),
@@ -422,8 +422,8 @@ import Testing
       targets: []
     )
     let harnessRunner = StubProcessRunner(results: [
-      "swift test --enable-code-coverage": StubProcessRunner.success(),
-      "swift test --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
+      "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage": StubProcessRunner.success(),
+      "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path": StubProcessRunner.success(coveragePath.path + "\n"),
     ])
     let noXcodeCapabilities = StubToolchainCapabilitiesResolver(capabilities: .noXcodeForTests)
     let tool = SymphonyHarnessTool(

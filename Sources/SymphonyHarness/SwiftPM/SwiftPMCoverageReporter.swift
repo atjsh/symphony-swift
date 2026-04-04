@@ -6,7 +6,7 @@ public struct SwiftPMCoverageReporter {
   public init(fileManager: FileManager = .default) { self.fileManager = fileManager }
 
   public func renderedCoveragePathCommandLine() -> String {
-    ShellQuoting.render(command: "swift", arguments: ["test", "--show-code-coverage-path"])
+    ShellQuoting.render(command: "swift", arguments: ["test", "--scratch-path", ".build/swiftpm-cache", "--show-code-coverage-path"])
   }
 
   public func exportServerCoverage(

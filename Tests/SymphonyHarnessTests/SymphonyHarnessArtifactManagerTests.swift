@@ -242,7 +242,7 @@ import Testing
         destination: ResolvedDestination(
           platform: .macos, displayName: "macOS", simulatorName: nil, simulatorUDID: nil,
           xcodeDestination: expectedHostMacOSDestination()),
-        invocation: "swift test --enable-code-coverage --filter SymphonyServerTests",
+        invocation: "swift test --scratch-path .build/swiftpm-cache --enable-code-coverage --filter SymphonyServerTests",
         exitStatus: 0,
         combinedOutput: "ok",
         startedAt: Date(timeIntervalSince1970: 1_700_000_470),

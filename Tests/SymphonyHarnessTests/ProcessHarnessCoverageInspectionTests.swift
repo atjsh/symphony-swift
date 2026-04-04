@@ -15,7 +15,7 @@ import Testing
     report: HarnessReport(
       minimumCoveragePercent: 100,
       testsInvocation: "swift test",
-      coveragePathInvocation: "swift test --show-code-coverage-path",
+      coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
       packageCoverage: packageReport,
       clientCoverageInvocation: nil,
       clientCoverage: nil,
@@ -52,7 +52,7 @@ import Testing
     report: HarnessReport(
       minimumCoveragePercent: 100,
       testsInvocation: "swift test",
-      coveragePathInvocation: "swift test --show-code-coverage-path",
+      coveragePathInvocation: "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path",
       packageCoverage: packageReport,
       clientCoverageInvocation: nil,
       clientCoverage: nil,

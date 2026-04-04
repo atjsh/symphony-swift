@@ -15,7 +15,7 @@ import Testing
 
     let reporter = SwiftPMCoverageReporter()
     let missingPath = directory.appendingPathComponent("missing-swiftpm.json")
-    #expect(reporter.renderedCoveragePathCommandLine() == "swift test --show-code-coverage-path")
+    #expect(reporter.renderedCoveragePathCommandLine() == "swift test --scratch-path .build/swiftpm-cache --show-code-coverage-path")
 
     do {
       _ = try reporter.exportServerCoverage(
