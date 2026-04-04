@@ -19,6 +19,7 @@ public enum GitHubTrackerError: Error, Equatable, Sendable {
 
 // MARK: - URLSession GraphQL Transport
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
 public final class URLSessionGraphQLTransport: GraphQLTransporting, @unchecked Sendable {
   private let endpoint: URL
   private let apiKey: String

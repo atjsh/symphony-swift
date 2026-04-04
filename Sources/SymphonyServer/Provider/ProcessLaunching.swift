@@ -60,6 +60,7 @@ public final class DefaultProcessLauncher: ProcessLaunching, Sendable {
 
 // MARK: - Default Launched Process
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
 final class DefaultLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   private let process: Process
   private let stdoutPipe: Pipe
@@ -103,6 +104,7 @@ final class DefaultLaunchedProcess: LaunchedProcess, @unchecked Sendable {
 
 // MARK: - Stub Process Launcher (for testing)
 
+// SAFETY: @unchecked Sendable — `_invocations`, `_stubProcesses`, and `_launchError` accessed through `lock`.
 public final class StubProcessLauncher: ProcessLaunching, @unchecked Sendable {
   private let lock = NSLock()
   private var _invocations:
@@ -158,6 +160,7 @@ public final class StubProcessLauncher: ProcessLaunching, @unchecked Sendable {
   }
 }
 
+// SAFETY: @unchecked Sendable — all mutable state accessed through `lock.withLock`.
 public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
   private let lock = NSLock()
   private var _outputHandler: (@Sendable (Data) -> Void)?

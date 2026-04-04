@@ -4,6 +4,8 @@ import SymphonyShared
 
 // MARK: - GitHub Tracker Adapter
 
+// SAFETY: @unchecked Sendable — `_projectID` is accessed through `lock`.
+// Other fields are immutable (`let`).
 public final class GitHubTrackerAdapter: TrackerAdapting, @unchecked Sendable {
   private let transport: any GraphQLTransporting
   private let config: TrackerConfig

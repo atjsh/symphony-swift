@@ -3,6 +3,8 @@ import SymphonyServerCore
 
 // MARK: - Workflow Reloader (Section 6.6)
 
+// SAFETY: @unchecked Sendable — mutable state (_lastDefinition, _dispatchSource, _fileDescriptor)
+// accessed through `lock.withLock`.
 public final class WorkflowReloader: @unchecked Sendable {
   private let lock = NSLock()
   private let workflowPath: String

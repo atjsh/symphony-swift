@@ -4,6 +4,7 @@ import SymphonyServerCore
 
 // MARK: - Copilot Session State
 
+// SAFETY: @unchecked Sendable — mutable state accessed through `lock.withLock`.
 private final class CopilotSessionState: @unchecked Sendable {
   private let lock = NSLock()
   private let startupPrompt: String
@@ -51,6 +52,7 @@ private final class CopilotSessionState: @unchecked Sendable {
 
 // MARK: - Copilot Session Registry
 
+// SAFETY: @unchecked Sendable — `states` dictionary accessed through `lock.withLock`.
 private final class CopilotSessionRegistry: @unchecked Sendable {
   private let lock = NSLock()
   private var states: [SessionID: CopilotSessionState] = [:]
@@ -76,6 +78,8 @@ private final class CopilotSessionRegistry: @unchecked Sendable {
 
 // MARK: - Copilot CLI Adapter (Section 10.9)
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
+// Nested types have their own synchronization.
 public final class CopilotCLIAdapter: ProviderAdapting, @unchecked Sendable {
   public let providerName: ProviderName = .copilotCLI
   public let capabilities = ProviderCapabilities(

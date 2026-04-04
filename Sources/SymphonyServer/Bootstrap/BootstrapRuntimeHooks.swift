@@ -2,6 +2,7 @@ import CoreFoundation
 import Foundation
 
 enum BootstrapRuntimeHooks {
+  // SAFETY: @unchecked Sendable — all mutable closures accessed through `lock`.
   private final class Storage: @unchecked Sendable {
     private let lock = NSLock()
     private var output: ((String) -> Void)?

@@ -31,6 +31,7 @@ public enum SymphonyServerExecutable {
     }
   }
 
+  // SAFETY: @unchecked Sendable — `hooks` accessed through `lock.withLock`.
   private final class RuntimeHooksStore: @unchecked Sendable {
     private let lock = NSLock()
     private var hooks: RuntimeHooks

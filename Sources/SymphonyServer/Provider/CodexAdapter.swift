@@ -4,6 +4,8 @@ import SymphonyServerCore
 
 // MARK: - Codex Adapter (Section 10.7)
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
+// Nested types have their own synchronization.
 public final class CodexAdapter: ProviderAdapting, @unchecked Sendable {
   public let providerName: ProviderName = .codex
   public let capabilities = ProviderCapabilities(

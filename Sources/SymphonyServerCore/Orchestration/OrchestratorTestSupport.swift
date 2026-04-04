@@ -3,6 +3,7 @@ import SymphonyShared
 
 // MARK: - Stub Tracker (for testing)
 
+// SAFETY: @unchecked Sendable — all mutable state is exclusively accessed through `lock`.
 public final class StubTracker: TrackerAdapting, @unchecked Sendable {
   private let lock = NSLock()
   private var _allIssues: [Issue] = []
@@ -75,6 +76,7 @@ public final class StubTracker: TrackerAdapting, @unchecked Sendable {
 
 // MARK: - Stub Orchestrator Delegate (for testing)
 
+// SAFETY: @unchecked Sendable — all mutable state is exclusively accessed through `lock`.
 public final class StubOrchestratorDelegate: OrchestratorDelegate, @unchecked Sendable {
   private let lock = NSLock()
   private var _synced: [Issue] = []

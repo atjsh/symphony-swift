@@ -286,6 +286,7 @@ private struct PreparedBootstrapRuntime {
 
 // MARK: - Server Startup Signal
 
+// SAFETY: @unchecked Sendable — `result`, `syncWaiters`, and `asyncWaiters` accessed through `lock`.
 final class ServerStartupSignal: @unchecked Sendable {
   private let lock = NSLock()
   private var result: Result<Void, any Error>?

@@ -22,6 +22,8 @@ public protocol WorkspaceManaging: Sendable {
 
 // MARK: - Workspace Manager (Section 9)
 
+// SAFETY: @unchecked Sendable — all stored properties are immutable `let` bindings
+// assigned once at init. No mutable state exists after initialization.
 public final class WorkspaceManager: WorkspaceManaging, @unchecked Sendable {
   private let root: String
   private let fileManager: FileManager
@@ -210,6 +212,7 @@ public final class ProcessHookRunner: HookRunning, Sendable {
 
 // MARK: - Stub Hook Runner (for testing)
 
+// SAFETY: @unchecked Sendable — `_invocations` and `_behavior` are exclusively accessed through `lock`.
 public final class StubHookRunner: HookRunning, @unchecked Sendable {
   private let lock = NSLock()
   private var _invocations: [(name: String, script: String, workspacePath: String)] = []

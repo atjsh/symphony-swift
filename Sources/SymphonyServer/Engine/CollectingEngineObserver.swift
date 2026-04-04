@@ -3,6 +3,7 @@ import SymphonyServerCore
 
 // MARK: - Collecting Engine Observer (for testing)
 
+// SAFETY: @unchecked Sendable — all mutable state is exclusively accessed through `lock`.
 public final class CollectingEngineObserver: EngineEventObserving, @unchecked Sendable {
   private let lock = NSLock()
   private var _stateChanges: [OrchestratorEngineState] = []

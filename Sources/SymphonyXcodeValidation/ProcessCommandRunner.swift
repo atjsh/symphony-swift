@@ -100,6 +100,7 @@ final class SystemRunningValidationCommand: RunningValidationCommand {
   }
 }
 
+// SAFETY: @unchecked Sendable — `data` is exclusively accessed through `lock`.
 final class LockedDataBuffer: @unchecked Sendable {
   let lock = NSLock()
   var data = Data()

@@ -28,6 +28,7 @@ public struct SymphonyHTTPResponse: Sendable {
   }
 }
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
 public final class SymphonyHTTPAPI: @unchecked Sendable {
   private let store: SQLiteServerStateStore
   private let version: String

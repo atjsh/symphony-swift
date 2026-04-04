@@ -66,6 +66,8 @@ public struct ValidationCommandResult: Sendable {
 }
 
 
+// SAFETY: @unchecked Sendable — all stored properties are immutable `let` bindings
+// assigned once at init. No mutable state exists after initialization.
 public final class XcodeValidationRunner: @unchecked Sendable {
   let processExecutor: ValidationProcessExecuting
   let fileManager: FileManager

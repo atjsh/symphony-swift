@@ -4,6 +4,7 @@ import SymphonyServerCore
 
 // MARK: - Claude Code CLI Adapter (Section 10.8)
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
 public final class ClaudeCodeAdapter: ProviderAdapting, @unchecked Sendable {
   public let providerName: ProviderName = .claudeCode
   public let capabilities = ProviderCapabilities(

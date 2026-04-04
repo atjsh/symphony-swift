@@ -18,6 +18,7 @@ public protocol IssueProgressReportGenerating: Sendable {
 
 // MARK: - Workflow Analysis Config Store
 
+// SAFETY: @unchecked Sendable — `config` accessed through `lock.withLock`.
 public final class WorkflowAnalysisConfigStore: @unchecked Sendable {
   private let lock = NSLock()
   private var config: AnalysisConfig

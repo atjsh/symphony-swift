@@ -1,5 +1,7 @@
 import Foundation
 
+// SAFETY: @unchecked Sendable — `suppressedLineCount` is exclusively accessed through `lock`.
+// Immutable fields (`mode`, `commandName`, `sink`) are assigned once at init.
 final class XcodeOutputReporter: @unchecked Sendable {
   private let mode: XcodeOutputMode
   private let commandName: String

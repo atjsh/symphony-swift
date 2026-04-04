@@ -5,6 +5,7 @@ import SymphonyShared
 
 // MARK: - Cached Issue Progress Report Generator
 
+// SAFETY: @unchecked Sendable — all stored fields are immutable (`let`).
 public final class CachedIssueProgressReportGenerator: IssueProgressReportGenerating, @unchecked Sendable {
   private let cacheDirectoryURL: URL
   private let analysisConfigProvider: @Sendable () -> AnalysisConfig

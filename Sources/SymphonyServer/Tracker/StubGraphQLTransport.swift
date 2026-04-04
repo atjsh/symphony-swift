@@ -2,6 +2,7 @@ import Foundation
 
 // MARK: - Stub Transport (for testing)
 
+// SAFETY: @unchecked Sendable — all mutable state accessed through `lock.withLock`.
 public final class StubGraphQLTransport: GraphQLTransporting, @unchecked Sendable {
   private let lock = NSLock()
   private var _responses: [Data] = []

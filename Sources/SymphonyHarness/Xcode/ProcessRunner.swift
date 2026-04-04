@@ -246,6 +246,7 @@ public struct SystemProcessRunner: ProcessRunning {
   }
 }
 
+// SAFETY: @unchecked Sendable — `storage` is exclusively accessed through `lock`.
 final class DataCollector: @unchecked Sendable {
   private let lock = NSLock()
   private var storage = Data()
@@ -263,6 +264,8 @@ final class DataCollector: @unchecked Sendable {
   }
 }
 
+// SAFETY: @unchecked Sendable — `buffer` is exclusively accessed through `lock`.
+// Immutable fields (`stream`, `observation`) are assigned once at init.
 final class LineEmitter: @unchecked Sendable {
   private let stream: ProcessStream
   private let observation: ProcessObservation?
@@ -321,6 +324,8 @@ final class LineEmitter: @unchecked Sendable {
   }
 }
 
+// SAFETY: @unchecked Sendable — mutable state (`lastOutputAt`, `emittedCount`, `timer`,
+// `didEscalate`) is exclusively accessed through `lock` or the serial `queue`.
 final class StaleSignalController: @unchecked Sendable {
   private let observation: ProcessObservation
   private let collector: DataCollector

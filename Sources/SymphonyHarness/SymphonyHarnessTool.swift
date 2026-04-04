@@ -170,6 +170,8 @@ public final class SymphonyHarnessTool {
 
 }
 
+// SAFETY: @unchecked Sendable — all stored properties are immutable `let` bindings
+// assigned once at init. No mutable state exists after initialization.
 extension SymphonyHarnessTool: @unchecked Sendable {}
 
 struct SubjectExecutionSelection {
@@ -225,6 +227,7 @@ struct ValidationPlanMetadata: Hashable, Sendable {
   let includesAccessibilityCoverage: Bool
 }
 
+// SAFETY: @unchecked Sendable — `results` is exclusively accessed through `lock`.
 final class ScheduledRunCollector: @unchecked Sendable {
   let lock = NSLock()
   var results: [SubjectRunResult?]

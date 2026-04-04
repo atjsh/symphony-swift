@@ -7,6 +7,7 @@ public enum ValidationLogLevel: String, Codable, CaseIterable, Sendable {
 }
 
 public enum ValidationLogHooks {
+  // SAFETY: @unchecked Sendable — `sink` is exclusively accessed through `lock`.
   private final class Storage: @unchecked Sendable {
     private let lock = NSLock()
     private var sink: (@Sendable (String) -> Void)?

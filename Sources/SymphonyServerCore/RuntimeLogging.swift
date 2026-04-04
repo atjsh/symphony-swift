@@ -35,6 +35,7 @@ public struct RuntimeLogContext: Sendable, Equatable {
 }
 
 public enum RuntimeLogHooks {
+  // SAFETY: @unchecked Sendable — `sink` is exclusively accessed through `lock`.
   private final class Storage: @unchecked Sendable {
     private let lock = NSLock()
     private var sink: (@Sendable (String) -> Void)?
