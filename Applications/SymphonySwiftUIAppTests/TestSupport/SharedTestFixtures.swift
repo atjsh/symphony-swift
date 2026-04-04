@@ -194,3 +194,5 @@ func makeIssueProgressReport(
       )
   )
 }
+
+// swiftlint:enable force_try

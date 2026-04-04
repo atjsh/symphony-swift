@@ -281,3 +281,5 @@ struct DetailViewTests {
     exercise(AnyView(sessionsPanel), width: 480, height: 400)
   }
 }
+
+// swiftlint:enable force_try

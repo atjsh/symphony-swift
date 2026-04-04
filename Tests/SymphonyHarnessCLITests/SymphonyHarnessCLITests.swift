@@ -353,3 +353,5 @@ private final class RecordingCLITool: SymphonyHarnessTooling {
     return "materialize-output"
   }
 }
+
+// swiftlint:enable force_try force_cast

@@ -216,3 +216,5 @@ struct RootViewBodyExtendedTests {
     )
   }
 }
+
+// swiftlint:enable force_try

@@ -263,3 +263,5 @@ enum TestModelFailure: LocalizedError {
     }
   }
 }
+
+// swiftlint:enable force_try

@@ -229,3 +229,5 @@ import Testing
     #expect(rendered.contains("coverage 75.00% (9/12)"))
   }
 }
+
+// swiftlint:enable force_cast

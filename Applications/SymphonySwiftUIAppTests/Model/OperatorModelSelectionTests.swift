@@ -230,3 +230,5 @@ struct OperatorModelSelectionTests {
     #expect(model.testingSelectedIssueSummary(restoring: nil, in: [selectedIssue]) == nil)
   }
 }
+
+// swiftlint:enable force_try

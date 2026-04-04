@@ -217,3 +217,5 @@ func waitUntil(
   }
   return condition()
 }
+
+// swiftlint:enable force_try

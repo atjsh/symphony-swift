@@ -196,3 +196,5 @@ struct OperatorModelRefreshTests {
     #expect(client.issueDetailRequests == [IssueID("issue-42")])
   }
 }
+
+// swiftlint:enable force_try

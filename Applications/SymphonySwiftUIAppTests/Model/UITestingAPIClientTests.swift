@@ -77,3 +77,5 @@ struct UITestingAPIClientTests {
     #expect(events.isEmpty)
   }
 }
+
+// swiftlint:enable force_try

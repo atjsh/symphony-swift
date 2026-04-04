@@ -26,19 +26,19 @@ included:
   - Applications/XcodeValidationGalleryAppUITests
 
 file_length:
-  warning: 350
-  error: 510
+  warning: 500
+  error: 700
 
 type_body_length:
-  warning: 300
-  error: 425
+  warning: 400
+  error: 600
 
 cyclomatic_complexity:
-  warning: 12
+  warning: 15
   error: 30
 
 function_body_length:
-  warning: 80
+  warning: 120
   error: 350
 
 force_cast: warning

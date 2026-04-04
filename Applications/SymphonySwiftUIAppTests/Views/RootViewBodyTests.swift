@@ -225,3 +225,5 @@ struct RootViewBodyTests {
     render(host(view))
   }
 }
+
+// swiftlint:enable force_try

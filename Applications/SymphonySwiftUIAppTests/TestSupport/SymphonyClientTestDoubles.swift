@@ -180,3 +180,5 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
   override func stopLoading() {}
 }
+
+// swiftlint:enable force_try

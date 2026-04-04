@@ -350,3 +350,5 @@ private actor StubValidationBundleLoader: ValidationBundleLoading {
     throw ValidationGalleryError.loadFailed("Not needed in export-controller tests.")
   }
 }
+
+// swiftlint:enable force_try
