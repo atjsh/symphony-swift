@@ -282,7 +282,7 @@ struct SidebarViewTests {
     let longIssue = IssueDetail(
       issue: SymphonyShared.Issue(
         id: IssueID("issue-long"),
-        identifier: try! IssueIdentifier(
+        identifier: try! IssueIdentifier( // swiftlint:disable:this force_try
           validating: "atjsh/example-with-a-very-long-repository-name#108"),
         repository: "atjsh/example-with-a-very-long-repository-name",
         number: 108,
@@ -303,7 +303,7 @@ struct SidebarViewTests {
       latestRun: RunSummary(
         runID: RunID("run-long"),
         issueID: IssueID("issue-long"),
-        issueIdentifier: try! IssueIdentifier(
+        issueIdentifier: try! IssueIdentifier( // swiftlint:disable:this force_try
           validating: "atjsh/example-with-a-very-long-repository-name#108"),
         attempt: 7,
         status: "streaming_turn",
@@ -345,7 +345,7 @@ struct SidebarViewTests {
         turnCount: 32,
         lastAgentEventType: "message",
         lastAgentMessage: "Long content should still remain readable.",
-        tokens: try! TokenUsage(inputTokens: 1200, outputTokens: 950, totalTokens: 2150),
+        tokens: try! TokenUsage(inputTokens: 1200, outputTokens: 950, totalTokens: 2150), // swiftlint:disable:this force_try
         logs: RunLogStats(eventCount: 44, latestSequence: EventSequence(44))
       )
       model.logEvents = [

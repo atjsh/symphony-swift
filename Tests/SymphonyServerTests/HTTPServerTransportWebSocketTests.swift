@@ -136,10 +136,10 @@ import Testing
   #expect(sequence == EventSequence(7))
   let pollFailureLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "websocket_poll_failed"
-        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
+      $0.entry.event == "websocket_poll_failed"
+        && $0.entry.sessionID == fixture.session.sessionID.rawValue
     })
-  #expect((pollFailureLog.json["error"] as? String)?.contains("SQLite database is closed") == true)
+  #expect(pollFailureLog.entry.error?.contains("SQLite database is closed") == true)
 }
 
 @Test func liveLogHubPublishesToSubscribersAndRemovesTerminatedStreams() async throws {

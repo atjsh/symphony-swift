@@ -336,8 +336,8 @@ struct OrchestratorEngineTests {
     }
 
     let reloadLog = try #require(
-      logs.first { $0.json["event"] as? String == "workflow_reload_failed" })
-    #expect((reloadLog.json["error"] as? String)?.contains("ghp_reload_secret") == false)
+      logs.first { $0.entry.event == "workflow_reload_failed" })
+    #expect(reloadLog.entry.error?.contains("ghp_reload_secret") == false)
     #expect(!reloadLog.line.contains("ghp_reload_secret"))
   }
 

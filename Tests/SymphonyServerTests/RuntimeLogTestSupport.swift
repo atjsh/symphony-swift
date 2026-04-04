@@ -51,7 +51,42 @@ private final class RuntimeLogLineBuffer: @unchecked Sendable {
 
 struct CapturedRuntimeLog {
   let line: String
-  let json: [String: Any]
+  let entry: RuntimeLogEntry
+}
+
+struct RuntimeLogEntry: Decodable {
+  var event: String?
+  var level: String?
+  var runID: String?
+  var issueID: String?
+  var issueIdentifier: String?
+  var sessionID: String?
+  var provider: String?
+  var providerSessionID: String?
+  var component: String?
+  var state: String?
+  var error: String?
+  var timestamp: String?
+  var authorization: String?
+  var trackerAPIKey: String?
+  var endpoint: String?
+  var path: String?
+  var hook: String?
+  var workspacePath: String?
+  var statusCode: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case event, level, component, state, error, timestamp, authorization, endpoint, provider, path
+    case hook
+    case runID = "run_id"
+    case issueID = "issue_id"
+    case issueIdentifier = "issue_identifier"
+    case sessionID = "session_id"
+    case providerSessionID = "provider_session_id"
+    case trackerAPIKey = "tracker_api_key"
+    case workspacePath = "workspace_path"
+    case statusCode = "status_code"
+  }
 }
 
 private let runtimeLogCaptureCoordinator = RuntimeLogCaptureCoordinator()
@@ -79,13 +114,12 @@ func withCapturedRuntimeLogs<T>(_ body: () async throws -> T) async throws -> (
 }
 
 private func decodeCapturedRuntimeLogs(_ lines: [String]) throws -> [CapturedRuntimeLog] {
-  try lines.map { line in
+  let decoder = JSONDecoder()
+  return try lines.map { line in
     guard let data = line.data(using: .utf8) else {
       throw RuntimeLogTestSupportError.invalidUTF8(line)
     }
-    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      throw RuntimeLogTestSupportError.invalidJSONObject(line)
-    }
-    return CapturedRuntimeLog(line: line, json: object)
+    let entry = try decoder.decode(RuntimeLogEntry.self, from: data)
+    return CapturedRuntimeLog(line: line, entry: entry)
   }
 }

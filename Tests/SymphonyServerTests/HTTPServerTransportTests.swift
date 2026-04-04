@@ -134,10 +134,10 @@ import Testing
 
   let rejectionLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "websocket_upgrade_rejected"
-        && $0.json["error"] as? String == "Missing session identifier."
+      $0.entry.event == "websocket_upgrade_rejected"
+        && $0.entry.error == "Missing session identifier."
     })
-  #expect(rejectionLog.json["path"] as? String == "/api/v1/logs/stream")
+  #expect(rejectionLog.entry.path == "/api/v1/logs/stream")
 }
 
 @Test func inProcessServerLogsRejectedWebSocketUpgradeForMissingSessions() async throws {
@@ -165,10 +165,10 @@ import Testing
 
   let rejectionLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "websocket_upgrade_rejected"
-        && $0.json["session_id"] as? String == "missing-session"
+      $0.entry.event == "websocket_upgrade_rejected"
+        && $0.entry.sessionID == "missing-session"
     })
-  #expect(rejectionLog.json["session_id"] as? String == "missing-session")
+  #expect(rejectionLog.entry.sessionID == "missing-session")
 }
 
 @Test func inProcessServerLogsRejectedWebSocketUpgradeWhenStoreLookupThrows() async throws {
@@ -197,11 +197,11 @@ import Testing
 
   let rejectionLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "websocket_upgrade_rejected"
-        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
-        && (($0.json["error"] as? String)?.contains("SQLite database is closed") == true)
+      $0.entry.event == "websocket_upgrade_rejected"
+        && $0.entry.sessionID == fixture.session.sessionID.rawValue
+        && ($0.entry.error?.contains("SQLite database is closed") == true)
     })
-  #expect(rejectionLog.json["path"] as? String == "/api/v1/logs/stream")
+  #expect(rejectionLog.entry.path == "/api/v1/logs/stream")
 }
 
 @Test func streamLogEventsLogsAndRethrowsWriterFailures() async throws {
@@ -226,11 +226,11 @@ import Testing
 
   let streamFailureLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "websocket_stream_failed"
-        && $0.json["session_id"] as? String == fixture.session.sessionID.rawValue
+      $0.entry.event == "websocket_stream_failed"
+        && $0.entry.sessionID == fixture.session.sessionID.rawValue
     })
-  #expect(streamFailureLog.json["path"] as? String == "/api/v1/logs/stream")
-  #expect((streamFailureLog.json["error"] as? String)?.contains("writer failed") == true)
+  #expect(streamFailureLog.entry.path == "/api/v1/logs/stream")
+  #expect(streamFailureLog.entry.error?.contains("writer failed") == true)
 }
 
 @Test func inProcessServerWebSocketLoopExitsWhenServerIsCancelled() async throws {

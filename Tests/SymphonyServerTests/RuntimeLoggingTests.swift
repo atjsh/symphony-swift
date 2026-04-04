@@ -24,21 +24,21 @@ import Testing
     )
   }
 
-  let matchingLogs = logs.filter { $0.json["run_id"] as? String == "run-42" }
+  let matchingLogs = logs.filter { $0.entry.runID == "run-42" }
   #expect(matchingLogs.count == 1)
   let log = try #require(matchingLogs.first)
-  #expect(log.json["event"] as? String == "agent_run_failed")
-  #expect(log.json["level"] as? String == "warning")
-  #expect(log.json["issue_id"] as? String == "I_42")
-  #expect(log.json["issue_identifier"] as? String == "owner/repo#42")
-  #expect(log.json["run_id"] as? String == "run-42")
-  #expect(log.json["session_id"] as? String == "session-42")
-  #expect(log.json["provider"] as? String == "codex")
-  #expect(log.json["provider_session_id"] as? String == "provider-session-42")
-  #expect(log.json["component"] as? String == "SymphonyServer")
-  #expect(log.json["state"] as? String == "finishing")
-  #expect(log.json["error"] as? String == "plain failure")
-  #expect(log.json["timestamp"] as? String != nil)
+  #expect(log.entry.event == "agent_run_failed")
+  #expect(log.entry.level == "warning")
+  #expect(log.entry.issueID == "I_42")
+  #expect(log.entry.issueIdentifier == "owner/repo#42")
+  #expect(log.entry.runID == "run-42")
+  #expect(log.entry.sessionID == "session-42")
+  #expect(log.entry.provider == "codex")
+  #expect(log.entry.providerSessionID == "provider-session-42")
+  #expect(log.entry.component == "SymphonyServer")
+  #expect(log.entry.state == "finishing")
+  #expect(log.entry.error == "plain failure")
+  #expect(log.entry.timestamp != nil)
 }
 
 @Test func runtimeLoggerRedactsExplicitSecretsAndTokenLikeSubstrings() async throws {
@@ -60,15 +60,15 @@ import Testing
 
   let log = try #require(
     logs.first {
-      $0.json["event"] as? String == "workflow_reload_failed"
-        && $0.json["tracker_api_key"] as? String != nil
+      $0.entry.event == "workflow_reload_failed"
+        && $0.entry.trackerAPIKey != nil
     })
-  let error = try #require(log.json["error"] as? String)
+  let error = try #require(log.entry.error)
   #expect(error.contains("[REDACTED]"))
   #expect(!error.contains("ghp_super_secret_token"))
   #expect(!error.contains("github_pat_secret_value"))
-  #expect((log.json["authorization"] as? String)?.contains("[REDACTED]") == true)
-  #expect((log.json["tracker_api_key"] as? String)?.contains("[REDACTED]") == true)
+  #expect(log.entry.authorization?.contains("[REDACTED]") == true)
+  #expect(log.entry.trackerAPIKey?.contains("[REDACTED]") == true)
   #expect(!log.line.contains("ghp_super_secret_token"))
   #expect(!log.line.contains("github_pat_secret_value"))
 }

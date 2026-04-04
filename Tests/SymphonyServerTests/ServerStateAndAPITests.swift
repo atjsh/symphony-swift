@@ -438,11 +438,11 @@ import Testing
 
   let errorLog = try #require(
     logs.first {
-      $0.json["event"] as? String == "http_api_error_response"
-        && $0.json["path"] as? String == "/api/v1/issues/missing"
+      $0.entry.event == "http_api_error_response"
+        && $0.entry.path == "/api/v1/issues/missing"
     })
-  #expect(errorLog.json["status_code"] as? String == "404")
-  #expect(errorLog.json["path"] as? String == "/api/v1/issues/missing")
+  #expect(errorLog.entry.statusCode == "404")
+  #expect(errorLog.entry.path == "/api/v1/issues/missing")
   #expect(!errorLog.line.contains("ghp_api_secret"))
 }
 

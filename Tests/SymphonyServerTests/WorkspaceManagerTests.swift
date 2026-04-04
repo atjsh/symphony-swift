@@ -264,19 +264,19 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   }
 
   let matchingLogs = logs.filter {
-    $0.json["hook"] as? String == "before_run"
-      && $0.json["workspace_path"] as? String == root
+    $0.entry.hook == "before_run"
+      && $0.entry.workspacePath == root
   }
   #expect(
-    matchingLogs.map { $0.json["event"] as? String } == [
+    matchingLogs.map { $0.entry.event } == [
       "workspace_hook_started",
       "workspace_hook_failed",
     ])
   let startedLog = try #require(matchingLogs.first)
   let failedLog = try #require(matchingLogs.last)
-  #expect(startedLog.json["hook"] as? String == "before_run")
-  #expect(failedLog.json["hook"] as? String == "before_run")
-  #expect((failedLog.json["error"] as? String)?.contains("hookFailed") == true)
+  #expect(startedLog.entry.hook == "before_run")
+  #expect(failedLog.entry.hook == "before_run")
+  #expect(failedLog.entry.error?.contains("hookFailed") == true)
   #expect(!startedLog.line.contains("ghp_before_run_secret"))
 }
 
@@ -298,17 +298,17 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   }
 
   let matchingLogs = logs.filter {
-    $0.json["hook"] as? String == "after_run"
-      && $0.json["workspace_path"] as? String == root
+    $0.entry.hook == "after_run"
+      && $0.entry.workspacePath == root
   }
   #expect(
-    matchingLogs.map { $0.json["event"] as? String } == [
+    matchingLogs.map { $0.entry.event } == [
       "workspace_hook_started",
       "workspace_hook_failed",
       "workspace_hook_failure_ignored",
     ])
   let ignoredLog = try #require(matchingLogs.last)
-  #expect(ignoredLog.json["hook"] as? String == "after_run")
+  #expect(ignoredLog.entry.hook == "after_run")
 }
 
 @Test func workspaceManagerBeforeRunHookTimeoutEmitsStructuredLogs() async throws {
@@ -334,16 +334,16 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   }
 
   let matchingLogs = logs.filter {
-    $0.json["hook"] as? String == "before_run"
-      && $0.json["workspace_path"] as? String == root
+    $0.entry.hook == "before_run"
+      && $0.entry.workspacePath == root
   }
   #expect(
-    matchingLogs.map { $0.json["event"] as? String } == [
+    matchingLogs.map { $0.entry.event } == [
       "workspace_hook_started",
       "workspace_hook_failed",
     ])
   let failedLog = try #require(matchingLogs.last)
-  #expect((failedLog.json["error"] as? String)?.contains("hookTimedOut") == true)
+  #expect(failedLog.entry.error?.contains("hookTimedOut") == true)
 }
 
 @Test func workspaceManagerAfterRunHookNotConfigured() throws {

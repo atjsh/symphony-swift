@@ -406,15 +406,15 @@ struct AgentRunnerLifecycleTests {
     #expect(result.finalState == .failed)
     let failureLog = try #require(
       logs.first {
-        $0.json["event"] as? String == "agent_run_failed"
-          && $0.json["run_id"] as? String == ctx.runID.rawValue
-          && $0.json["state"] as? String == RunLifecycleState.preparingWorkspace.rawValue
+        $0.entry.event == "agent_run_failed"
+          && $0.entry.runID == ctx.runID.rawValue
+          && $0.entry.state == RunLifecycleState.preparingWorkspace.rawValue
       })
-    #expect(failureLog.json["issue_id"] as? String == ctx.issueID.rawValue)
-    #expect(failureLog.json["issue_identifier"] as? String == ctx.issueIdentifier.rawValue)
-    #expect(failureLog.json["run_id"] as? String == ctx.runID.rawValue)
-    #expect(failureLog.json["provider"] as? String == ProviderName.codex.rawValue)
-    #expect((failureLog.json["error"] as? String)?.contains("[REDACTED]") == true)
+    #expect(failureLog.entry.issueID == ctx.issueID.rawValue)
+    #expect(failureLog.entry.issueIdentifier == ctx.issueIdentifier.rawValue)
+    #expect(failureLog.entry.runID == ctx.runID.rawValue)
+    #expect(failureLog.entry.provider == ProviderName.codex.rawValue)
+    #expect(failureLog.entry.error?.contains("[REDACTED]") == true)
     #expect(!failureLog.line.contains("ghp_workspace_secret"))
   }
 

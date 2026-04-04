@@ -417,14 +417,14 @@ import Testing
     )
   }
 
-  let matchingLogs = logs.filter { $0.json["component"] as? String == "StructuredBootstrap" }
-  let events = matchingLogs.map { $0.json["event"] as? String }
+  let matchingLogs = logs.filter { $0.entry.component == "StructuredBootstrap" }
+  let events = matchingLogs.map { $0.entry.event }
   #expect(events.contains("bootstrap_starting"))
   #expect(events.contains("bootstrap_stopping"))
 
   let startingLog = try #require(
-    matchingLogs.first { $0.json["event"] as? String == "bootstrap_starting" })
-  #expect(startingLog.json["component"] as? String == "StructuredBootstrap")
-  #expect(startingLog.json["endpoint"] as? String == "http://127.0.0.1:8089")
+    matchingLogs.first { $0.entry.event == "bootstrap_starting" })
+  #expect(startingLog.entry.component == "StructuredBootstrap")
+  #expect(startingLog.entry.endpoint == "http://127.0.0.1:8089")
 }
 

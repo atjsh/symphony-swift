@@ -32,7 +32,7 @@ struct RootViewActionTests {
       makeIssueSummary(),
       IssueSummary(
         issueID: IssueID("issue-43"),
-        identifier: try! IssueIdentifier(validating: "atjsh/example#43"),
+        identifier: try! IssueIdentifier(validating: "atjsh/example#43"), // swiftlint:disable:this force_try
         title: "Issue without provider badge",
         state: "queued",
         issueState: "OPEN",
@@ -58,7 +58,7 @@ struct RootViewActionTests {
     model.runDetail = RunDetail(
       runID: RunID("run-43"),
       issueID: IssueID("issue-42"),
-      issueIdentifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+      issueIdentifier: try! IssueIdentifier(validating: "atjsh/example#42"), // swiftlint:disable:this force_try
       attempt: 2,
       status: "finished",
       provider: "copilot",
@@ -73,7 +73,7 @@ struct RootViewActionTests {
       turnCount: 0,
       lastAgentEventType: nil,
       lastAgentMessage: nil,
-      tokens: try! TokenUsage(inputTokens: 1, outputTokens: 2),
+      tokens: try! TokenUsage(inputTokens: 1, outputTokens: 2), // swiftlint:disable:this force_try
       logs: RunLogStats(eventCount: 0, latestSequence: nil)
     )
     model.logEvents = []
@@ -83,14 +83,14 @@ struct RootViewActionTests {
 
     let blockerRef = BlockerReference(
       issueID: IssueID("issue-99"),
-      identifier: try! IssueIdentifier(validating: "atjsh/example#99"),
+      identifier: try! IssueIdentifier(validating: "atjsh/example#99"), // swiftlint:disable:this force_try
       state: "in_progress",
       issueState: "OPEN",
       url: "https://example.com/issues/99"
     )
     let issueWithBlockers = SymphonyShared.Issue(
       id: IssueID("issue-42"),
-      identifier: try! IssueIdentifier(validating: "atjsh/example#42"),
+      identifier: try! IssueIdentifier(validating: "atjsh/example#42"), // swiftlint:disable:this force_try
       repository: "atjsh/example",
       number: 42,
       title: "Blocked issue",
