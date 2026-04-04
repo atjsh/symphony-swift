@@ -1,3 +1,4 @@
+// swiftlint:disable force_try
 import SwiftUI
 import SymphonyShared
 import Testing

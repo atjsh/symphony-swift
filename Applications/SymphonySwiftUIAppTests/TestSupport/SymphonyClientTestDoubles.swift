@@ -1,3 +1,4 @@
+// swiftlint:disable force_try
 import Foundation
 import SymphonyShared
 import Testing
@@ -153,11 +154,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var requestHandler:
     (@Sendable (URLRequest) throws -> (Data, URLResponse))?
 
-  override class func canInit(with request: URLRequest) -> Bool {
+  override static func canInit(with request: URLRequest) -> Bool {
     true
   }
 
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+  override static func canonicalRequest(for request: URLRequest) -> URLRequest {
     request
   }
 

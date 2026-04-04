@@ -162,6 +162,13 @@ public struct BootstrapServerEndpoint: Equatable, Sendable, CustomStringConverti
     displayString
   }
 
+  /// Convert to `ServerEndpoint`. Safe because `BootstrapServerEndpoint` normalizes all values
+  /// to guaranteed-valid ranges during init.
+  public var serverEndpoint: ServerEndpoint {
+    // swiftlint:disable:next force_try
+    try! ServerEndpoint(scheme: scheme, host: host, port: port)
+  }
+
   public static func resolved(from environment: [String: String]) -> Self {
     var endpoint = defaultEndpoint
 

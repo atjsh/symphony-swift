@@ -9,8 +9,7 @@ struct ContentView: View {
   }
 
   init(endpoint: BootstrapServerEndpoint) {
-    let sharedEndpoint = try! ServerEndpoint(
-      scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+    let sharedEndpoint = endpoint.serverEndpoint
     self.model = SymphonyOperatorModel(initialEndpoint: sharedEndpoint)
   }
 

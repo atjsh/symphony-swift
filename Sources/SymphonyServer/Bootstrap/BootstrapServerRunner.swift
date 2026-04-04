@@ -321,8 +321,7 @@ final class ServerStartupSignal: @unchecked Sendable {
   }
 
   func waitUntilReady() async throws {
-    try await withCheckedThrowingContinuation {
-      (continuation: CheckedContinuation<Void, any Error>) in
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
       lock.lock()
       if let currentResult = result {
         lock.unlock()

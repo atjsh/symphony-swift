@@ -5,11 +5,21 @@ public struct ServerEndpoint: Codable, Hashable, Sendable {
   public let host: String
   public let port: Int
 
+  /// Default localhost endpoint. Uses known-valid constant values that cannot fail validation.
+  public static let localhost = ServerEndpoint(unchecked: "http", host: "localhost", port: 8080)
+
   public init(scheme: String = "http", host: String = "localhost", port: Int = 8080) throws {
     guard Self.isValidScheme(scheme), Self.isValidHost(host), Self.isValidPort(port) else {
       throw SymphonySharedValidationError.invalidServerEndpoint
     }
 
+    self.scheme = scheme
+    self.host = host
+    self.port = port
+  }
+
+  /// Internal unchecked init for compile-time constant values only.
+  private init(unchecked scheme: String, host: String, port: Int) {
     self.scheme = scheme
     self.host = host
     self.port = port

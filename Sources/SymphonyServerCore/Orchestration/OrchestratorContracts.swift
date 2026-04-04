@@ -21,7 +21,7 @@ public enum OrchestratorError: Error, Equatable, Sendable {
 
 // MARK: - Orchestrator Delegate
 
-public protocol OrchestratorDelegate: Sendable {
+public protocol OrchestratorDelegate: AnyObject, Sendable {
   func orchestratorDidSyncIssues(_ issues: [Issue]) async
   func orchestratorDidDispatch(issue: Issue) async
   func orchestratorDidCancel(

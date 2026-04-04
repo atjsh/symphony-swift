@@ -1,3 +1,4 @@
+// swiftlint:disable force_try force_cast
 import Foundation
 import SymphonyHarness
 import Testing
@@ -111,13 +112,14 @@ import Testing
     printer: { _ in },
     currentDirectoryProvider: {
       URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-    }
-  ) {
-    let command = SymphonyHarnessCommand()
+    },
+    operation: {
+      let command = SymphonyHarnessCommand()
 
-    #expect(type(of: command) == SymphonyHarnessCommand.self)
-    #expect(CLIContext.currentDirectory().path == FileManager.default.currentDirectoryPath)
-  }
+      #expect(type(of: command) == SymphonyHarnessCommand.self)
+      #expect(CLIContext.currentDirectory().path == FileManager.default.currentDirectoryPath)
+    }
+  )
 }
 
 @Test func cliContextDefaultFactoriesAndEmittersRemainUsable() {
@@ -158,48 +160,49 @@ import Testing
   try CLIContext.withOverrides(
     toolFactory: { tool },
     printer: { output.append($0) },
-    currentDirectoryProvider: { currentDirectory }
-  ) {
-    var build =
-      try SymphonyHarnessCommand.Build.parseAsRoot([
-        "SymphonyShared",
-        "SymphonyServerCLI",
-        "--xcode-output-mode", "quiet",
-      ]) as! SymphonyHarnessCommand.Build
-    try build.run()
+    currentDirectoryProvider: { currentDirectory },
+    operation: {
+      var build =
+        try SymphonyHarnessCommand.Build.parseAsRoot([
+          "SymphonyShared",
+          "SymphonyServerCLI",
+          "--xcode-output-mode", "quiet",
+        ]) as! SymphonyHarnessCommand.Build
+      try build.run()
 
-    var test =
-      try SymphonyHarnessCommand.Test.parseAsRoot([
-        "SymphonyServerCLI",
-        "SymphonyServerCLITests",
-      ]) as! SymphonyHarnessCommand.Test
-    try test.run()
+      var test =
+        try SymphonyHarnessCommand.Test.parseAsRoot([
+          "SymphonyServerCLI",
+          "SymphonyServerCLITests",
+        ]) as! SymphonyHarnessCommand.Test
+      try test.run()
 
-    var run =
-      try SymphonyHarnessCommand.Run.parseAsRoot([
-        "SymphonyServerCLI",
-        "--server-url", "https://example.com:9443",
-        "--env", "FOO=bar",
-      ]) as! SymphonyHarnessCommand.Run
-    try run.run()
+      var run =
+        try SymphonyHarnessCommand.Run.parseAsRoot([
+          "SymphonyServerCLI",
+          "--server-url", "https://example.com:9443",
+          "--env", "FOO=bar",
+        ]) as! SymphonyHarnessCommand.Run
+      try run.run()
 
-    var validate =
-      try SymphonyHarnessCommand.Validate.parseAsRoot([
-        "SymphonyShared",
-        "SymphonySwiftUIApp",
-      ]) as! SymphonyHarnessCommand.Validate
-    try validate.run()
+      var validate =
+        try SymphonyHarnessCommand.Validate.parseAsRoot([
+          "SymphonyShared",
+          "SymphonySwiftUIApp",
+        ]) as! SymphonyHarnessCommand.Validate
+      try validate.run()
 
-    var doctor =
-      try SymphonyHarnessCommand.Doctor.parseAsRoot(["--strict", "--json", "--quiet"])
-      as! SymphonyHarnessCommand.Doctor
-    try doctor.run()
+      var doctor =
+        try SymphonyHarnessCommand.Doctor.parseAsRoot(["--strict", "--json", "--quiet"])
+        as! SymphonyHarnessCommand.Doctor
+      try doctor.run()
 
-    var materialize =
-      try SymphonyHarnessCommand.MaterializeGoEnry.parseAsRoot([])
-      as! SymphonyHarnessCommand.MaterializeGoEnry
-    try materialize.run()
-  }
+      var materialize =
+        try SymphonyHarnessCommand.MaterializeGoEnry.parseAsRoot([])
+        as! SymphonyHarnessCommand.MaterializeGoEnry
+      try materialize.run()
+    }
+  )
 
   #expect(tool.executionRequests.count == 4)
   #expect(tool.executionRequests[0].command == .build)
@@ -250,16 +253,17 @@ import Testing
   try CLIContext.withOverrides(
     toolFactory: { tool },
     printer: { _ in },
-    currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) }
-  ) {
-    var run =
-      try SymphonyHarnessCommand.Run.parseAsRoot([
-        "SymphonyServerCLI",
-        "--host", "localhost",
-        "--port", "8080",
-      ]) as! SymphonyHarnessCommand.Run
-    try run.run()
-  }
+    currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) },
+    operation: {
+      var run =
+        try SymphonyHarnessCommand.Run.parseAsRoot([
+          "SymphonyServerCLI",
+          "--host", "localhost",
+          "--port", "8080",
+        ]) as! SymphonyHarnessCommand.Run
+      try run.run()
+    }
+  )
 
   #expect(tool.executionRequests.count == 1)
   #expect(tool.executionRequests[0].environment["SYMPHONY_SERVER_HOST"] == "localhost")
@@ -273,15 +277,16 @@ import Testing
     try CLIContext.withOverrides(
       toolFactory: { tool },
       printer: { _ in },
-      currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) }
-    ) {
-      var run =
-        try SymphonyHarnessCommand.Run.parseAsRoot([
-          "SymphonyServerCLI",
-          "--env", "BROKEN",
-        ]) as! SymphonyHarnessCommand.Run
-      try run.run()
-    }
+      currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) },
+      operation: {
+        var run =
+          try SymphonyHarnessCommand.Run.parseAsRoot([
+            "SymphonyServerCLI",
+            "--env", "BROKEN",
+          ]) as! SymphonyHarnessCommand.Run
+        try run.run()
+      }
+    )
     Issue.record("Expected invalid KEY=VALUE environment input to fail.")
   } catch {
     #expect(String(describing: error).contains("KEY=VALUE"))
@@ -296,15 +301,16 @@ import Testing
     try CLIContext.withOverrides(
       toolFactory: { tool },
       printer: { _ in },
-      currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) }
-    ) {
-      var run =
-        try SymphonyHarnessCommand.Run.parseAsRoot([
-          "SymphonySwiftUIApp",
-          "--server-url", "https://example.com",
-        ]) as! SymphonyHarnessCommand.Run
-      try run.run()
-    }
+      currentDirectoryProvider: { URL(fileURLWithPath: "/tmp/cli-context", isDirectory: true) },
+      operation: {
+        var run =
+          try SymphonyHarnessCommand.Run.parseAsRoot([
+            "SymphonySwiftUIApp",
+            "--server-url", "https://example.com",
+          ]) as! SymphonyHarnessCommand.Run
+        try run.run()
+      }
+    )
     Issue.record("Expected invalid server URL input to fail.")
   } catch {
     #expect(String(describing: error).contains("scheme, host, and port"))

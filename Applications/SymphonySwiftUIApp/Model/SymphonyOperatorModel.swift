@@ -49,7 +49,7 @@ public final class SymphonyOperatorModel {
       progressReportCache: (any OperatorProgressReportCaching)? = nil,
       localServerServices: LocalServerServices? = nil
     ) {
-      let resolvedEndpoint = initialEndpoint ?? (try! ServerEndpoint())
+      let resolvedEndpoint = initialEndpoint ?? .localhost
       self.client = client ?? URLSessionSymphonyAPIClient()
       self.issueSearchText = ""
       self.health = nil
@@ -89,7 +89,7 @@ public final class SymphonyOperatorModel {
       initialEndpoint: ServerEndpoint? = nil,
       progressReportCache: (any OperatorProgressReportCaching)? = nil
     ) {
-      let resolvedEndpoint = initialEndpoint ?? (try! ServerEndpoint())
+      let resolvedEndpoint = initialEndpoint ?? .localhost
       self.client = client ?? URLSessionSymphonyAPIClient()
       self.issueSearchText = ""
       self.health = nil

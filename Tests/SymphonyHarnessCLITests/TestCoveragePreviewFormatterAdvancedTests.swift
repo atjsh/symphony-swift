@@ -1,3 +1,4 @@
+// swiftlint:disable force_cast
 import Foundation
 import SymphonyHarness
 import Testing
@@ -207,15 +208,16 @@ import Testing
     try CLIContext.withOverrides(
       toolFactory: { tool },
       printer: { output.append($0) },
-      currentDirectoryProvider: { repoRoot }
-    ) {
-      var test =
-        try SymphonyHarnessCommand.Test.parseAsRoot([
-          "SymphonyHarness",
-          "--xcode-output-mode", "quiet",
-        ]) as! SymphonyHarnessCommand.Test
-      try test.run()
-    }
+      currentDirectoryProvider: { repoRoot },
+      operation: {
+        var test =
+          try SymphonyHarnessCommand.Test.parseAsRoot([
+            "SymphonyHarness",
+            "--xcode-output-mode", "quiet",
+          ]) as! SymphonyHarnessCommand.Test
+        try test.run()
+      }
+    )
 
     #expect(tool.executionRequests.count == 1)
     #expect(tool.executionRequests[0].command == .test)

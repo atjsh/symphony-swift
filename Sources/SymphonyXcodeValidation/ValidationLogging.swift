@@ -60,9 +60,7 @@ enum ValidationLogger {
       return
     }
 
-    if let data = "\(line)\n".data(using: .utf8) {
-      FileHandle.standardError.write(data)
-    }
+    FileHandle.standardError.write(Data("\(line)\n".utf8))
   }
 
   private static func iso8601(_ date: Date) -> String {

@@ -20,8 +20,7 @@ struct SymphonyApp: App {
   init() {
     let environment = ProcessInfo.processInfo.environment
     let endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: environment)
-    let sharedEndpoint = try! ServerEndpoint(
-      scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+    let sharedEndpoint = endpoint.serverEndpoint
 
     let client = Self.resolveClient(arguments: ProcessInfo.processInfo.arguments, environment: environment)
     #if os(macOS)
@@ -47,8 +46,7 @@ struct SymphonyApp: App {
     startupOutput: @escaping @Sendable (String) -> Void
   ) {
     let endpoint = BootstrapEnvironment.effectiveServerEndpoint(environment: environment)
-    let sharedEndpoint = try! ServerEndpoint(
-      scheme: endpoint.scheme, host: endpoint.host, port: endpoint.port)
+    let sharedEndpoint = endpoint.serverEndpoint
 
     let client = Self.resolveClient(arguments: arguments, environment: environment)
     #if os(macOS)
@@ -142,6 +140,7 @@ struct SymphonyApp: App {
   }
 }
 
+// swiftlint:disable force_try
 struct UITestingSymphonyAPIClient: SymphonyAPIClientProtocol {
   func health(endpoint: ServerEndpoint) async throws -> HealthResponse {
     HealthResponse(
@@ -369,3 +368,4 @@ struct UITestingSymphonyAPIClient: SymphonyAPIClientProtocol {
     }
   }
 }
+// swiftlint:enable force_try

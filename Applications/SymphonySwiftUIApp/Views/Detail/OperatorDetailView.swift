@@ -134,7 +134,11 @@ struct OperatorDetailView: View {
 
   private var emptyStateDescriptionColor: Color {
     #if os(macOS)
-      colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.78)
+      if colorScheme == .dark {
+        Color.white.opacity(0.82)
+      } else {
+        Color.black.opacity(0.78)
+      }
     #else
       theme.bodyText
     #endif

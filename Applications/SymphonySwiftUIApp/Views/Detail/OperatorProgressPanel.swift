@@ -412,7 +412,9 @@ private struct ProgressCommitList: View {
   private var commitRows: some View {
     LazyVStack(alignment: .leading, spacing: 10) {
       ForEach(progressModel.visibleCommits, id: \.commitID) { commit in
-        Button(action: { progressModel.selectCommit(id: commit.commitID) }) {
+        Button(
+          action: { progressModel.selectCommit(id: commit.commitID) },
+          label: {
           VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
               Text(commit.shortID)
@@ -439,7 +441,7 @@ private struct ProgressCommitList: View {
           .padding(theme.itemPadding)
           .operatorSelectionBackground(
             theme, isSelected: progressModel.selectedCommitID == commit.commitID)
-        }
+        })
         .buttonStyle(.plain)
       }
     }

@@ -73,7 +73,7 @@ public struct ProductLocator {
     let buildSettings: [String: AnyDecodable]
 
     enum CodingKeys: String, CodingKey {
-      case buildSettings = "buildSettings"
+      case buildSettings
     }
   }
 }

@@ -358,7 +358,11 @@ private struct EventMetaLine: View {
 
   private var metadataBackground: Color {
     #if os(macOS)
-      colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+      if colorScheme == .dark {
+        Color.white.opacity(0.10)
+      } else {
+        Color.black.opacity(0.05)
+      }
     #else
       Color.clear
     #endif
@@ -366,7 +370,11 @@ private struct EventMetaLine: View {
 
   private var metadataStroke: Color {
     #if os(macOS)
-      colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+      if colorScheme == .dark {
+        Color.white.opacity(0.12)
+      } else {
+        Color.black.opacity(0.08)
+      }
     #else
       Color.clear
     #endif
