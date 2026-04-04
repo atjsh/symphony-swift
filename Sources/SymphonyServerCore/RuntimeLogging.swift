@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 public enum RuntimeLogLevel: String, Sendable {
   case info
@@ -35,30 +36,11 @@ public struct RuntimeLogContext: Sendable, Equatable {
 }
 
 public enum RuntimeLogHooks {
-  // SAFETY: @unchecked Sendable — `sink` is exclusively accessed through `lock`.
-  private final class Storage: @unchecked Sendable {
-    private let lock = NSLock()
-    private var sink: (@Sendable (String) -> Void)?
-
-    var sinkOverride: (@Sendable (String) -> Void)? {
-      get {
-        lock.lock()
-        defer { lock.unlock() }
-        return sink
-      }
-      set {
-        lock.lock()
-        sink = newValue
-        lock.unlock()
-      }
-    }
-  }
-
-  private static let storage = Storage()
+  private static let storage = Mutex<(@Sendable (String) -> Void)?>(nil)
 
   public static var sinkOverride: (@Sendable (String) -> Void)? {
-    get { storage.sinkOverride }
-    set { storage.sinkOverride = newValue }
+    get { storage.withLock { $0 } }
+    set { storage.withLock { $0 = newValue } }
   }
 }
 

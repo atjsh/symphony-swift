@@ -1,49 +1,38 @@
 import Foundation
 import SymphonyShared
+import Synchronization
 
 // MARK: - Retry Queue (Section 8.5)
 
-// SAFETY: @unchecked Sendable — `_entries` is exclusively accessed through `lock`.
-public final class RetryQueue: @unchecked Sendable {
-  private let lock = NSLock()
-  private var _entries: [IssueID: RetryRecord] = [:]
+public final class RetryQueue: Sendable {
+  private let storage = Mutex<[IssueID: RetryRecord]>([:])
 
   public init() {}
 
   public var entries: [IssueID: RetryRecord] {
-    lock.lock()
-    defer { lock.unlock() }
-    return _entries
+    storage.withLock { $0 }
   }
 
   public func enqueue(_ record: RetryRecord) {
-    lock.lock()
-    _entries[record.issueID] = record
-    lock.unlock()
+    storage.withLock { $0[record.issueID] = record }
   }
 
   public func dequeue(issueID: IssueID) -> RetryRecord? {
-    lock.lock()
-    defer { lock.unlock() }
-    return _entries.removeValue(forKey: issueID)
+    storage.withLock { $0.removeValue(forKey: issueID) }
   }
 
   public func dueEntries(asOf now: Date = Date()) -> [RetryRecord] {
-    lock.lock()
-    defer { lock.unlock() }
-    return _entries.values.filter { $0.dueAt <= now }
+    storage.withLock { entries in
+      entries.values.filter { $0.dueAt <= now }
+    }
   }
 
   public func removeAll() {
-    lock.lock()
-    _entries.removeAll()
-    lock.unlock()
+    storage.withLock { $0.removeAll() }
   }
 
   public var count: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return _entries.count
+    storage.withLock { $0.count }
   }
 
   public static func backoffDelay(
