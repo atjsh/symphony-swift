@@ -8,6 +8,7 @@ public struct ValidationGalleryRootView: View {
   let exportFeedback: String?
   let isModalPresentationActive: Bool
   @State private var sheetRoute: ValidationGalleryArtifactSheetRoute?
+  @State private var sheetMode: ValidationGalleryArtifactPresentationMode = .preview
   @State private var pendingExportScope: ValidationGalleryCommentExportScope?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -189,7 +190,7 @@ public struct ValidationGalleryRootView: View {
     }
     .sheet(item: $sheetRoute) { route in
       if let artifact = artifact(for: route.artifactID) {
-        previewSheet(for: artifact, mode: route.mode)
+        previewSheet(for: artifact)
       }
     }
     .overlay(alignment: .topTrailing) {
@@ -311,13 +312,12 @@ public struct ValidationGalleryRootView: View {
 
   @ViewBuilder
   private func previewSheet(
-    for artifact: ValidationGalleryArtifact,
-    mode: ValidationGalleryArtifactPresentationMode
+    for artifact: ValidationGalleryArtifact
   ) -> some View {
     let detailView = ValidationGalleryArtifactSheetView(
       store: store,
       artifact: artifact,
-      mode: mode,
+      mode: $sheetMode,
       onDismissRequested: { sheetRoute = nil },
       onExportComments: requestSelectedArtifactExport
     )
@@ -333,7 +333,10 @@ public struct ValidationGalleryRootView: View {
       return
     }
 
-    sheetRoute = ValidationGalleryArtifactSheetRoute(artifactID: artifact.id, mode: mode)
+    sheetMode = mode
+    if sheetRoute?.artifactID != artifact.id {
+      sheetRoute = ValidationGalleryArtifactSheetRoute(artifactID: artifact.id)
+    }
   }
 
   private func artifact(for artifactID: ValidationGalleryArtifact.ID) -> ValidationGalleryArtifact? {
@@ -361,10 +364,9 @@ public struct ValidationGalleryRootView: View {
 
 private struct ValidationGalleryArtifactSheetRoute: Identifiable, Equatable {
   let artifactID: ValidationGalleryArtifact.ID
-  let mode: ValidationGalleryArtifactPresentationMode
 
   var id: String {
-    "\(artifactID)::\(mode.rawValue)"
+    "\(artifactID)"
   }
 }
 

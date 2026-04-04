@@ -277,19 +277,53 @@ public struct ValidationGalleryArtifactDetailView: View {
       let onAddPointComment,
       let onAddAreaComment
     {
-      Menu {
-        Button("Add Point Comment", action: onAddPointComment)
-        Button("Add Area Comment", action: onAddAreaComment)
-      } label: {
-        actionLabel(title: "Add Comment", systemImage: "plus.bubble", compact: compact)
-      }
-      .menuStyle(.button)
-      .buttonStyle(.bordered)
-      .controlSize(.large)
-      .accessibilityHint("Choose whether to add a point or area comment.")
-      .accessibilityLabel("Add Comment")
-      .accessibilityIdentifier("add-comment-menu")
+      #if os(macOS)
+        if compact {
+          addCommentMenu(onAddPointComment: onAddPointComment, onAddAreaComment: onAddAreaComment, compact: true)
+        } else {
+          HStack(spacing: 6) {
+            Button(action: onAddPointComment) {
+              actionLabel(title: "Point Comment", systemImage: "mappin.and.ellipse", compact: false)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel("Add Point Comment")
+            .accessibilityIdentifier("add-point-comment-button")
+
+            Button(action: onAddAreaComment) {
+              actionLabel(title: "Area Comment", systemImage: "rectangle.dashed", compact: false)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel("Add Area Comment")
+            .accessibilityIdentifier("add-area-comment-button")
+          }
+          .accessibilityElement(children: .contain)
+        }
+      #else
+        addCommentMenu(onAddPointComment: onAddPointComment, onAddAreaComment: onAddAreaComment, compact: compact)
+      #endif
     }
+  }
+
+  @ViewBuilder
+  private func addCommentMenu(
+    onAddPointComment: @escaping () -> Void,
+    onAddAreaComment: @escaping () -> Void,
+    compact: Bool
+  ) -> some View {
+    Menu {
+      Button("Add Point Comment", action: onAddPointComment)
+      Button("Add Area Comment", action: onAddAreaComment)
+    } label: {
+      actionLabel(title: "Add Comment", systemImage: "plus.bubble", compact: compact)
+    }
+    .menuStyle(.button)
+    .buttonStyle(.bordered)
+    .controlSize(.large)
+    .accessibilityHint("Choose whether to add a point or area comment.")
+    .accessibilityLabel("Add Comment")
+    .accessibilityIdentifier("add-comment-menu")
   }
 
   @ViewBuilder

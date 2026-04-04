@@ -50,7 +50,9 @@ extension XcodeValidationGalleryAppUITests {
   }
 
   func openScreenshotCheckpoint() {
-    waitForFixtureBrowser()
+    if !fixtureBrowserIsReady(timeout: 2) {
+      waitForFixtureBrowser()
+    }
     #if os(macOS)
       openScreenshotDetail()
       XCTAssertTrue(element("artifact-detail-image").waitForExistence(timeout: 5), app.debugDescription)
@@ -88,6 +90,13 @@ extension XcodeValidationGalleryAppUITests {
 
   func waitForFixtureBrowser(timeout: TimeInterval = 10) {
     #if os(macOS)
+      app.activate()
+      waitForUIStability()
+
+      if fixtureBrowserIsReady(timeout: timeout) {
+        return
+      }
+
       launchApp(withFixtureBundle: true)
       XCTAssertTrue(fixtureBrowserIsReady(timeout: timeout), app.debugDescription)
     #else
@@ -285,7 +294,10 @@ extension XcodeValidationGalleryAppUITests {
 
   #if os(macOS)
     func confirmNativeSavePanelIfPresentNow() -> Bool {
-      let savePanel = app.dialogs.matching(identifier: "save-panel").firstMatch
+      var savePanel = app.dialogs.matching(identifier: "save-panel").firstMatch
+      if !savePanel.exists {
+        savePanel = app.windows.matching(identifier: "save-panel").firstMatch
+      }
       guard savePanel.exists else {
         return false
       }

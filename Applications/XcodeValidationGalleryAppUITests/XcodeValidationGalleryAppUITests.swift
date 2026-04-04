@@ -135,9 +135,8 @@ final class XcodeValidationGalleryAppUITests: XCTestCase {
       waitForUIStability()
       screenshotCard.click()
 
-      XCTAssertTrue(element("add-comment-menu").waitForExistence(timeout: 5), app.debugDescription)
-      XCTAssertFalse(element("add-point-comment-button").exists, app.debugDescription)
-      XCTAssertFalse(element("add-area-comment-button").exists, app.debugDescription)
+      XCTAssertTrue(element("add-point-comment-button").waitForExistence(timeout: 5), app.debugDescription)
+      XCTAssertTrue(element("add-area-comment-button").exists, app.debugDescription)
       XCTAssertTrue(element("export-screenshot-comments-button").waitForExistence(timeout: 5), app.debugDescription)
     #else
       let screenshotItem = artifactBrowserElement(slug: "macos-app-tests-progress-report-base-screenshot")

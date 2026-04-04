@@ -17,9 +17,7 @@ extension XcodeValidationGalleryAppUITests {
       enteredCheckpoint: "comment-point-entered",
       savedCheckpoint: "comment-point-saved"
     )
-    #if !os(macOS)
-      dismissArtifactSheetIfNeeded()
-    #endif
+    dismissArtifactSheetIfNeeded()
 
     createAreaComment(
       body: "Area selection",
@@ -30,9 +28,7 @@ extension XcodeValidationGalleryAppUITests {
       enteredCheckpoint: "comment-area-entered",
       savedCheckpoint: "comment-area-saved"
     )
-    #if !os(macOS)
-      dismissArtifactSheetIfNeeded()
-    #endif
+    dismissArtifactSheetIfNeeded()
 
     createPointComment(
       body: "List coverage",
@@ -256,6 +252,20 @@ extension XcodeValidationGalleryAppUITests {
       let directButtonIdentifier = title == "Add Point Comment"
         ? "add-point-comment-button"
         : "add-area-comment-button"
+
+      // When a sheet is already showing, buttons behind it are not
+      // interactable.  Use the keyboard shortcut to trigger the mode change
+      // and return immediately — the caller waits for the sheet content.
+      let sheetIsOpen = element("artifact-sheet-scroll-view").exists
+      if sheetIsOpen {
+        app.typeKey(
+          ";",
+          modifierFlags: title == "Add Point Comment" ? .command : [.command, .shift]
+        )
+        waitForUIStability()
+        return
+      }
+
       let directButton = element(directButtonIdentifier)
       if directButton.waitForExistence(timeout: 1) {
         directButton.click()

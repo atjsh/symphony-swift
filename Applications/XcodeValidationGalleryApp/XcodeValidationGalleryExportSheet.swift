@@ -82,9 +82,11 @@ struct XcodeValidationGalleryExportSheet: View {
 
         ToolbarItem(placement: .confirmationAction) {
           Button("Export") {
-            controller.performExport(using: store)
-            if controller.request == nil {
-              dismiss()
+            Task {
+              await controller.performExport(using: store)
+              if controller.request == nil {
+                dismiss()
+              }
             }
           }
           .disabled(controller.commentCount(using: store) == 0)

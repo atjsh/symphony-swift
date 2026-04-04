@@ -48,7 +48,7 @@ struct ValidationGalleryAnnotatedImageView: View {
       ProgressView()
         .frame(maxWidth: .infinity, minHeight: minimumHeight)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityIdentifier("\(accessibilityIdentifier)-loading")
         .task(id: artifact.fileURL) {
           loadedImage = await ValidationGalleryThumbnailLoader.shared.fullImage(for: artifact.fileURL)
         }

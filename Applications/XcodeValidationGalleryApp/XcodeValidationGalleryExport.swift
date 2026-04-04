@@ -30,7 +30,7 @@ struct XcodeValidationGalleryExportRequest: Identifiable, Equatable {
 
 @MainActor
 protocol XcodeValidationGalleryCommentExportSaving {
-  func save(_ preparedExport: ValidationGalleryPreparedCommentExport) throws -> URL?
+  func save(_ preparedExport: ValidationGalleryPreparedCommentExport) async throws -> URL?
 }
 
 #if os(macOS)
@@ -41,7 +41,7 @@ protocol XcodeValidationGalleryCommentExportSaving {
       self.fileManager = fileManager
     }
 
-    func save(_ preparedExport: ValidationGalleryPreparedCommentExport) throws -> URL? {
+    func save(_ preparedExport: ValidationGalleryPreparedCommentExport) async throws -> URL? {
       let panel = NSSavePanel()
       panel.title = "Export Comments"
       panel.prompt = "Export"
@@ -49,7 +49,8 @@ protocol XcodeValidationGalleryCommentExportSaving {
       panel.nameFieldStringValue = preparedExport.rootDirectoryName
       panel.directoryURL = fileManager.homeDirectoryForCurrentUser
 
-      guard panel.runModal() == .OK, let destinationURL = panel.url else {
+      let response = await panel.begin()
+      guard response == .OK, let destinationURL = panel.url else {
         return nil
       }
 
@@ -68,7 +69,7 @@ struct UITestingValidationGalleryCommentExportSaver: XcodeValidationGalleryComme
     self.fileManager = fileManager
   }
 
-  func save(_ preparedExport: ValidationGalleryPreparedCommentExport) throws -> URL? {
+  func save(_ preparedExport: ValidationGalleryPreparedCommentExport) async throws -> URL? {
     let destinationURL = rootDirectory.appendingPathComponent(preparedExport.rootDirectoryName, isDirectory: true)
     if fileManager.fileExists(atPath: destinationURL.path) {
       try fileManager.removeItem(at: destinationURL)
@@ -185,7 +186,7 @@ final class XcodeValidationGalleryExportController {
     return Set(artifactIDs).count
   }
 
-  func performExport(using store: ValidationGalleryStore) {
+  func performExport(using store: ValidationGalleryStore) async {
     guard let request else {
       return
     }
@@ -194,7 +195,7 @@ final class XcodeValidationGalleryExportController {
       let preparedExport = try exportCoordinator.prepareExport(from: store, options: request.options)
 
       if let uiTestSaver = makeUITestSaver() {
-        lastExportURL = try uiTestSaver.save(preparedExport)
+        lastExportURL = try await uiTestSaver.save(preparedExport)
         lastRoute = .uiTestingFolder
         self.request = nil
         showFeedback(for: preparedExport.payload.comments.count)
@@ -202,7 +203,7 @@ final class XcodeValidationGalleryExportController {
       }
 
       if let folderSaver {
-        lastExportURL = try folderSaver.save(preparedExport)
+        lastExportURL = try await folderSaver.save(preparedExport)
         lastRoute = .macOSFolder
         self.request = nil
         if lastExportURL != nil {

@@ -18,7 +18,7 @@ enum ValidationGalleryArtifactPresentationMode: String, CaseIterable {
 struct ValidationGalleryArtifactSheetView: View {
   @Bindable var store: ValidationGalleryStore
   let artifact: ValidationGalleryArtifact
-  let mode: ValidationGalleryArtifactPresentationMode
+  @Binding var mode: ValidationGalleryArtifactPresentationMode
   let onDismissRequested: () -> Void
   let onExportComments: () -> Void
 
@@ -35,13 +35,13 @@ struct ValidationGalleryArtifactSheetView: View {
   init(
     store: ValidationGalleryStore,
     artifact: ValidationGalleryArtifact,
-    mode: ValidationGalleryArtifactPresentationMode,
+    mode: Binding<ValidationGalleryArtifactPresentationMode>,
     onDismissRequested: @escaping () -> Void,
     onExportComments: @escaping () -> Void
   ) {
     self.store = store
     self.artifact = artifact
-    self.mode = mode
+    self._mode = mode
     self.onDismissRequested = onDismissRequested
     self.onExportComments = onExportComments
   }
@@ -172,6 +172,12 @@ struct ValidationGalleryArtifactSheetView: View {
     .onChange(of: store.selectedCommentID) { _, _ in
       editingBody = selectedComment?.comment.body ?? ""
     }
+    .focusedValue(\.galleryCommandActions, ValidationGalleryCommandActions(
+      addPointComment: { mode = .addPointComment },
+      addAreaComment: { mode = .addAreaComment },
+      exportSelectedComments: { onExportComments() },
+      exportBundleComments: {}
+    ))
   }
 
   private var header: some View {
