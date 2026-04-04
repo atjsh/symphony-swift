@@ -47,17 +47,23 @@ public final class ValidationGalleryStore {
 
   public var searchText = "" {
     didSet {
+      recomputeFilteredState()
       normalizeSelectionAfterFilterChange()
     }
   }
 
   public var sidebarSelection: ValidationGallerySidebarSelection = .all {
     didSet {
+      recomputeFilteredState()
       normalizeSelectionAfterFilterChange()
     }
   }
 
-  public internal(set) var snapshot: ValidationBundleSnapshot?
+  public internal(set) var snapshot: ValidationBundleSnapshot? {
+    didSet {
+      recomputeFilteredState()
+    }
+  }
   public internal(set) var recentBundles = [ValidationRecentBundle]()
   public internal(set) var isLoading = false
   public internal(set) var error: ValidationGalleryError?
@@ -134,20 +140,8 @@ public final class ValidationGalleryStore {
     ) ?? .defaults
   }
 
-  public var filteredArtifacts: [ValidationGalleryArtifact] {
-    guard let snapshot else {
-      return []
-    }
-
-    let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    return snapshot.artifacts.filter { artifact in
-      matchesSelection(artifact) && matchesSearch(artifact, query: trimmedQuery)
-    }
-  }
-
-  public var visiblePlatformSections: [ValidationGalleryPlatformSection] {
-    ValidationGalleryOrganizer.makePlatformSections(from: filteredArtifacts)
-  }
+  public internal(set) var filteredArtifacts: [ValidationGalleryArtifact] = []
+  public internal(set) var visiblePlatformSections: [ValidationGalleryPlatformSection] = []
 
   public var selectedArtifact: ValidationGalleryArtifact? {
     guard let selectedArtifactID else {
@@ -362,6 +356,22 @@ public final class ValidationGalleryStore {
   }
 
   // MARK: - Private
+
+  private func recomputeFilteredState() {
+    guard let snapshot else {
+      filteredArtifacts = []
+      visiblePlatformSections = []
+      return
+    }
+
+    let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    filteredArtifacts = snapshot.artifacts.filter { artifact in
+      matchesSelection(artifact) && matchesSearch(artifact, query: trimmedQuery)
+    }
+    visiblePlatformSections = ValidationGalleryOrganizer.makePlatformSections(
+      from: filteredArtifacts
+    )
+  }
 
   private func matchesSelection(_ artifact: ValidationGalleryArtifact) -> Bool {
     switch sidebarSelection {
