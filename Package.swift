@@ -25,6 +25,7 @@ let package = Package(
     .library(name: "SymphonyHarness", targets: ["SymphonyHarness"]),
     .library(name: "SymphonyHarnessCLI", targets: ["SymphonyHarnessCLI"]),
     .library(name: "SymphonyValidationGallery", targets: ["SymphonyValidationGallery"]),
+    .library(name: "SymphonyXcodeValidationServerCore", targets: ["SymphonyXcodeValidationServerCore"]),
     .executable(name: "symphony-server", targets: ["SymphonyServerCLI"]),
     .executable(name: "harness", targets: ["harness"]),
   ],
@@ -97,6 +98,12 @@ let package = Package(
     .target(
       name: "SymphonyXcodeValidation",
       path: "Sources/SymphonyXcodeValidation",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
+    ),
+    .target(
+      name: "SymphonyXcodeValidationServerCore",
+      dependencies: ["SymphonyXcodeValidation"],
+      path: "Sources/SymphonyXcodeValidationServerCore",
       plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
     ),
     .target(
@@ -183,6 +190,12 @@ let package = Package(
       name: "SymphonyValidationGalleryTests",
       dependencies: ["SymphonyValidationGallery", "SymphonyXcodeValidation", "SymphonyShared"],
       path: "Tests/SymphonyValidationGalleryTests",
+      plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
+    ),
+    .testTarget(
+      name: "SymphonyXcodeValidationServerCoreTests",
+      dependencies: ["SymphonyXcodeValidationServerCore"],
+      path: "Tests/SymphonyXcodeValidationServerCoreTests",
       plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "swiftlintplugins")]
     ),
   ]
