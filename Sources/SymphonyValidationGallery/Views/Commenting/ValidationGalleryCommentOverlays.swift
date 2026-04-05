@@ -76,6 +76,7 @@ struct ValidationGalleryDraftOverlay: View {
         }
         .position(x: imageRect.minX + point.x * imageRect.width, y: imageRect.minY + point.y * imageRect.height)
         .transition(.scale.combined(with: .opacity))
+        .allowsHitTesting(false)
     case .area(let rect):
       let renderedRect = CGRect(
         x: imageRect.minX + rect.x * imageRect.width,
@@ -89,6 +90,7 @@ struct ValidationGalleryDraftOverlay: View {
         .foregroundStyle(Color.accentColor)
         .frame(width: renderedRect.width, height: renderedRect.height)
         .position(x: renderedRect.midX, y: renderedRect.midY)
+        .allowsHitTesting(false)
     }
   }
 }

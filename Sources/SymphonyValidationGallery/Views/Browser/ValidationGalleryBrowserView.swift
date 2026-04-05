@@ -45,6 +45,62 @@ struct ValidationGalleryBrowserView: View {
   }
 }
 
+// MARK: - Flat browser row model
+
+/// A flat representation of the browser hierarchy, replacing 4-level nested
+/// ForEach (platform → plan → checkpoint → artifacts) with a single-level
+/// ForEach. This dramatically reduces SwiftUI view-tree depth and the cost of
+/// hit-testing on every mouse-move event.
+private struct FlatBrowserRow: Identifiable {
+  enum Content {
+    case platformHeader(platform: String, artifactCount: Int)
+    case planHeader(plan: String, artifactCount: Int)
+    case checkpoint(
+      header: String,
+      artifactCount: Int,
+      artifacts: [ValidationGalleryArtifact]
+    )
+  }
+
+  let id: String
+  let content: Content
+}
+
+private func makeFlatBrowserRows(
+  from sections: [ValidationGalleryPlatformSection]
+) -> [FlatBrowserRow] {
+  var rows: [FlatBrowserRow] = []
+  for platform in sections {
+    let count = platform.plans.reduce(0) {
+      $0 + $1.checkpoints.reduce(0) { $0 + $1.artifacts.count }
+    }
+    rows.append(FlatBrowserRow(
+      id: "platform:\(platform.id)",
+      content: .platformHeader(platform: platform.platform, artifactCount: count)
+    ))
+    for plan in platform.plans {
+      let planCount = plan.checkpoints.reduce(0) { $0 + $1.artifacts.count }
+      rows.append(FlatBrowserRow(
+        id: "plan:\(plan.id)",
+        content: .planHeader(plan: plan.plan, artifactCount: planCount)
+      ))
+      for checkpoint in plan.checkpoints {
+        rows.append(FlatBrowserRow(
+          id: "checkpoint:\(checkpoint.id)",
+          content: .checkpoint(
+            header: checkpoint.checkpoint,
+            artifactCount: checkpoint.artifacts.count,
+            artifacts: checkpoint.artifacts
+          )
+        ))
+      }
+    }
+  }
+  return rows
+}
+
+// MARK: - Regular browser view
+
 private struct ValidationGalleryRegularBrowserView: View {
   @Bindable var store: ValidationGalleryStore
   let snapshot: ValidationBundleSnapshot
@@ -73,59 +129,59 @@ private struct ValidationGalleryRegularBrowserView: View {
         if store.hasNoVisibleArtifacts {
           ValidationGalleryFilteredEmptyStateView(store: store)
         } else {
-          ForEach(store.visiblePlatformSections) { platformSection in
-            VStack(alignment: .leading, spacing: 16) {
+          ForEach(makeFlatBrowserRows(from: store.visiblePlatformSections)) { row in
+            switch row.content {
+            case .platformHeader(let platform, let count):
               HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(ValidationGalleryFormatting.platformTitle(platformSection.platform))
+                Text(ValidationGalleryFormatting.platformTitle(platform))
                   .font(.title3.weight(.semibold))
-                Text("\(platformSection.plans.reduce(0) { $0 + $1.checkpoints.reduce(0) { $0 + $1.artifacts.count } }) items")
+                Text("\(count) items")
                   .font(.footnote)
                   .foregroundStyle(.primary)
               }
               .padding(.top, 4)
+              .allowsHitTesting(false)
 
-              ForEach(platformSection.plans) { planSection in
-                VStack(alignment: .leading, spacing: 12) {
-                  HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(ValidationGalleryFormatting.planTitle(planSection.plan))
-                      .font(.subheadline.weight(.semibold))
-                    Text("\(planSection.checkpoints.reduce(0) { $0 + $1.artifacts.count }) artifacts")
-                      .font(.footnote)
-                      .foregroundStyle(.primary)
-                  }
+            case .planHeader(let plan, let count):
+              HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(ValidationGalleryFormatting.planTitle(plan))
+                  .font(.subheadline.weight(.semibold))
+                Text("\(count) artifacts")
+                  .font(.footnote)
+                  .foregroundStyle(.primary)
+              }
+              .padding(.top, 4)
+              .allowsHitTesting(false)
 
-                  ForEach(planSection.checkpoints) { checkpointSection in
-                    VStack(alignment: .leading, spacing: 10) {
-                      HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(ValidationGalleryFormatting.checkpointTitle(checkpointSection.checkpoint))
-                          .font(.footnote.weight(.semibold))
-                        Text("\(checkpointSection.artifacts.count)")
-                          .font(.footnote.monospacedDigit().weight(.semibold))
-                          .foregroundStyle(validationGalleryMutedForeground(opacity: 0.94))
-                      }
+            case .checkpoint(let header, let count, let artifacts):
+              VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                  Text(ValidationGalleryFormatting.checkpointTitle(header))
+                    .font(.footnote.weight(.semibold))
+                  Text("\(count)")
+                    .font(.footnote.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(validationGalleryMutedForeground(opacity: 0.94))
+                }
+                .allowsHitTesting(false)
 
-                      if store.workspacePreferences.browserDisplayMode == .list {
-                        ValidationGalleryRegularArtifactList(
-                          artifacts: checkpointSection.artifacts,
-                          selectedArtifactID: store.selectedArtifact?.id,
-                          onSelectArtifact: store.selectArtifact
-                        )
-                      } else {
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                          ForEach(checkpointSection.artifacts) { artifact in
-                            ValidationGalleryArtifactCard(
-                              artifact: artifact,
-                              isSelected: store.selectedArtifact?.id == artifact.id,
-                              onSelect: { store.selectArtifact(artifact.id) }
-                            )
-                          }
-                        }
-                        .accessibilityIdentifier("validation-gallery-browser-grid-mode")
-                      }
+                if store.workspacePreferences.browserDisplayMode == .list {
+                  ValidationGalleryRegularArtifactList(
+                    artifacts: artifacts,
+                    selectedArtifactID: store.selectedArtifact?.id,
+                    onSelectArtifact: store.selectArtifact
+                  )
+                } else {
+                  LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    ForEach(artifacts) { artifact in
+                      ValidationGalleryArtifactCard(
+                        artifact: artifact,
+                        isSelected: store.selectedArtifact?.id == artifact.id,
+                        onSelect: { store.selectArtifact(artifact.id) }
+                      )
                     }
                   }
+                  .accessibilityIdentifier("validation-gallery-browser-grid-mode")
                 }
-                .padding(.vertical, 4)
               }
             }
           }

@@ -62,21 +62,17 @@ struct ValidationGalleryCompactPlatformSection: View {
     VStack(alignment: .leading, spacing: 12) {
       platformHeader
 
-      ForEach(platformSection.plans) { planSection in
-        ForEach(planSection.checkpoints) { checkpointSection in
-          ForEach(checkpointSection.artifacts) { artifact in
-            ValidationGalleryCompactArtifactLink(
-              store: store,
-              artifact: artifact,
-              relatedAuditIssues: relatedAuditIssues(for: artifact),
-              onSelectArtifact: onSelectArtifact,
-              onPreviewArtifact: onPreviewArtifact,
-              onAddPointComment: onAddPointComment,
-              onAddAreaComment: onAddAreaComment,
-              onExportComments: onExportComments
-            )
-          }
-        }
+      ForEach(platformSection.plans.flatMap({ $0.checkpoints.flatMap(\.artifacts) })) { artifact in
+        ValidationGalleryCompactArtifactLink(
+          store: store,
+          artifact: artifact,
+          relatedAuditIssues: relatedAuditIssues(for: artifact),
+          onSelectArtifact: onSelectArtifact,
+          onPreviewArtifact: onPreviewArtifact,
+          onAddPointComment: onAddPointComment,
+          onAddAreaComment: onAddAreaComment,
+          onExportComments: onExportComments
+        )
       }
     }
   }

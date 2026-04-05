@@ -64,6 +64,7 @@ struct ValidationGalleryAnnotatedImageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.secondary.opacity(0.08))
         .accessibilityHidden(true)
+        .allowsHitTesting(false)
 
       overlayLayer(in: imageRect)
     }
