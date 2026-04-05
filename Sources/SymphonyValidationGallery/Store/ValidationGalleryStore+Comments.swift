@@ -21,9 +21,7 @@ extension ValidationGalleryStore {
       return []
     }
 
-    let numberedIDs = Dictionary(
-      uniqueKeysWithValues: numberedCurrentBundleComments().map { ($0.comment.id, $0.annotationID) }
-    )
+    let numberedIDs = annotationIDsForCurrentBundle()
     return artifactComments
       .sorted(by: compareLocalComments(_:_:))
       .compactMap { comment in
@@ -32,6 +30,20 @@ extension ValidationGalleryStore {
         }
         return ValidationGalleryNumberedComment(annotationID: annotationID, comment: comment)
       }
+  }
+
+  /// Returns the cached comment-ID → annotation-number mapping,
+  /// building it from `numberedCurrentBundleComments()` on first access
+  /// after any invalidation.
+  func annotationIDsForCurrentBundle() -> [ValidationGalleryComment.ID: Int] {
+    if let cached = cachedAnnotationIDs {
+      return cached
+    }
+    let ids = Dictionary(
+      uniqueKeysWithValues: numberedCurrentBundleComments().map { ($0.comment.id, $0.annotationID) }
+    )
+    cachedAnnotationIDs = ids
+    return ids
   }
 
   public func makePointCommentDraft(

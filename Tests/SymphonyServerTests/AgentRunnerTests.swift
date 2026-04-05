@@ -124,6 +124,7 @@ struct AgentRunnerLifecycleTests {
         promptTemplate: "Fix: {{issue.title}}")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
 
     // Emit some events
@@ -187,6 +188,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
     try await bootstrapWaitUntil("event processed") { sink.events.count >= 1 }
@@ -218,6 +220,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-failed"}}}"# + "\n")
@@ -251,6 +254,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-interrupted"}}}"# + "\n")
@@ -285,6 +289,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-completed"}}}"# + "\n")
@@ -346,6 +351,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: config, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput(
       #"{"method":"thread/started","params":{"thread":{"id":"thread-timeout"}}}"# + "\n")
@@ -480,6 +486,7 @@ struct AgentRunnerLifecycleTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 

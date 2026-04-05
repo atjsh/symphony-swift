@@ -201,7 +201,7 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
   /// concurrent-load region open long enough for peer overlap to be recorded.
   private func yieldAndSleep() {
     sched_yield()
-    Thread.sleep(forTimeInterval: 0.2)
+    Thread.sleep(forTimeInterval: 1.0)
   }
 
   private func beginConcurrentLoad() {

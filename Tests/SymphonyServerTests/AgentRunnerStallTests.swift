@@ -25,6 +25,7 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateOutput("{\"type\":\"message\"}\n")
     stubProcess.simulateOutput("{\"type\":\"tool_call\"}\n")
@@ -55,6 +56,7 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 0)
 
@@ -82,6 +84,7 @@ struct AgentRunnerEventSinkTests {
         context: ctx, issue: issue, config: .defaults, promptTemplate: "")
     }
 
+    await Task.yield()
     try await bootstrapWaitUntil("runner activates") { runner.activeRunCount > 0 }
     stubProcess.simulateTermination(exitCode: 1)
 

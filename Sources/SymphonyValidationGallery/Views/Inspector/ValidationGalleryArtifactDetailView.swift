@@ -65,8 +65,7 @@ public struct ValidationGalleryArtifactDetailView: View {
   }
 
   public var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
+    VStack(alignment: .leading, spacing: 16) {
         header
 
         if artifact.record.artifactType == .screenshot {
@@ -136,14 +135,14 @@ public struct ValidationGalleryArtifactDetailView: View {
       }
       .padding(20)
       .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .modifier(
-      ValidationGalleryNavigationTitle(
-        title: ValidationGalleryFormatting.checkpointTitle(artifact.record.checkpoint),
-        showsTitle: showsNavigationTitle
+      .accessibilityElement(children: .contain)
+      .modifier(
+        ValidationGalleryNavigationTitle(
+          title: ValidationGalleryFormatting.checkpointTitle(artifact.record.checkpoint),
+          showsTitle: showsNavigationTitle
+        )
       )
-    )
-    .accessibilityIdentifier("artifact-detail-view")
+      .accessibilityIdentifier("artifact-detail-view")
   }
 
   private var showsNavigationTitle: Bool {

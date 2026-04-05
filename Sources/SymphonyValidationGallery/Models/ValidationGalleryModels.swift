@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SymphonyXcodeValidation
 
 public enum ValidationBundleSource: Equatable, Sendable {
@@ -117,9 +118,13 @@ public struct ValidationGalleryArtifact: Equatable, Sendable, Identifiable {
   public let record: MediaArtifact
   public let fileURL: URL
   public let isAvailable: Bool
+  public let id: String
 
-  public var id: String {
-    [
+  public init(record: MediaArtifact, fileURL: URL, isAvailable: Bool) {
+    self.record = record
+    self.fileURL = fileURL
+    self.isAvailable = isAvailable
+    self.id = [
       record.platform,
       record.plan,
       record.checkpoint,
@@ -130,33 +135,25 @@ public struct ValidationGalleryArtifact: Equatable, Sendable, Identifiable {
       fileURL.path,
     ].joined(separator: "::")
   }
-
-  public init(record: MediaArtifact, fileURL: URL, isAvailable: Bool) {
-    self.record = record
-    self.fileURL = fileURL
-    self.isAvailable = isAvailable
-  }
 }
 
 public struct ValidationGalleryAuditIssue: Equatable, Sendable, Identifiable {
   public let record: AuditIssueRecord
   public let fileURL: URL
   public let isAvailable: Bool
+  public let id: String
 
-  public var id: String {
-    [
+  public init(record: AuditIssueRecord, fileURL: URL, isAvailable: Bool) {
+    self.record = record
+    self.fileURL = fileURL
+    self.isAvailable = isAvailable
+    self.id = [
       record.platform,
       record.plan,
       record.test,
       record.checkpoint ?? "none",
       fileURL.path,
     ].joined(separator: "::")
-  }
-
-  public init(record: AuditIssueRecord, fileURL: URL, isAvailable: Bool) {
-    self.record = record
-    self.fileURL = fileURL
-    self.isAvailable = isAvailable
   }
 }
 
@@ -316,6 +313,9 @@ enum ValidationGalleryOrganizer {
   static func makePlatformSections(
     from artifacts: [ValidationGalleryArtifact]
   ) -> [ValidationGalleryPlatformSection] {
+    let state = gallerySignposter.beginInterval("makePlatformSections")
+    defer { gallerySignposter.endInterval("makePlatformSections", state) }
+
     let groupedByPlatform = Dictionary(grouping: artifacts, by: \.record.platform)
 
     return groupedByPlatform.keys.sorted(by: comparePlatforms).map { platform in

@@ -80,7 +80,8 @@ struct ValidationGalleryStoreTests {
     let snapshot = try await ValidationBundleLoader().load(from: .folder(ValidationGalleryTestFixture.bundleRoot))
     let store = ValidationGalleryStore(
       loader: StubValidationBundleLoader(snapshot: snapshot),
-      recentBundleStore: InMemoryRecentBundleStore()
+      recentBundleStore: InMemoryRecentBundleStore(),
+      searchDebounceInterval: .zero
     )
 
     await store.open(.folder(ValidationGalleryTestFixture.bundleRoot), rememberRecent: false)
@@ -96,7 +97,8 @@ struct ValidationGalleryStoreTests {
     let snapshot = try await ValidationBundleLoader().load(from: .folder(ValidationGalleryTestFixture.bundleRoot))
     let store = ValidationGalleryStore(
       loader: StubValidationBundleLoader(snapshot: snapshot),
-      recentBundleStore: InMemoryRecentBundleStore()
+      recentBundleStore: InMemoryRecentBundleStore(),
+      searchDebounceInterval: .zero
     )
 
     await store.open(.folder(ValidationGalleryTestFixture.bundleRoot), rememberRecent: false)
@@ -119,7 +121,8 @@ struct ValidationGalleryStoreTests {
     let snapshot = try await ValidationBundleLoader().load(from: .folder(ValidationGalleryTestFixture.bundleRoot))
     let store = ValidationGalleryStore(
       loader: StubValidationBundleLoader(snapshot: snapshot),
-      recentBundleStore: InMemoryRecentBundleStore()
+      recentBundleStore: InMemoryRecentBundleStore(),
+      searchDebounceInterval: .zero
     )
 
     await store.open(.folder(ValidationGalleryTestFixture.bundleRoot), rememberRecent: false)
@@ -146,6 +149,7 @@ struct ValidationGalleryStoreTests {
     await store.open(.folder(ValidationGalleryTestFixture.bundleRoot), rememberRecent: false)
     let firstID = try #require(store.selectedArtifact?.id)
 
+    #expect(store.selectedArtifactPositionText == "1 of \(store.filteredArtifacts.count) visible")
     #expect(store.canSelectPreviousArtifact == false)
     #expect(store.canSelectNextArtifact)
 
@@ -153,6 +157,7 @@ struct ValidationGalleryStoreTests {
 
     let nextID = try #require(store.selectedArtifact?.id)
     #expect(nextID != firstID)
+    #expect(store.selectedArtifactPositionText == "2 of \(store.filteredArtifacts.count) visible")
     #expect(store.canSelectPreviousArtifact)
 
     store.selectPreviousArtifact()
@@ -231,7 +236,8 @@ struct ValidationGalleryStoreTests {
     let store = ValidationGalleryStore(
       loader: StubValidationBundleLoader(snapshot: snapshot),
       recentBundleStore: InMemoryRecentBundleStore(),
-      now: { Date(timeIntervalSince1970: 15) }
+      now: { Date(timeIntervalSince1970: 15) },
+      searchDebounceInterval: .zero
     )
     let progressReport = try #require(screenshotArtifact(in: snapshot, checkpoint: "progress-report"))
     let logs = try #require(screenshotArtifact(in: snapshot, checkpoint: "logs"))

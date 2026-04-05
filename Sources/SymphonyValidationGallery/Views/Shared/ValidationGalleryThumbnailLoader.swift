@@ -1,4 +1,5 @@
 import ImageIO
+import OSLog
 import SwiftUI
 
 #if os(macOS)
@@ -41,30 +42,44 @@ actor ValidationGalleryThumbnailLoader {
     #endif
   }
 
-  private var fullImageCache: [URL: (PlatformImage, CGSize)] = [:]
+  private struct FullImageCacheKey: Hashable {
+    let url: URL
+    let maxPixelSize: Int
+  }
 
-  func fullImage(for url: URL) async -> ValidationGalleryLoadedImage? {
-    if let (cached, size) = fullImageCache[url] {
+  private var fullImageCache: [FullImageCacheKey: (PlatformImage, CGSize)] = [:]
+
+  /// The max pixel dimension used when decoding "full" images for the inspector
+  /// preview. Capping at 1600px avoids decoding multi-megapixel originals when
+  /// the preview area is only ~300-600pt tall.
+  private static let fullImageMaxPixelSize = 1600
+
+  func fullImage(for url: URL, maxPixelSize: Int = fullImageMaxPixelSize) async -> ValidationGalleryLoadedImage? {
+    let state = gallerySignposter.beginInterval("fullImageLoad")
+    defer { gallerySignposter.endInterval("fullImageLoad", state) }
+    let cacheKey = FullImageCacheKey(url: url, maxPixelSize: maxPixelSize)
+    if let (cached, size) = fullImageCache[cacheKey] {
       return ValidationGalleryLoadedImage(image: swiftUIImage(from: cached), pixelSize: size)
     }
 
     let result = await Task.detached(priority: .userInitiated) {
-      Self.loadFullImageFromDisk(url: url)
+      Self.loadFullImageFromDisk(url: url, maxPixelSize: maxPixelSize)
     }.value
 
     guard let (platformImage, pixelSize) = result else {
       return nil
     }
 
-    fullImageCache[url] = (platformImage, pixelSize)
+    fullImageCache[cacheKey] = (platformImage, pixelSize)
     return ValidationGalleryLoadedImage(image: swiftUIImage(from: platformImage), pixelSize: pixelSize)
   }
 
-  private static func loadFullImageFromDisk(url: URL) -> (PlatformImage, CGSize)? {
+  private static func loadFullImageFromDisk(url: URL, maxPixelSize: Int) -> (PlatformImage, CGSize)? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
     let options: [CFString: Any] = [
       kCGImageSourceCreateThumbnailFromImageAlways: true,
       kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
     ]
     guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     else { return nil }

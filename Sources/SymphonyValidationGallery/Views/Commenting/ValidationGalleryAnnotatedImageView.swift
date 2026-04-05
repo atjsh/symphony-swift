@@ -28,30 +28,36 @@ struct ValidationGalleryAnnotatedImageView: View {
   @State private var loadedImage: ValidationGalleryLoadedImage?
 
   var body: some View {
-    if let image = loadedImage {
-      GeometryReader { geometry in
-        let imageRect = aspectFitRect(for: image.pixelSize, in: geometry.size)
+    Group {
+      if let image = loadedImage {
+        GeometryReader { geometry in
+          let imageRect = aspectFitRect(for: image.pixelSize, in: geometry.size)
 
-        annotationCanvas(image: image.image, imageRect: imageRect, containerSize: geometry.size)
-      }
-      .frame(maxWidth: .infinity, minHeight: minimumHeight)
-    } else if !artifact.isAvailable {
-      ContentUnavailableView(
-        "Missing Image",
-        systemImage: "photo.badge.exclamationmark",
-        description: Text(artifact.fileURL.lastPathComponent)
-      )
-      .frame(maxWidth: .infinity, minHeight: minimumHeight)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-      .accessibilityIdentifier(accessibilityIdentifier)
-    } else {
-      ProgressView()
+          annotationCanvas(image: image.image, imageRect: imageRect, containerSize: geometry.size)
+        }
+        .frame(maxWidth: .infinity, minHeight: minimumHeight)
+      } else if !artifact.isAvailable {
+        ContentUnavailableView(
+          "Missing Image",
+          systemImage: "photo.badge.exclamationmark",
+          description: Text(artifact.fileURL.lastPathComponent)
+        )
         .frame(maxWidth: .infinity, minHeight: minimumHeight)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityIdentifier("\(accessibilityIdentifier)-loading")
-        .task(id: artifact.fileURL) {
-          loadedImage = await ValidationGalleryThumbnailLoader.shared.fullImage(for: artifact.fileURL)
-        }
+        .accessibilityIdentifier(accessibilityIdentifier)
+      } else {
+        ProgressView()
+          .frame(maxWidth: .infinity, minHeight: minimumHeight)
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+          .accessibilityIdentifier("\(accessibilityIdentifier)-loading")
+      }
+    }
+    .task(id: artifact.fileURL) {
+      guard artifact.isAvailable else { loadedImage = nil; return }
+      let maxSize = allowsZoom ? 2400 : 800
+      let newImage = await ValidationGalleryThumbnailLoader.shared.fullImage(for: artifact.fileURL, maxPixelSize: maxSize)
+      guard !Task.isCancelled else { return }
+      loadedImage = newImage
     }
   }
 
@@ -75,7 +81,7 @@ struct ValidationGalleryAnnotatedImageView: View {
       canvas
     }
     .contentShape(Rectangle())
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     .accessibilityElement(children: .contain)
     .accessibilityLabel(ValidationGalleryFormatting.artifactTitle(artifact))

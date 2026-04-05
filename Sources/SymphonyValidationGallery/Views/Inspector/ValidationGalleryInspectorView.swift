@@ -2,14 +2,6 @@ import SwiftUI
 
 struct ValidationGalleryInspectorView: View {
   @Bindable var store: ValidationGalleryStore
-  let snapshot: ValidationBundleSnapshot?
-  let selectedArtifact: ValidationGalleryArtifact?
-  let filteredAuditIssues: [ValidationGalleryAuditIssue]
-  let selectionSummary: String?
-  let canSelectPreviousArtifact: Bool
-  let canSelectNextArtifact: Bool
-  let onSelectPreviousArtifact: () -> Void
-  let onSelectNextArtifact: () -> Void
   let onPreviewArtifact: (ValidationGalleryArtifact) -> Void
   let onAddPointComment: (ValidationGalleryArtifact) -> Void
   let onAddAreaComment: (ValidationGalleryArtifact) -> Void
@@ -17,7 +9,7 @@ struct ValidationGalleryInspectorView: View {
 
   var body: some View {
     Group {
-      if let selectedArtifact {
+      if let selectedArtifact = store.selectedArtifact {
         selectedArtifactContent(for: selectedArtifact)
       } else {
         emptyInspectorContent
@@ -33,19 +25,15 @@ struct ValidationGalleryInspectorView: View {
       VStack(alignment: .leading, spacing: 20) {
         ValidationGalleryArtifactDetailView(
           artifact: selectedArtifact,
-          relatedAuditIssues: filteredAuditIssues.filter {
-            $0.record.platform == selectedArtifact.record.platform
-              && $0.record.plan == selectedArtifact.record.plan
-              && $0.record.checkpoint == selectedArtifact.record.checkpoint
-          },
-          comments: store.numberedComments(for: selectedArtifact),
+          relatedAuditIssues: store.selectedArtifactAuditIssues,
+          comments: store.selectedArtifactComments,
           selectedCommentID: store.selectedCommentID,
-          selectionSummary: selectionSummary,
-          canSelectPreviousArtifact: canSelectPreviousArtifact,
-          canSelectNextArtifact: canSelectNextArtifact,
+          selectionSummary: store.selectedArtifactPositionText,
+          canSelectPreviousArtifact: store.canSelectPreviousArtifact,
+          canSelectNextArtifact: store.canSelectNextArtifact,
           onSelectComment: store.selectComment,
-          onSelectPreviousArtifact: onSelectPreviousArtifact,
-          onSelectNextArtifact: onSelectNextArtifact,
+          onSelectPreviousArtifact: store.selectPreviousArtifact,
+          onSelectNextArtifact: store.selectNextArtifact,
           onAddPointComment: { onAddPointComment(selectedArtifact) },
           onAddAreaComment: { onAddAreaComment(selectedArtifact) },
           onExportComments: onExportComments,
@@ -54,7 +42,7 @@ struct ValidationGalleryInspectorView: View {
           onPreviewHeightChanged: { store.setInspectorPreviewHeight(Double($0)) }
         )
 
-        if let snapshot {
+        if let snapshot = store.snapshot {
           bundleContextDisclosure(snapshot: snapshot)
         } else {
           EmptyView()
@@ -75,7 +63,7 @@ struct ValidationGalleryInspectorView: View {
       )
       Spacer(minLength: 0)
 
-      if let snapshot {
+      if let snapshot = store.snapshot {
         bundleContextDisclosure(snapshot: snapshot)
       } else {
         EmptyView()

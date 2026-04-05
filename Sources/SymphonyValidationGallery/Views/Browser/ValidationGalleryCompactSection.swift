@@ -30,9 +30,12 @@ struct ValidationGalleryCompactListView: View {
         } else {
           ForEach(store.visiblePlatformSections) { platformSection in
             ValidationGalleryCompactPlatformSection(
-              store: store,
               platformSection: platformSection,
               auditIssues: store.filteredAuditIssues,
+              flatArtifacts: platformSection.plans.flatMap { $0.checkpoints.flatMap(\.artifacts) },
+              comments: { store.numberedComments(for: $0) },
+              selectedCommentID: store.selectedCommentID,
+              onSelectComment: store.selectComment,
               onSelectArtifact: { store.selectArtifact($0) },
               onPreviewArtifact: onPreviewArtifact,
               onAddPointComment: onAddPointComment,
@@ -49,9 +52,12 @@ struct ValidationGalleryCompactListView: View {
 }
 
 struct ValidationGalleryCompactPlatformSection: View {
-  @Bindable var store: ValidationGalleryStore
   let platformSection: ValidationGalleryPlatformSection
   let auditIssues: [ValidationGalleryAuditIssue]
+  let flatArtifacts: [ValidationGalleryArtifact]
+  let comments: (ValidationGalleryArtifact) -> [ValidationGalleryNumberedComment]
+  let selectedCommentID: ValidationGalleryComment.ID?
+  let onSelectComment: (ValidationGalleryComment.ID?) -> Void
   let onSelectArtifact: (ValidationGalleryArtifact.ID) -> Void
   let onPreviewArtifact: (ValidationGalleryArtifact) -> Void
   let onAddPointComment: (ValidationGalleryArtifact) -> Void
@@ -62,11 +68,13 @@ struct ValidationGalleryCompactPlatformSection: View {
     VStack(alignment: .leading, spacing: 12) {
       platformHeader
 
-      ForEach(platformSection.plans.flatMap({ $0.checkpoints.flatMap(\.artifacts) })) { artifact in
+      ForEach(flatArtifacts) { artifact in
         ValidationGalleryCompactArtifactLink(
-          store: store,
           artifact: artifact,
           relatedAuditIssues: relatedAuditIssues(for: artifact),
+          comments: comments(artifact),
+          selectedCommentID: selectedCommentID,
+          onSelectComment: onSelectComment,
           onSelectArtifact: onSelectArtifact,
           onPreviewArtifact: onPreviewArtifact,
           onAddPointComment: onAddPointComment,
@@ -99,9 +107,11 @@ struct ValidationGalleryCompactPlatformSection: View {
 }
 
 struct ValidationGalleryCompactArtifactLink: View {
-  @Bindable var store: ValidationGalleryStore
   let artifact: ValidationGalleryArtifact
   let relatedAuditIssues: [ValidationGalleryAuditIssue]
+  let comments: [ValidationGalleryNumberedComment]
+  let selectedCommentID: ValidationGalleryComment.ID?
+  let onSelectComment: (ValidationGalleryComment.ID?) -> Void
   let onSelectArtifact: (ValidationGalleryArtifact.ID) -> Void
   let onPreviewArtifact: (ValidationGalleryArtifact) -> Void
   let onAddPointComment: (ValidationGalleryArtifact) -> Void
@@ -110,17 +120,19 @@ struct ValidationGalleryCompactArtifactLink: View {
 
   var body: some View {
     NavigationLink {
-      ValidationGalleryArtifactDetailView(
-        artifact: artifact,
-        relatedAuditIssues: relatedAuditIssues,
-        comments: store.numberedComments(for: artifact),
-        selectedCommentID: store.selectedCommentID,
-        onSelectComment: store.selectComment,
-        onAddPointComment: { onAddPointComment(artifact) },
-        onAddAreaComment: { onAddAreaComment(artifact) },
-        onExportComments: onExportComments,
-        onPreviewArtifact: { onPreviewArtifact(artifact) }
-      )
+      ScrollView {
+        ValidationGalleryArtifactDetailView(
+          artifact: artifact,
+          relatedAuditIssues: relatedAuditIssues,
+          comments: comments,
+          selectedCommentID: selectedCommentID,
+          onSelectComment: onSelectComment,
+          onAddPointComment: { onAddPointComment(artifact) },
+          onAddAreaComment: { onAddAreaComment(artifact) },
+          onExportComments: onExportComments,
+          onPreviewArtifact: { onPreviewArtifact(artifact) }
+        )
+      }
       .onAppear {
         onSelectArtifact(artifact.id)
       }

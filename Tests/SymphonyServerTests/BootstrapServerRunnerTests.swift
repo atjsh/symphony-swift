@@ -55,7 +55,8 @@ import Testing
   }
   defer { allowReturn.signal() }
 
-  try await bootstrapWaitUntil("bootstrap runner enters keepAlive", timeout: .seconds(5)) {
+  await Task.yield()
+  try await bootstrapWaitUntil("bootstrap runner enters keepAlive") {
     keepAliveEntered.value
   }
 

@@ -47,7 +47,7 @@ struct ValidationGalleryArtifactSheetView: View {
   }
 
   private var comments: [ValidationGalleryNumberedComment] {
-    store.numberedComments(for: artifact)
+    store.selectedArtifactComments
   }
 
   private var selectedComment: ValidationGalleryNumberedComment? {

@@ -1,7 +1,67 @@
-import Foundation
-import Observation
 import CoreGraphics
+import Foundation
 import ImageIO
+import Observation
+import OSLog
+
+let gallerySignposter = OSSignposter(
+  subsystem: "dev.atjsh.xcode-validation-gallery.performance",
+  category: "store"
+)
+
+// MARK: - Flat browser row model
+
+/// A flat representation of the browser hierarchy, replacing 4-level nested
+/// ForEach (platform → plan → checkpoint → artifacts) with a single-level
+/// ForEach. This dramatically reduces SwiftUI view-tree depth and the cost of
+/// hit-testing on every mouse-move event.
+struct FlatBrowserRow: Identifiable {
+  enum Content {
+    case platformHeader(platform: String, artifactCount: Int)
+    case planHeader(plan: String, artifactCount: Int)
+    case checkpoint(
+      header: String,
+      artifactCount: Int,
+      artifacts: [ValidationGalleryArtifact]
+    )
+  }
+
+  let id: String
+  let content: Content
+
+  static func makeRows(
+    from sections: [ValidationGalleryPlatformSection]
+  ) -> [FlatBrowserRow] {
+    var rows: [FlatBrowserRow] = []
+    for platform in sections {
+      let count = platform.plans.reduce(0) {
+        $0 + $1.checkpoints.reduce(0) { $0 + $1.artifacts.count }
+      }
+      rows.append(FlatBrowserRow(
+        id: "platform:\(platform.id)",
+        content: .platformHeader(platform: platform.platform, artifactCount: count)
+      ))
+      for plan in platform.plans {
+        let planCount = plan.checkpoints.reduce(0) { $0 + $1.artifacts.count }
+        rows.append(FlatBrowserRow(
+          id: "plan:\(plan.id)",
+          content: .planHeader(plan: plan.plan, artifactCount: planCount)
+        ))
+        for checkpoint in plan.checkpoints {
+          rows.append(FlatBrowserRow(
+            id: "checkpoint:\(checkpoint.id)",
+            content: .checkpoint(
+              header: checkpoint.checkpoint,
+              artifactCount: checkpoint.artifacts.count,
+              artifacts: checkpoint.artifacts
+            )
+          ))
+        }
+      }
+    }
+    return rows
+  }
+}
 
 public struct ValidationGallerySelectionFeedback: Equatable, Sendable {
   public enum Kind: Equatable, Sendable {
@@ -39,6 +99,7 @@ final class ValidationScopedResourceAccess {
 @MainActor
 @Observable
 public final class ValidationGalleryStore {
+
   typealias NumberedCommentItem = (
     artifact: ValidationGalleryArtifact,
     comment: ValidationGalleryComment,
@@ -47,10 +108,23 @@ public final class ValidationGalleryStore {
 
   public var searchText = "" {
     didSet {
-      recomputeFilteredState()
-      normalizeSelectionAfterFilterChange()
+      if searchDebounceInterval > .zero {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: self?.searchDebounceInterval ?? .milliseconds(200))
+          guard !Task.isCancelled else { return }
+          self?.recomputeFilteredState()
+          self?.normalizeSelectionAfterFilterChange()
+        }
+      } else {
+        recomputeFilteredState()
+        normalizeSelectionAfterFilterChange()
+      }
     }
   }
+
+  private var searchDebounceTask: Task<Void, Never>?
+  let searchDebounceInterval: Duration
 
   public var sidebarSelection: ValidationGallerySidebarSelection = .all {
     didSet {
@@ -61,6 +135,7 @@ public final class ValidationGalleryStore {
 
   public internal(set) var snapshot: ValidationBundleSnapshot? {
     didSet {
+      cachedAnnotationIDs = nil
       recomputeFilteredState()
     }
   }
@@ -72,7 +147,17 @@ public final class ValidationGalleryStore {
   public internal(set) var selectedCommentID: ValidationGalleryComment.ID?
   public internal(set) var workspacePreferences: ValidationGalleryWorkspacePreferences
 
-  var commentsByBundleRoot = [String: [ValidationGalleryArtifact.ID: [ValidationGalleryComment]]]()
+  var commentsByBundleRoot = [String: [ValidationGalleryArtifact.ID: [ValidationGalleryComment]]]() {
+    didSet {
+      cachedAnnotationIDs = nil
+      refreshSelectedArtifactComments()
+    }
+  }
+
+  /// Cached mapping from comment ID → annotation number, built lazily from
+  /// `numberedCurrentBundleComments()`. Invalidated whenever comments or the
+  /// snapshot change.
+  var cachedAnnotationIDs: [ValidationGalleryComment.ID: Int]?
 
   let _loadFromSource: @Sendable (ValidationBundleSource) async throws -> ValidationBundleSnapshot
   let _loadRecentBundles: @Sendable () async throws -> [ValidationRecentBundle]
@@ -125,7 +210,8 @@ public final class ValidationGalleryStore {
 
       return ValidationResolvedBookmark(url: url, isStale: isStale)
     },
-    now: @escaping @Sendable () -> Date = Date.init
+    now: @escaping @Sendable () -> Date = Date.init,
+    searchDebounceInterval: Duration = .milliseconds(200)
   ) {
     self._loadFromSource = { source in try await loader.load(from: source) }
     self._loadRecentBundles = { try await recentBundleStore.loadRecentBundles() }
@@ -135,6 +221,7 @@ public final class ValidationGalleryStore {
     self.makeBookmark = makeBookmark
     self.resolveBookmark = resolveBookmark
     self.now = now
+    self.searchDebounceInterval = searchDebounceInterval
     self.workspacePreferences = (
       try? workspacePreferencesStore.loadWorkspacePreferences()
     ) ?? .defaults
@@ -143,7 +230,15 @@ public final class ValidationGalleryStore {
   public internal(set) var filteredArtifacts: [ValidationGalleryArtifact] = []
   public internal(set) var visiblePlatformSections: [ValidationGalleryPlatformSection] = []
   public internal(set) var selectedArtifact: ValidationGalleryArtifact?
+  @ObservationIgnored private var cachedSelectedArtifactIndex: Int?
+  @ObservationIgnored private var cachedSelectedArtifactComments = [ValidationGalleryNumberedComment]()
   public internal(set) var filteredAuditIssues: [ValidationGalleryAuditIssue] = []
+  public internal(set) var selectedArtifactAuditIssues: [ValidationGalleryAuditIssue] = []
+  internal var flatBrowserRows: [FlatBrowserRow] = []
+
+  /// Bumped once at the end of a selection transaction to coalesce multiple
+  /// internal `@ObservationIgnored` property changes into a single notification.
+  private var selectionRevision: UInt64 = 0
 
   public var hasActiveFilters: Bool {
     trimmedSearchText.isEmpty == false || sidebarSelection != .all
@@ -177,28 +272,32 @@ public final class ValidationGalleryStore {
   }
 
   public var selectedArtifactPositionText: String? {
-    guard let selectedArtifactIndex else {
+    _ = selectionRevision
+    guard let cachedSelectedArtifactIndex else {
       return nil
     }
-    return "\(selectedArtifactIndex + 1) of \(filteredArtifacts.count) visible"
+    return "\(cachedSelectedArtifactIndex + 1) of \(filteredArtifacts.count) visible"
   }
 
   public var canSelectPreviousArtifact: Bool {
-    guard let selectedArtifactIndex else {
+    _ = selectionRevision
+    guard let cachedSelectedArtifactIndex else {
       return false
     }
-    return selectedArtifactIndex > 0
+    return cachedSelectedArtifactIndex > 0
   }
 
   public var canSelectNextArtifact: Bool {
-    guard let selectedArtifactIndex else {
+    _ = selectionRevision
+    guard let cachedSelectedArtifactIndex else {
       return false
     }
-    return selectedArtifactIndex < filteredArtifacts.count - 1
+    return cachedSelectedArtifactIndex < filteredArtifacts.count - 1
   }
 
   public var selectedArtifactComments: [ValidationGalleryNumberedComment] {
-    numberedComments(for: selectedArtifact)
+    _ = selectionRevision
+    return cachedSelectedArtifactComments
   }
 
   public var canCommentSelectedArtifact: Bool {
@@ -216,11 +315,14 @@ public final class ValidationGalleryStore {
   // MARK: - Selection & Navigation
 
   public func selectArtifact(_ artifactID: ValidationGalleryArtifact.ID?) {
+    let state = gallerySignposter.beginInterval("selectArtifact")
+    defer { gallerySignposter.endInterval("selectArtifact", state) }
+    guard selectedArtifactID != artifactID else { return }
     selectedArtifactID = artifactID
     recomputeSelectedArtifact()
-    selectionFeedback = nil
+    if selectionFeedback != nil { selectionFeedback = nil }
     normalizeSelectionAfterFilterChange()
-    normalizeSelectedComment()
+    selectionRevision &+= 1
   }
 
   public func clearFilters() {
@@ -231,7 +333,7 @@ public final class ValidationGalleryStore {
   }
 
   public func dismissSelectionFeedback() {
-    selectionFeedback = nil
+    if selectionFeedback != nil { selectionFeedback = nil }
   }
 
   public func selectComment(_ commentID: ValidationGalleryComment.ID?) {
@@ -262,23 +364,26 @@ public final class ValidationGalleryStore {
   func normalizeSelectionAfterFilterChange() {
     let visibleArtifacts = filteredArtifacts
     guard visibleArtifacts.isEmpty == false else {
-      selectedArtifactID = nil
+      if selectedArtifactID != nil { selectedArtifactID = nil }
       recomputeSelectedArtifact()
-      selectionFeedback = nil
-      selectedCommentID = nil
+      if selectionFeedback != nil { selectionFeedback = nil }
+      if selectedCommentID != nil { selectedCommentID = nil }
+      selectionRevision &+= 1
       return
     }
 
     if let selectedArtifactID,
       visibleArtifacts.contains(where: { $0.id == selectedArtifactID })
     {
-      selectionFeedback = nil
+      if selectionFeedback != nil { selectionFeedback = nil }
       normalizeSelectedComment()
+      selectionRevision &+= 1
       return
     }
 
     let previousSelectionID = selectedArtifactID
-    selectedArtifactID = visibleArtifacts.first?.id
+    let newID = visibleArtifacts.first?.id
+    if newID != selectedArtifactID { selectedArtifactID = newID }
     recomputeSelectedArtifact()
     if previousSelectionID != nil, let selectedArtifact {
       selectionFeedback = ValidationGallerySelectionFeedback(
@@ -287,9 +392,10 @@ public final class ValidationGalleryStore {
         message: ValidationGalleryFormatting.selectionUpdatedMessage(for: selectedArtifact)
       )
     } else {
-      selectionFeedback = nil
+      if selectionFeedback != nil { selectionFeedback = nil }
     }
     normalizeSelectedComment()
+    selectionRevision &+= 1
   }
 
   func normalizeSelectedComment() {
@@ -298,7 +404,8 @@ public final class ValidationGalleryStore {
       return
     }
 
-    selectedCommentID = visibleComments.first?.id
+    let newCommentID = visibleComments.first?.id
+    if newCommentID != selectedCommentID { selectedCommentID = newCommentID }
   }
 
   var currentBundleRootKey: String? {
@@ -306,6 +413,9 @@ public final class ValidationGalleryStore {
   }
 
   func numberedCurrentBundleComments() -> [NumberedCommentItem] {
+    let state = gallerySignposter.beginInterval("numberedCurrentBundleComments")
+    defer { gallerySignposter.endInterval("numberedCurrentBundleComments", state) }
+
     guard let bundleRootKey = currentBundleRootKey else {
       return []
     }
@@ -338,22 +448,37 @@ public final class ValidationGalleryStore {
   // MARK: - Private
 
   private func recomputeFilteredState() {
+    let state = gallerySignposter.beginInterval("recomputeFilteredState")
+    defer { gallerySignposter.endInterval("recomputeFilteredState", state) }
+
     guard let snapshot else {
       filteredArtifacts = []
       visiblePlatformSections = []
+      flatBrowserRows = []
       filteredAuditIssues = []
       recomputeSelectedArtifact()
       return
     }
 
     let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    filteredArtifacts = snapshot.artifacts.filter { artifact in
+    let filterState = gallerySignposter.beginInterval("filterArtifacts")
+    let newFilteredArtifacts = snapshot.artifacts.filter { artifact in
       matchesSelection(artifact) && matchesSearch(artifact, query: trimmedQuery)
     }
-    visiblePlatformSections = ValidationGalleryOrganizer.makePlatformSections(
+    gallerySignposter.endInterval("filterArtifacts", filterState)
+    if newFilteredArtifacts != filteredArtifacts {
+      filteredArtifacts = newFilteredArtifacts
+    }
+
+    let newSections = ValidationGalleryOrganizer.makePlatformSections(
       from: filteredArtifacts
     )
-    filteredAuditIssues = snapshot.auditIssues.filter { issue in
+    if newSections != visiblePlatformSections {
+      visiblePlatformSections = newSections
+      flatBrowserRows = FlatBrowserRow.makeRows(from: visiblePlatformSections)
+    }
+
+    let newAuditIssues = snapshot.auditIssues.filter { issue in
       switch sidebarSelection {
       case .all:
         true
@@ -363,15 +488,48 @@ public final class ValidationGalleryStore {
         issue.record.platform == platform && issue.record.plan == plan
       }
     }
+    if newAuditIssues != filteredAuditIssues {
+      filteredAuditIssues = newAuditIssues
+    }
     recomputeSelectedArtifact()
   }
 
   private func recomputeSelectedArtifact() {
+    let state = gallerySignposter.beginInterval("recomputeSelectedArtifact")
+    defer { gallerySignposter.endInterval("recomputeSelectedArtifact", state) }
+
+    let newSelectedIndex: Int?
     if let selectedArtifactID {
-      selectedArtifact = filteredArtifacts.first(where: { $0.id == selectedArtifactID }) ?? filteredArtifacts.first
+      newSelectedIndex = filteredArtifacts.firstIndex(where: { $0.id == selectedArtifactID })
+        ?? filteredArtifacts.indices.first
     } else {
-      selectedArtifact = filteredArtifacts.first
+      newSelectedIndex = filteredArtifacts.indices.first
     }
+
+    let newSelected = newSelectedIndex.map { filteredArtifacts[$0] }
+
+    if newSelectedIndex != cachedSelectedArtifactIndex {
+      cachedSelectedArtifactIndex = newSelectedIndex
+    }
+    if newSelected != selectedArtifact {
+      selectedArtifact = newSelected
+    }
+
+    let newAuditIssues: [ValidationGalleryAuditIssue]
+    if let artifact = selectedArtifact {
+      newAuditIssues = filteredAuditIssues.filter {
+        $0.record.platform == artifact.record.platform
+          && $0.record.plan == artifact.record.plan
+          && $0.record.checkpoint == artifact.record.checkpoint
+      }
+    } else {
+      newAuditIssues = []
+    }
+    if newAuditIssues != selectedArtifactAuditIssues {
+      selectedArtifactAuditIssues = newAuditIssues
+    }
+
+    refreshSelectedArtifactComments()
   }
 
   private func matchesSelection(_ artifact: ValidationGalleryArtifact) -> Bool {
@@ -412,20 +570,13 @@ public final class ValidationGalleryStore {
     searchText.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private var selectedArtifactIndex: Int? {
-    guard let selectedArtifact else {
-      return nil
-    }
-    return filteredArtifacts.firstIndex(where: { $0.id == selectedArtifact.id })
-  }
-
   private func updateSelectedArtifact(by offset: Int) {
-    guard let selectedArtifactIndex else {
+    guard let cachedSelectedArtifactIndex else {
       return
     }
 
-    let targetIndex = min(max(selectedArtifactIndex + offset, 0), filteredArtifacts.count - 1)
-    guard targetIndex != selectedArtifactIndex else {
+    let targetIndex = min(max(cachedSelectedArtifactIndex + offset, 0), filteredArtifacts.count - 1)
+    guard targetIndex != cachedSelectedArtifactIndex else {
       return
     }
 
@@ -433,6 +584,14 @@ public final class ValidationGalleryStore {
     recomputeSelectedArtifact()
     selectionFeedback = nil
     normalizeSelectedComment()
+    selectionRevision &+= 1
+  }
+
+  private func refreshSelectedArtifactComments() {
+    let newComments = numberedComments(for: selectedArtifact)
+    if newComments != cachedSelectedArtifactComments {
+      cachedSelectedArtifactComments = newComments
+    }
   }
 
   private func compareArtifactsForCommentOrdering(

@@ -12,6 +12,7 @@ struct ValidationGalleryRegularArtifactList: View {
         isSelected: selectedArtifactID == artifact.id,
         onSelect: { onSelectArtifact(artifact.id) }
       )
+      .equatable()
     }
   }
 }

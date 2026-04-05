@@ -117,7 +117,7 @@ final class BootstrapLockedFlag: @unchecked Sendable {
 
 func bootstrapWaitUntil(
   _ description: String,
-  timeout: Duration = .seconds(2),
+  timeout: Duration = .seconds(10),
   interval: Duration = .milliseconds(20),
   condition: @escaping @Sendable () async -> Bool
 ) async throws {

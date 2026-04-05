@@ -225,7 +225,6 @@ public struct ValidationGalleryRootView: View {
       self.pendingExportScope = nil
       onRequestExport(pendingExportScope)
     }
-    .animation(.snappy(duration: 0.24), value: store.sidebarSelection)
     .animation(.snappy(duration: 0.22), value: exportFeedback)
   }
 
@@ -245,14 +244,6 @@ public struct ValidationGalleryRootView: View {
   private var inspectorView: some View {
     ValidationGalleryInspectorView(
       store: store,
-      snapshot: store.snapshot,
-      selectedArtifact: store.selectedArtifact,
-      filteredAuditIssues: store.filteredAuditIssues,
-      selectionSummary: store.selectedArtifactPositionText,
-      canSelectPreviousArtifact: store.canSelectPreviousArtifact,
-      canSelectNextArtifact: store.canSelectNextArtifact,
-      onSelectPreviousArtifact: store.selectPreviousArtifact,
-      onSelectNextArtifact: store.selectNextArtifact,
       onPreviewArtifact: { presentSheet(for: $0, mode: .preview) },
       onAddPointComment: { presentSheet(for: $0, mode: .addPointComment) },
       onAddAreaComment: { presentSheet(for: $0, mode: .addAreaComment) },
@@ -454,6 +445,7 @@ private struct ValidationGallerySidebar: View {
       }
     }
     .listStyle(.sidebar)
+    .animation(.snappy(duration: 0.24), value: store.sidebarSelection)
     .frame(minWidth: 200, idealWidth: 220, maxWidth: 240)
     .accessibilityIdentifier("validation-gallery-sidebar")
   }

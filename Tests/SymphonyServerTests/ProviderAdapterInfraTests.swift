@@ -143,6 +143,7 @@ import Testing
   process.onOutput { data in received.withLock { $0.append(data) } }
   process.onTermination { code in terminated.withLock { $0 = code } }
 
+  await Task.yield()
   try await bootstrapWaitUntil("process terminates") { terminated.withLock { $0 } != nil }
 
   #expect(terminated.withLock { $0 } == 0)

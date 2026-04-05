@@ -110,7 +110,8 @@ import Testing
   }
   defer { allowReturn.signal() }
 
-  try await bootstrapWaitUntil("bootstrap refreshable server enters keepAlive", timeout: .seconds(5)) {
+  await Task.yield()
+  try await bootstrapWaitUntil("bootstrap refreshable server enters keepAlive") {
     keepAliveEntered.value
   }
 

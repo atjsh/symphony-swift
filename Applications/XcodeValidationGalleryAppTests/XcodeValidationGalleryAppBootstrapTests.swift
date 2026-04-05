@@ -121,7 +121,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
   }
 
   @MainActor
-  @Test func exportControllerRoutesToUiTestingSaverWhenDirectoryIsProvided() throws {
+  @Test func exportControllerRoutesToUiTestingSaverWhenDirectoryIsProvided() async throws {
     let exportDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let controller: XcodeValidationGalleryExportController
@@ -143,7 +143,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
     )
 
     controller.requestExport(scope: .currentBundle)
-    controller.performExport(using: store)
+    await controller.performExport(using: store)
 
     #expect(controller.lastRoute == .uiTestingFolder)
     #expect(controller.lastExportURL?.lastPathComponent == "validation-comments-19700101-000100")
@@ -152,7 +152,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   #if os(macOS)
     @MainActor
-    @Test func exportControllerRoutesToMacSavePanelSaver() {
+    @Test func exportControllerRoutesToMacSavePanelSaver() async {
       let savedURL = URL(fileURLWithPath: "/tmp/exported-comments", isDirectory: true)
       let controller = XcodeValidationGalleryExportController(
         environment: [:],
@@ -165,7 +165,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
       )
 
       controller.requestExport(scope: .selectedArtifact)
-      controller.performExport(using: store)
+      await controller.performExport(using: store)
 
       #expect(controller.lastRoute == .macOSFolder)
       #expect(controller.lastExportURL == savedURL)
@@ -173,7 +173,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
     }
   #else
     @MainActor
-    @Test func exportControllerRoutesToPackageExporterOnMobile() {
+    @Test func exportControllerRoutesToPackageExporterOnMobile() async {
       let controller = XcodeValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator()
@@ -184,7 +184,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
       )
 
       controller.requestExport(scope: .selectedArtifact)
-      controller.performExport(using: store)
+      await controller.performExport(using: store)
 
       #expect(controller.lastRoute == .packageDocument)
       #expect(controller.isPackageExporterPresented)
@@ -194,7 +194,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
   #endif
 
   @MainActor
-  @Test func exportControllerSurfacesExportFailuresWithoutUsingBundleLoadErrors() {
+  @Test func exportControllerSurfacesExportFailuresWithoutUsingBundleLoadErrors() async {
     let controller: XcodeValidationGalleryExportController
     #if os(macOS)
       controller = XcodeValidationGalleryExportController(
@@ -214,7 +214,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
     )
 
     controller.requestExport(scope: .selectedArtifact)
-    controller.performExport(using: store)
+    await controller.performExport(using: store)
 
     #expect(controller.request == nil)
     #expect(controller.error == .exportFailed("Disk full."))

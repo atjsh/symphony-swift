@@ -63,22 +63,6 @@ extension XcodeValidationGalleryAppUITests {
     element("import-request-marker")
   }
 
-  func scrollToElement(
-    _ identifier: String,
-    in scrollView: XCUIElement,
-    maxSwipes: Int = 6
-  ) -> XCUIElement {
-    let target = app.buttons[identifier]
-    var swipeCount = 0
-
-    while target.exists == false && swipeCount < maxSwipes {
-      scrollView.swipeUp()
-      swipeCount += 1
-    }
-
-    return target
-  }
-
   func waitForUIStability() {
     Thread.sleep(forTimeInterval: 1)
   }
