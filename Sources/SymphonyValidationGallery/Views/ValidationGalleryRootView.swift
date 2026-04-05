@@ -226,7 +226,6 @@ public struct ValidationGalleryRootView: View {
       onRequestExport(pendingExportScope)
     }
     .animation(.snappy(duration: 0.24), value: store.sidebarSelection)
-    .animation(.snappy(duration: 0.24), value: store.searchText)
     .animation(.snappy(duration: 0.22), value: exportFeedback)
   }
 

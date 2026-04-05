@@ -7,57 +7,73 @@ struct ValidationGalleryRegularArtifactList: View {
 
   var body: some View {
     ForEach(artifacts) { artifact in
-        Button {
-          onSelectArtifact(artifact.id)
-        } label: {
-          HStack(alignment: .top, spacing: 12) {
-            ValidationGalleryArtifactListThumbnail(artifact: artifact)
+      ValidationGalleryArtifactListRow(
+        artifact: artifact,
+        isSelected: selectedArtifactID == artifact.id,
+        onSelect: { onSelectArtifact(artifact.id) }
+      )
+    }
+  }
+}
 
-            VStack(alignment: .leading, spacing: 4) {
-              Text(ValidationGalleryFormatting.artifactTitle(artifact))
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+private struct ValidationGalleryArtifactListRow: View, Equatable {
+  let artifact: ValidationGalleryArtifact
+  let isSelected: Bool
+  let onSelect: () -> Void
 
-              Text(ValidationGalleryFormatting.artifactBrowserSubtitle(artifact))
-                .font(.footnote)
-                .foregroundStyle(validationGalleryMutedForeground(opacity: 0.94))
-                .fixedSize(horizontal: false, vertical: true)
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.artifact == rhs.artifact && lhs.isSelected == rhs.isSelected
+  }
 
-              Text(ValidationGalleryFormatting.sourceBundleTitle(artifact))
-                .font(.footnote.monospaced())
-                .foregroundStyle(validationGalleryMutedForeground(opacity: 0.82))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(alignment: .top, spacing: 12) {
+        ValidationGalleryArtifactListThumbnail(artifact: artifact)
 
-            Spacer(minLength: 8)
-          }
-          .padding(.horizontal, 14)
-          .padding(.vertical, 12)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .contentShape(Rectangle())
-          .background(
-            selectedArtifactID == artifact.id
-              ? Color.accentColor.opacity(0.10)
-              : Color.clear
-          )
+        VStack(alignment: .leading, spacing: 4) {
+          Text(ValidationGalleryFormatting.artifactTitle(artifact))
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+
+          Text(ValidationGalleryFormatting.artifactBrowserSubtitle(artifact))
+            .font(.footnote)
+            .foregroundStyle(validationGalleryMutedForeground(opacity: 0.94))
+            .fixedSize(horizontal: false, vertical: true)
+
+          Text(ValidationGalleryFormatting.sourceBundleTitle(artifact))
+            .font(.footnote.monospaced())
+            .foregroundStyle(validationGalleryMutedForeground(opacity: 0.82))
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(ValidationGalleryFormatting.artifactTitle(artifact))
-        .accessibilityValue(
-          "\(ValidationGalleryFormatting.planTitle(artifact.record.plan)), \(ValidationGalleryFormatting.artifactBrowserSubtitle(artifact))"
-        )
-        .accessibilityHint("Opens the selected validation artifact.")
-        .accessibilityIdentifier(
-          "artifact-card-\(ValidationGalleryFormatting.accessibilitySlug(for: artifact))"
-        )
-        .overlay(alignment: .bottom) {
-          Divider()
-            .padding(.leading, 82)
-        }
+
+        Spacer(minLength: 8)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+      .background(
+        isSelected
+          ? Color.accentColor.opacity(0.10)
+          : Color.clear
+      )
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(ValidationGalleryFormatting.artifactTitle(artifact))
+    .accessibilityValue(
+      "\(ValidationGalleryFormatting.planTitle(artifact.record.plan)), \(ValidationGalleryFormatting.artifactBrowserSubtitle(artifact))"
+    )
+    .accessibilityHint("Opens the selected validation artifact.")
+    .accessibilityIdentifier(
+      "artifact-card-\(ValidationGalleryFormatting.accessibilitySlug(for: artifact))"
+    )
+    .overlay(alignment: .bottom) {
+      Divider()
+        .padding(.leading, 82)
     }
   }
 }

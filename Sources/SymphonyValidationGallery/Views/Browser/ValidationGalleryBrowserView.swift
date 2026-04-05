@@ -129,6 +129,9 @@ private struct ValidationGalleryRegularBrowserView: View {
         if store.hasNoVisibleArtifacts {
           ValidationGalleryFilteredEmptyStateView(store: store)
         } else {
+          let displayMode = store.workspacePreferences.browserDisplayMode
+          let selectedID = store.selectedArtifactID
+          let selectArtifact = store.selectArtifact
           ForEach(makeFlatBrowserRows(from: store.visiblePlatformSections)) { row in
             switch row.content {
             case .platformHeader(let platform, let count):
@@ -164,19 +167,19 @@ private struct ValidationGalleryRegularBrowserView: View {
                 }
                 .allowsHitTesting(false)
 
-                if store.workspacePreferences.browserDisplayMode == .list {
+                if displayMode == .list {
                   ValidationGalleryRegularArtifactList(
                     artifacts: artifacts,
-                    selectedArtifactID: store.selectedArtifact?.id,
-                    onSelectArtifact: store.selectArtifact
+                    selectedArtifactID: selectedID,
+                    onSelectArtifact: selectArtifact
                   )
                 } else {
                   LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
                     ForEach(artifacts) { artifact in
                       ValidationGalleryArtifactCard(
                         artifact: artifact,
-                        isSelected: store.selectedArtifact?.id == artifact.id,
-                        onSelect: { store.selectArtifact(artifact.id) }
+                        isSelected: selectedID == artifact.id,
+                        onSelect: { selectArtifact(artifact.id) }
                       )
                     }
                   }

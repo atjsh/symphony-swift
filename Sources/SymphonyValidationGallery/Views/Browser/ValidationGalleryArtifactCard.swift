@@ -1,9 +1,13 @@
 import SwiftUI
 
-struct ValidationGalleryArtifactCard: View {
+struct ValidationGalleryArtifactCard: View, Equatable {
   let artifact: ValidationGalleryArtifact
   let isSelected: Bool
   let onSelect: () -> Void
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.artifact == rhs.artifact && lhs.isSelected == rhs.isSelected
+  }
 
   var body: some View {
     Button(action: onSelect) {
