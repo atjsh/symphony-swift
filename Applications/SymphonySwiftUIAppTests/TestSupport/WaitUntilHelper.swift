@@ -36,4 +36,3 @@ func waitUntil(
     try await Task.sleep(for: pollInterval)
   }
 }
-}

@@ -23,12 +23,24 @@ import SymphonyValidationGallery
 ///     │          └─ connects to validation server HTTP   │
 ///     └─────────────────────────────────────────────────┘
 struct ValidationGalleryContainerView: View {
+
+  enum InnerTab: String {
+    case gallery
+    case runner
+  }
+
   var store: ValidationGalleryStore
   var runnerStore: ValidationRunnerStore
   @Bindable var importController: ValidationGalleryImportController
   @Bindable var exportController: ValidationGalleryExportController
 
   @State private var hasBootstrapped = false
+  @State private var selectedInnerTab: InnerTab = {
+    if ProcessInfo.processInfo.environment["SYMPHONY_UI_TESTING_INNER_TAB"] == "runner" {
+      return .runner
+    }
+    return .gallery
+  }()
 
   init(
     store: ValidationGalleryStore,
@@ -43,17 +55,18 @@ struct ValidationGalleryContainerView: View {
   }
 
   var body: some View {
-    TabView {
-      Tab("Gallery", systemImage: "photo.on.rectangle") {
+    TabView(selection: $selectedInnerTab) {
+      Tab("Gallery", systemImage: "photo.on.rectangle", value: .gallery) {
         galleryContentView
       }
       .accessibilityIdentifier("galleryTab")
 
-      Tab("Runner", systemImage: "play.rectangle") {
+      Tab("Runner", systemImage: "play.rectangle", value: .runner) {
         ValidationRunnerView(store: runnerStore)
       }
       .accessibilityIdentifier("runnerTab")
     }
+    .tabViewStyle(.tabBarOnly)
     .task {
       await bootstrapIfNeeded()
     }
@@ -88,7 +101,8 @@ struct ValidationGalleryContainerView: View {
       onOpenManifest: { importController.request(.manifest) },
       onRequestExport: { exportController.requestExport(scope: $0) },
       exportFeedback: exportController.feedbackMessage,
-      isModalPresentationActive: exportController.request != nil
+      isModalPresentationActive: exportController.request != nil,
+      usesToolbarSearch: false
     )
     .overlay(alignment: .bottomTrailing) {
       if importController.capturesRequests {

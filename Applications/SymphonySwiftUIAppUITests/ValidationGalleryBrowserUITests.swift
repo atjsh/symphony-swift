@@ -103,7 +103,7 @@ final class ValidationGalleryBrowserUITests: XCTestCase {
     launchApp(withFixtureBundle: true)
 
     #if os(macOS)
-      let searchField = app.searchFields["Filter artifacts"]
+      let searchField = filterArtifactsField()
       XCTAssertTrue(searchField.waitForExistence(timeout: 5), app.debugDescription)
       app.activate()
       waitForUIStability()

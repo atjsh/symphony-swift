@@ -128,14 +128,12 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
   // MARK: - Launch
 
   private func navigateToValidationTab() {
-    let validationTab = element("validationTab")
-    guard validationTab.waitForExistence(timeout: 5) else { return }
-    #if os(macOS)
-      validationTab.click()
-    #else
+    #if !os(macOS)
+      let validationTab = app.staticTexts["Validation"].firstMatch
+      guard validationTab.waitForExistence(timeout: 5) else { return }
       validationTab.tap()
+      Thread.sleep(forTimeInterval: 1)
     #endif
-    Thread.sleep(forTimeInterval: 1)
   }
 
   private func launchWithCanonicalBundle() {
@@ -153,6 +151,7 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
     }
 
     app.launchArguments = ["--ui-testing"]
+    app.launchEnvironment["SYMPHONY_UI_TESTING_INITIAL_TAB"] = "validation"
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH"] = canonicalBundlePath ?? ""
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"] = suiteName
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
@@ -186,11 +185,15 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
     app.launchArguments = ["--ui-testing"]
     app.launchEnvironment.removeValue(forKey: "XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH")
     app.launchEnvironment.removeValue(forKey: "XCODE_VALIDATION_GALLERY_UI_TEST_MANIFEST_PATH")
+    app.launchEnvironment["SYMPHONY_UI_TESTING_INITIAL_TAB"] = "validation"
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_USE_BUNDLED_FIXTURE"] = "1"
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"] = suiteName
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
     app.launch()
     app.activate()
+    #if os(macOS)
+      dismissReopenDialogIfPresent()
+    #endif
     navigateToValidationTab()
 
     let browser = element("validation-gallery-browser")
@@ -291,6 +294,23 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
           _ = element("validation-gallery-browser").waitForExistence(timeout: 3)
         }
       }
+    }
+
+    private func dismissReopenDialogIfPresent() {
+      let dialog = app.dialogs.firstMatch
+      guard dialog.waitForExistence(timeout: 2) else { return }
+      let dontReopenButton = dialog.buttons
+        .matching(NSPredicate(format: "title CONTAINS %@", "Reopen"))
+        .element(boundBy: 1)
+      if dontReopenButton.exists {
+        dontReopenButton.click()
+      } else {
+        let buttons = dialog.buttons
+        if buttons.count > 0 {
+          buttons.element(boundBy: buttons.count - 1).click()
+        }
+      }
+      Thread.sleep(forTimeInterval: 1)
     }
   #endif
 }

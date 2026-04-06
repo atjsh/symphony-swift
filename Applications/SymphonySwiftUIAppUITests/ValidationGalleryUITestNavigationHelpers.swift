@@ -24,7 +24,7 @@ extension ValidationGalleryBrowserUITests {
     waitForFixtureBrowser()
     returnToBrowserIfNeeded()
     #if os(macOS)
-      let searchField = app.searchFields["Filter artifacts"]
+      let searchField = filterArtifactsField()
       XCTAssertTrue(searchField.waitForExistence(timeout: 5), app.debugDescription)
       app.activate()
       waitForUIStability()
@@ -117,7 +117,10 @@ extension ValidationGalleryBrowserUITests {
       return false
     }
 
-    return app.searchFields["Filter artifacts"].waitForExistence(timeout: timeout)
+    if app.searchFields["Filter artifacts"].waitForExistence(timeout: 2) {
+      return true
+    }
+    return app.textFields["Filter artifacts"].waitForExistence(timeout: timeout)
   }
 
   func exportSheetIsVisible(timeout: TimeInterval) -> Bool {
@@ -128,7 +131,7 @@ extension ValidationGalleryBrowserUITests {
   func enterSearchQuery(_ query: String) {
     clearActiveFiltersIfNeeded()
 
-    let searchField = app.searchFields["Filter artifacts"]
+    let searchField = filterArtifactsField()
     XCTAssertTrue(searchField.waitForExistence(timeout: 5), app.debugDescription)
     app.activate()
     waitForUIStability()
@@ -139,6 +142,14 @@ extension ValidationGalleryBrowserUITests {
       searchField.tap()
       searchField.typeText(query)
     #endif
+  }
+
+  func filterArtifactsField() -> XCUIElement {
+    let toolbarSearchField = app.searchFields["Filter artifacts"]
+    if toolbarSearchField.exists {
+      return toolbarSearchField
+    }
+    return app.textFields["Filter artifacts"]
   }
 
   func clearActiveFiltersIfNeeded() {

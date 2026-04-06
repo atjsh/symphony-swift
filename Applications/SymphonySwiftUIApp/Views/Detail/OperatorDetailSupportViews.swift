@@ -91,11 +91,7 @@ struct OperatorDetailTabBar: View {
 
   var body: some View {
     #if os(macOS)
-      if theme.compact {
-        scrollingTabBar
-      } else {
-        OperatorDetailTabBar.makeSegmentedTabPicker(selection: $selection)
-      }
+      scrollingTabBar
     #else
       if theme.compact {
         scrollingTabBar

@@ -38,6 +38,7 @@ extension ValidationGalleryBrowserUITests {
     application.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"] =
       Self.isolatedDefaultsSuiteName(for: name)
     application.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_EXPORT_DIRECTORY"] = exportDirectory?.path ?? ""
+    application.launchEnvironment["SYMPHONY_UI_TESTING_INITIAL_TAB"] = "validation"
     if withFixtureBundle == false {
       application.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH"] = ""
       application.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_MANIFEST_PATH"] = ""
@@ -47,31 +48,50 @@ extension ValidationGalleryBrowserUITests {
     app.activate()
     waitForUIStability()
     #if os(macOS)
+      dismissReopenDialogIfPresent()
       ensureMainWindowIsVisible()
     #endif
-    navigateToValidationTab()
   }
 
+  #if os(macOS)
+    private func dismissReopenDialogIfPresent() {
+      let dialog = app.dialogs.firstMatch
+      guard dialog.waitForExistence(timeout: 2) else { return }
+      let dontReopenButton = dialog.buttons
+        .matching(NSPredicate(format: "title CONTAINS %@", "Reopen"))
+        .element(boundBy: 1)
+      if dontReopenButton.exists {
+        dontReopenButton.click()
+      } else {
+        // Fallback: click the last button in the dialog to dismiss it.
+        let buttons = dialog.buttons
+        if buttons.count > 0 {
+          buttons.element(boundBy: buttons.count - 1).click()
+        }
+      }
+      waitForUIStability()
+    }
+  #endif
+
   func navigateToValidationTab() {
-    let validationTab = element("validationTab")
-    XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
-    #if os(macOS)
-      validationTab.click()
-    #else
+    // App launches with SYMPHONY_UI_TESTING_INITIAL_TAB=validation, so the
+    // Validation tab is already selected on macOS. On iOS/iPadOS the tab bar
+    // renders standard buttons that can be tapped directly.
+    #if !os(macOS)
+      let validationTab = app.staticTexts["Validation"].firstMatch
+      XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
       validationTab.tap()
+      waitForUIStability()
     #endif
-    waitForUIStability()
   }
 
   func navigateToOperatorTab() {
-    let operatorTab = element("operatorTab")
-    XCTAssertTrue(operatorTab.waitForExistence(timeout: 5), "Operator tab must exist.\n\(app.debugDescription)")
-    #if os(macOS)
-      operatorTab.click()
-    #else
+    #if !os(macOS)
+      let operatorTab = app.staticTexts["Operator"].firstMatch
+      XCTAssertTrue(operatorTab.waitForExistence(timeout: 5), "Operator tab must exist.\n\(app.debugDescription)")
       operatorTab.tap()
+      waitForUIStability()
     #endif
-    waitForUIStability()
   }
 
   func element(_ identifier: String) -> XCUIElement {

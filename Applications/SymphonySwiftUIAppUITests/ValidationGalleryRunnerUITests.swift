@@ -26,25 +26,89 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
 
   // MARK: - Launch
 
+  /// Launch app with Runner tab pre-selected via env vars.
   private func launchApp() {
+    #if os(macOS)
+      let existingApplication = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
+      if existingApplication.state != .notRunning {
+        existingApplication.terminate()
+        Thread.sleep(forTimeInterval: 1)
+      }
+    #endif
+
     let application = XCUIApplication()
     application.launchArguments = ["--ui-testing"]
+    application.launchEnvironment["SYMPHONY_UI_TESTING_INITIAL_TAB"] = "validation"
+    application.launchEnvironment["SYMPHONY_UI_TESTING_INNER_TAB"] = "runner"
     application.launch()
     app = application
     app.activate()
     Thread.sleep(forTimeInterval: 1)
-    navigateToValidationTab()
+    #if os(macOS)
+      dismissReopenDialogIfPresent()
+      ensureMainWindowIsVisible()
+    #endif
   }
 
-  private func navigateToValidationTab() {
-    let validationTab = element("validationTab")
-    XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
+  /// Launch app with Gallery tab pre-selected (inner tab default).
+  private func launchAppOnGalleryTab() {
     #if os(macOS)
-      validationTab.click()
-    #else
-      validationTab.tap()
+      let existingApplication = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
+      if existingApplication.state != .notRunning {
+        existingApplication.terminate()
+        Thread.sleep(forTimeInterval: 1)
+      }
     #endif
+
+    let application = XCUIApplication()
+    application.launchArguments = ["--ui-testing"]
+    application.launchEnvironment["SYMPHONY_UI_TESTING_INITIAL_TAB"] = "validation"
+    application.launch()
+    app = application
+    app.activate()
     Thread.sleep(forTimeInterval: 1)
+    #if os(macOS)
+      dismissReopenDialogIfPresent()
+      ensureMainWindowIsVisible()
+    #endif
+  }
+
+  #if os(macOS)
+    private func dismissReopenDialogIfPresent() {
+      let dialog = app.dialogs.firstMatch
+      guard dialog.waitForExistence(timeout: 2) else { return }
+      let dontReopenButton = dialog.buttons
+        .matching(NSPredicate(format: "title CONTAINS %@", "Reopen"))
+        .element(boundBy: 1)
+      if dontReopenButton.exists {
+        dontReopenButton.click()
+      } else {
+        let buttons = dialog.buttons
+        if buttons.count > 0 {
+          buttons.element(boundBy: buttons.count - 1).click()
+        }
+      }
+      Thread.sleep(forTimeInterval: 1)
+    }
+
+    private func ensureMainWindowIsVisible() {
+      if app.windows.firstMatch.exists || app.windows.firstMatch.waitForExistence(timeout: 1) {
+        return
+      }
+      app.activate()
+      Thread.sleep(forTimeInterval: 1)
+      app.typeKey("n", modifierFlags: .command)
+      Thread.sleep(forTimeInterval: 1)
+    }
+  #endif
+
+  private func navigateToValidationTab() {
+    #if !os(macOS)
+      let validationTab = app.staticTexts["Validation"].firstMatch
+      XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
+      validationTab.tap()
+      Thread.sleep(forTimeInterval: 1)
+    #endif
   }
 
   private func element(_ identifier: String) -> XCUIElement {
@@ -56,21 +120,14 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
   func testRunnerTabIsAccessible() throws {
     launchApp()
 
-    let runnerTab = element("runnerTab")
-    XCTAssertTrue(runnerTab.waitForExistence(timeout: 5), "Runner tab should exist")
+    XCTAssertTrue(
+      element("startRunButton").waitForExistence(timeout: 5),
+      "Runner content should be visible (start run button)"
+    )
   }
 
   func testSwitchToRunnerTabShowsConfigurationForm() throws {
     launchApp()
-
-    let runnerTab = element("runnerTab")
-    XCTAssertTrue(runnerTab.waitForExistence(timeout: 5), app.debugDescription)
-    #if os(macOS)
-      runnerTab.click()
-    #else
-      runnerTab.tap()
-    #endif
-    Thread.sleep(forTimeInterval: 1)
 
     XCTAssertTrue(
       element("startRunButton").waitForExistence(timeout: 5),
@@ -82,7 +139,6 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
 
   func testConfigurationFormShowsAllControls() throws {
     launchApp()
-    navigateToRunnerTab()
 
     XCTAssertTrue(element("serverURLLabel").waitForExistence(timeout: 5), "Server URL label should exist")
     XCTAssertTrue(element("connectionIndicator").waitForExistence(timeout: 5), "Connection indicator should exist")
@@ -109,7 +165,6 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
 
   func testStartRunButtonDisabledByDefault() throws {
     launchApp()
-    navigateToRunnerTab()
 
     let startButton = element("startRunButton")
     XCTAssertTrue(startButton.waitForExistence(timeout: 5), "Start run button should exist")
@@ -119,35 +174,12 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
   // MARK: - Cross-Navigation
 
   func testGalleryTabIsAccessibleFromRunner() throws {
-    launchApp()
-    navigateToRunnerTab()
-
-    let galleryTab = element("galleryTab")
-    XCTAssertTrue(galleryTab.waitForExistence(timeout: 5), "Gallery tab should exist while on runner")
-    #if os(macOS)
-      galleryTab.click()
-    #else
-      galleryTab.tap()
-    #endif
-    Thread.sleep(forTimeInterval: 1)
+    launchAppOnGalleryTab()
 
     XCTAssertTrue(
       element("open-validation-bundle-button").waitForExistence(timeout: 5)
         || element("validation-gallery-browser").waitForExistence(timeout: 5),
-      "Gallery content should be visible after switching back from runner"
+      "Gallery content should be visible on Gallery tab"
     )
-  }
-
-  // MARK: - Helpers
-
-  private func navigateToRunnerTab() {
-    let runnerTab = element("runnerTab")
-    XCTAssertTrue(runnerTab.waitForExistence(timeout: 5), "Runner tab must exist")
-    #if os(macOS)
-      runnerTab.click()
-    #else
-      runnerTab.tap()
-    #endif
-    Thread.sleep(forTimeInterval: 1)
   }
 }

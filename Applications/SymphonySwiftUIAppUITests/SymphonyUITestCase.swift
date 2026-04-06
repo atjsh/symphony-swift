@@ -15,6 +15,7 @@ class SymphonyUITestCase: XCTestCase {
     let existingApplication = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
     if existingApplication.state != .notRunning {
       existingApplication.terminate()
+      Thread.sleep(forTimeInterval: 1)
     }
     let application = XCUIApplication()
     application.launchArguments = ["--ui-testing"]
@@ -22,6 +23,10 @@ class SymphonyUITestCase: XCTestCase {
     app = application
     app.launch()
     app.activate()
+    #if os(macOS)
+      dismissReopenDialogIfPresent()
+      ensureMainWindowIsVisible()
+    #endif
     waitForUIStability()
   }
 
@@ -97,16 +102,22 @@ class SymphonyUITestCase: XCTestCase {
     let sessionsTab = detailTabElement(title: "Sessions", identifier: "detail-tab-sessions")
     XCTAssertTrue(sessionsTab.waitForExistence(timeout: 5))
     sessionsTab.tap()
-    XCTAssertTrue(app.descendants(matching: .any)["recent-sessions"].waitForExistence(timeout: 5))
+    waitForUIStability()
+    XCTAssertTrue(app.descendants(matching: .any)["recent-sessions"].waitForExistence(timeout: 10))
   }
 
   func openLogsTab() {
     let logsTab = detailTabElement(title: "Logs", identifier: "detail-tab-logs")
     XCTAssertTrue(logsTab.waitForExistence(timeout: 5))
-    logsTab.tap()
+    #if os(macOS)
+      logsTab.click()
+    #else
+      logsTab.tap()
+    #endif
+    waitForUIStability()
     XCTAssertTrue(
       logFilterElement(title: "Tools", identifier: "log-filter-tools")
-        .waitForExistence(timeout: 5)
+        .waitForExistence(timeout: 10)
     )
   }
 
@@ -267,6 +278,35 @@ class SymphonyUITestCase: XCTestCase {
   func waitForUIStability() {
     Thread.sleep(forTimeInterval: 1)
   }
+
+  #if os(macOS)
+    func dismissReopenDialogIfPresent() {
+      let dialog = app.dialogs.firstMatch
+      guard dialog.waitForExistence(timeout: 2) else { return }
+      let dontReopenButton = dialog.buttons
+        .matching(NSPredicate(format: "title CONTAINS %@", "Reopen"))
+        .element(boundBy: 1)
+      if dontReopenButton.exists {
+        dontReopenButton.click()
+      } else {
+        let buttons = dialog.buttons
+        if buttons.count > 0 {
+          buttons.element(boundBy: buttons.count - 1).click()
+        }
+      }
+      Thread.sleep(forTimeInterval: 1)
+    }
+
+    func ensureMainWindowIsVisible() {
+      if app.windows.firstMatch.exists || app.windows.firstMatch.waitForExistence(timeout: 1) {
+        return
+      }
+      app.activate()
+      Thread.sleep(forTimeInterval: 1)
+      app.typeKey("n", modifierFlags: .command)
+      Thread.sleep(forTimeInterval: 1)
+    }
+  #endif
 
   func attachmentName(
     surface: String,

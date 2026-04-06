@@ -7,6 +7,7 @@ public struct ValidationGalleryRootView: View {
   let onRequestExport: (ValidationGalleryCommentExportScope) -> Void
   let exportFeedback: String?
   let isModalPresentationActive: Bool
+  let usesToolbarSearch: Bool
   @State private var sheetRoute: ValidationGalleryArtifactSheetRoute?
   @State private var sheetMode: ValidationGalleryArtifactPresentationMode = .preview
   @State private var pendingExportScope: ValidationGalleryCommentExportScope?
@@ -18,7 +19,8 @@ public struct ValidationGalleryRootView: View {
     onOpenManifest: @escaping () -> Void,
     onRequestExport: @escaping (ValidationGalleryCommentExportScope) -> Void,
     exportFeedback: String? = nil,
-    isModalPresentationActive: Bool = false
+    isModalPresentationActive: Bool = false,
+    usesToolbarSearch: Bool = true
   ) {
     self.store = store
     self.onOpenBundle = onOpenBundle
@@ -26,6 +28,7 @@ public struct ValidationGalleryRootView: View {
     self.onRequestExport = onRequestExport
     self.exportFeedback = exportFeedback
     self.isModalPresentationActive = isModalPresentationActive
+    self.usesToolbarSearch = usesToolbarSearch
   }
 
   public var body: some View {
@@ -59,7 +62,7 @@ public struct ValidationGalleryRootView: View {
     .accessibilityLabel("Validation Gallery")
     .accessibilityIdentifier("validation-gallery-root")
     .accessibilityHidden(isModalPresentationActive)
-    .searchable(text: $store.searchText, prompt: "Filter artifacts")
+    .modifier(ConditionalSearchable(text: $store.searchText, isEnabled: usesToolbarSearch))
     .toolbar {
       if horizontalSizeClass == .regular, store.snapshot != nil {
         ToolbarItem(placement: .secondaryAction) {

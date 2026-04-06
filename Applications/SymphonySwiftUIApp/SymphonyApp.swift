@@ -166,10 +166,20 @@ struct SymphonyApp: App {
     BootstrapEnvironment.isUITesting()
   }
 
+  enum AppTab: String, Hashable {
+    case `operator`
+    case validation
+  }
+
+  @State private var selectedTab: AppTab = {
+    ProcessInfo.processInfo.environment["SYMPHONY_UI_TESTING_INITIAL_TAB"] == "validation"
+      ? .validation : .operator
+  }()
+
   var body: some Scene {
     WindowGroup {
-      TabView {
-        Tab("Operator", systemImage: "desktopcomputer") {
+      TabView(selection: $selectedTab) {
+        Tab("Operator", systemImage: "desktopcomputer", value: .operator) {
           ContentView(model: model)
             .task {
               if isUITesting { await model.connect() }
@@ -177,7 +187,7 @@ struct SymphonyApp: App {
         }
         .accessibilityIdentifier("operatorTab")
 
-        Tab("Validation", systemImage: "checkmark.shield") {
+        Tab("Validation", systemImage: "checkmark.shield", value: .validation) {
           ValidationGalleryContainerView(
             store: galleryStore,
             runnerStore: galleryRunnerStore,
