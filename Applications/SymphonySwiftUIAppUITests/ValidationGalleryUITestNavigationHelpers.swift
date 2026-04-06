@@ -6,7 +6,7 @@ import XCTest
   import UIKit
 #endif
 
-extension XcodeValidationGalleryAppUITests {
+extension ValidationGalleryBrowserUITests {
 
   func forwardedValidationLaunchEnvironment() -> [String: String] {
     ProcessInfo.processInfo.environment.filter { key, _ in

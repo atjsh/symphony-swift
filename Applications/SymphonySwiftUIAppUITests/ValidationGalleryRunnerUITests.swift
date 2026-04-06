@@ -8,7 +8,7 @@ import XCTest
 
 /// UI tests for the Runner tab: navigation, configuration form state, and progress display.
 @MainActor
-final class XcodeValidationGalleryRunnerUITests: XCTestCase {
+final class ValidationGalleryRunnerUITests: XCTestCase {
   var app: XCUIApplication!
 
   override func setUpWithError() throws {
@@ -32,6 +32,18 @@ final class XcodeValidationGalleryRunnerUITests: XCTestCase {
     application.launch()
     app = application
     app.activate()
+    Thread.sleep(forTimeInterval: 1)
+    navigateToValidationTab()
+  }
+
+  private func navigateToValidationTab() {
+    let validationTab = element("validationTab")
+    XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
+    #if os(macOS)
+      validationTab.click()
+    #else
+      validationTab.tap()
+    #endif
     Thread.sleep(forTimeInterval: 1)
   }
 

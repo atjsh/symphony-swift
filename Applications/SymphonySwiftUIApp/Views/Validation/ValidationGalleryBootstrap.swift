@@ -2,18 +2,18 @@ import Foundation
 
 import SymphonyValidationGallery
 
-enum XcodeValidationGalleryBootstrapAction: Equatable, Sendable {
+enum ValidationGalleryBootstrapAction: Equatable, Sendable {
   case open(ValidationBundleSource, rememberRecent: Bool)
   case restoreLastOpenedBundle
   case none
 }
 
-enum XcodeValidationGalleryBootstrapResolver {
+enum ValidationGalleryBootstrapResolver {
   static func resolve(
     arguments: [String],
     environment: [String: String],
     bundledFixtureSource: ValidationBundleSource? = ValidationGalleryFixtureLocator.bundledFixtureSource
-  ) -> XcodeValidationGalleryBootstrapAction {
+  ) -> ValidationGalleryBootstrapAction {
     if let bundlePath = environment["XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH"],
       bundlePath.isEmpty == false
     {

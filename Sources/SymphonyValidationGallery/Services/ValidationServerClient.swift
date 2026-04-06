@@ -97,7 +97,7 @@ public struct URLSessionValidationServerClient: ValidationServerConnecting {
     guard (response as? HTTPURLResponse)?.statusCode == 200 else {
       return false
     }
-    let health = try decoder.decode(HealthResponse.self, from: data)
+    let health = try decoder.decode(ValidationServerHealthResponse.self, from: data)
     return health.status == "ok"
   }
 }

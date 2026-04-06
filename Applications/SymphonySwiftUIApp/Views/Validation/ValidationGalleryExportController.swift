@@ -9,13 +9,13 @@ import SymphonyValidationGallery
   import AppKit
 #endif
 
-enum XcodeValidationGalleryExportRoute: Equatable {
+enum ValidationGalleryExportRoute: Equatable {
   case macOSFolder
   case packageDocument
   case uiTestingFolder
 }
 
-struct XcodeValidationGalleryExportRequest: Identifiable, Equatable {
+struct ValidationGalleryExportRequest: Identifiable, Equatable {
   var options: ValidationGalleryCommentExportOptions
 
   var id: String {
@@ -29,12 +29,12 @@ struct XcodeValidationGalleryExportRequest: Identifiable, Equatable {
 }
 
 @MainActor
-protocol XcodeValidationGalleryCommentExportSaving {
+protocol ValidationGalleryCommentExportSaving {
   func save(_ preparedExport: ValidationGalleryPreparedCommentExport) async throws -> URL?
 }
 
 #if os(macOS)
-  struct NSSavePanelValidationGalleryCommentExportSaver: XcodeValidationGalleryCommentExportSaving {
+  struct NSSavePanelValidationGalleryExportSaver: ValidationGalleryCommentExportSaving {
     let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {
@@ -60,7 +60,7 @@ protocol XcodeValidationGalleryCommentExportSaving {
   }
 #endif
 
-struct UITestingValidationGalleryCommentExportSaver: XcodeValidationGalleryCommentExportSaving {
+struct UITestingValidationGalleryExportSaver: ValidationGalleryCommentExportSaving {
   let rootDirectory: URL
   let fileManager: FileManager
 
@@ -92,7 +92,7 @@ private func write(
   }
 }
 
-struct XcodeValidationGalleryCommentExportPackageDocument: FileDocument {
+struct ValidationGalleryCommentExportPackageDocument: FileDocument {
   static let packageContentType = UTType(exportedAs: "dev.atjsh.xcode-validation-gallery.comment-export", conformingTo: .package)
   static var readableContentTypes: [UTType] { [packageContentType] }
 
@@ -129,36 +129,36 @@ struct XcodeValidationGalleryCommentExportPackageDocument: FileDocument {
 
 @MainActor
 @Observable
-final class XcodeValidationGalleryExportController {
-  var request: XcodeValidationGalleryExportRequest?
-  var packageDocument: XcodeValidationGalleryCommentExportPackageDocument?
+final class ValidationGalleryExportController {
+  var request: ValidationGalleryExportRequest?
+  var packageDocument: ValidationGalleryCommentExportPackageDocument?
   var packageDefaultFilename = ""
   var isPackageExporterPresented = false
   var error: ValidationGalleryError?
   var feedbackMessage: String?
   var lastExportURL: URL?
-  var lastRoute: XcodeValidationGalleryExportRoute?
+  var lastRoute: ValidationGalleryExportRoute?
 
   private let environment: [String: String]
   private let exportCoordinator: any ValidationGalleryCommentExportPreparing
-  private let folderSaver: (any XcodeValidationGalleryCommentExportSaving)?
+  private let folderSaver: (any ValidationGalleryCommentExportSaving)?
 
   init(
     environment: [String: String] = ProcessInfo.processInfo.environment,
     exportCoordinator: any ValidationGalleryCommentExportPreparing = ValidationGalleryCommentExportCoordinator(),
-    folderSaver: (any XcodeValidationGalleryCommentExportSaving)? = nil
+    folderSaver: (any ValidationGalleryCommentExportSaving)? = nil
   ) {
     self.environment = environment
     self.exportCoordinator = exportCoordinator
     #if os(macOS)
-      self.folderSaver = folderSaver ?? NSSavePanelValidationGalleryCommentExportSaver()
+      self.folderSaver = folderSaver ?? NSSavePanelValidationGalleryExportSaver()
     #else
       self.folderSaver = folderSaver
     #endif
   }
 
   func requestExport(scope: ValidationGalleryCommentExportScope) {
-    request = XcodeValidationGalleryExportRequest(options: ValidationGalleryCommentExportOptions(scope: scope))
+    request = ValidationGalleryExportRequest(options: ValidationGalleryCommentExportOptions(scope: scope))
   }
 
   func cancelExport() {
@@ -212,7 +212,7 @@ final class XcodeValidationGalleryExportController {
         return
       }
 
-      packageDocument = XcodeValidationGalleryCommentExportPackageDocument(preparedExport: preparedExport)
+      packageDocument = ValidationGalleryCommentExportPackageDocument(preparedExport: preparedExport)
       packageDefaultFilename = preparedExport.rootDirectoryName
       lastRoute = .packageDocument
       self.request = nil
@@ -291,7 +291,7 @@ final class XcodeValidationGalleryExportController {
     }
   }
 
-  private func makeUITestSaver() -> (any XcodeValidationGalleryCommentExportSaving)? {
+  private func makeUITestSaver() -> (any ValidationGalleryCommentExportSaving)? {
     let currentEnvironment = ProcessInfo.processInfo.environment
     let exportDirectory =
       environment["XCODE_VALIDATION_GALLERY_UI_TEST_EXPORT_DIRECTORY"]
@@ -301,7 +301,7 @@ final class XcodeValidationGalleryExportController {
       return nil
     }
 
-    return UITestingValidationGalleryCommentExportSaver(
+    return UITestingValidationGalleryExportSaver(
       rootDirectory: URL(fileURLWithPath: exportDirectory, isDirectory: true)
     )
   }

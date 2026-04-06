@@ -110,7 +110,7 @@ public struct StartRunResponse: Codable, Sendable {
 }
 
 /// Health check response.
-public struct HealthResponse: Codable, Sendable {
+public struct ValidationServerHealthResponse: Codable, Sendable {
   public let status: String
 
   public init(status: String = "ok") {

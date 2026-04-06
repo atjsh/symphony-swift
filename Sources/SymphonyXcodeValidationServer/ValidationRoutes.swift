@@ -12,7 +12,7 @@ struct ValidationRoutes {
     let routes = router.group("api/v1")
 
     routes.get("health") { _, _ in
-      let data = try JSONEncoder().encode(HealthResponse())
+      let data = try JSONEncoder().encode(ValidationServerHealthResponse())
       return Response(
         status: .ok,
         headers: [.contentType: "application/json"],

@@ -21,9 +21,6 @@ included:
   - Applications/SymphonySwiftUIApp
   - Applications/SymphonySwiftUIAppTests
   - Applications/SymphonySwiftUIAppUITests
-  - Applications/XcodeValidationGalleryApp
-  - Applications/XcodeValidationGalleryAppTests
-  - Applications/XcodeValidationGalleryAppUITests
 
 file_length:
   warning: 500

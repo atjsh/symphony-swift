@@ -1,37 +1,16 @@
 import XCTest
 
-/// Deterministic performance tests for XcodeValidationGalleryApp.
+/// Deterministic performance tests for validation gallery embedded in SymphonySwiftUIApp.
 ///
 /// Each test loads the canonical smoke bundle via
-/// `XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH`, performs a scripted
-/// interaction sequence, and records metrics using `measure(metrics:)`.
-///
-/// Run with:
-/// ```
-/// xcodebuild test \
-///   -project SymphonyApps.xcodeproj \
-///   -scheme XcodeValidationGalleryApp \
-///   -destination 'platform=macOS' \
-///   -derivedDataPath .build/ui-test-derived-data \
-///   -only-testing:XcodeValidationGalleryAppUITests/XcodeValidationGalleryPerformanceTests \
-///   -skipPackagePluginValidation
-/// ```
+/// `PERF_BUNDLE_PATH`, performs a scripted interaction sequence, and records
+/// metrics using `measure(metrics:)`.
 @MainActor
-final class XcodeValidationGalleryPerformanceTests: XCTestCase {
+final class ValidationGalleryPerformanceUITests: XCTestCase {
 
   // MARK: - Properties
 
   private let app = XCUIApplication()
-
-  /// Project root derived from this source file's compile-time path.
-  private static let projectRoot: String = {
-    // File: Applications/XcodeValidationGalleryAppUITests/XcodeValidationGalleryPerformanceTests.swift
-    URL(fileURLWithPath: #filePath)
-      .deletingLastPathComponent()  // XcodeValidationGalleryAppUITests
-      .deletingLastPathComponent()  // Applications
-      .deletingLastPathComponent()  // project root
-      .path
-  }()
 
   /// Absolute path to a canonical smoke bundle for performance tests.
   /// Set the `PERF_BUNDLE_PATH` environment variable to point to a local
@@ -73,9 +52,10 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
       app.launchArguments = ["--ui-testing"]
       app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH"] = canonicalBundlePath
       app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"] =
-        "dev.atjsh.xcode-validation-gallery.perf-launch.\(name)"
+        "dev.atjsh.symphony.validation-gallery.perf-launch.\(name)"
       app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
       app.launch()
+      navigateToValidationTab()
       let browser = element("validation-gallery-browser")
       XCTAssertTrue(browser.waitForExistence(timeout: 15))
       app.terminate()
@@ -126,10 +106,6 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
     }
   }
 
-  /// Measures select-A → select-B → select-A responsiveness with the
-  /// canonical 48-artifact bundle. This reproduces the user-reported
-  /// slow re-selection pattern where revisiting an already-seen artifact
-  /// should be as fast as the first visit.
   func testCanonicalBundleSelectionCycleResponsiveness() throws {
     try XCTSkipUnless(canonicalBundlePath != nil, "PERF_BUNDLE_PATH not set")
     launchWithCanonicalBundle()
@@ -151,16 +127,27 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
 
   // MARK: - Launch
 
+  private func navigateToValidationTab() {
+    let validationTab = element("validationTab")
+    guard validationTab.waitForExistence(timeout: 5) else { return }
+    #if os(macOS)
+      validationTab.click()
+    #else
+      validationTab.tap()
+    #endif
+    Thread.sleep(forTimeInterval: 1)
+  }
+
   private func launchWithCanonicalBundle() {
     #if os(macOS)
-      let existing = XCUIApplication(bundleIdentifier: "dev.atjsh.xcode-validation-gallery")
+      let existing = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
       if existing.state != .notRunning {
         existing.terminate()
         waitForTermination(of: existing)
       }
     #endif
 
-    let suiteName = "dev.atjsh.xcode-validation-gallery.perf-tests.\(name)"
+    let suiteName = "dev.atjsh.symphony.validation-gallery.perf-tests.\(name)"
     if let defaults = UserDefaults(suiteName: suiteName) {
       defaults.removePersistentDomain(forName: suiteName)
     }
@@ -171,6 +158,7 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
     app.launch()
     app.activate()
+    navigateToValidationTab()
 
     let browser = element("validation-gallery-browser")
     let ready = browser.waitForExistence(timeout: 15)
@@ -183,14 +171,14 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
 
   private func launchWithBundledFixture() {
     #if os(macOS)
-      let existing = XCUIApplication(bundleIdentifier: "dev.atjsh.xcode-validation-gallery")
+      let existing = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
       if existing.state != .notRunning {
         existing.terminate()
         waitForTermination(of: existing)
       }
     #endif
 
-    let suiteName = "dev.atjsh.xcode-validation-gallery.perf-tests.fixture.\(name)"
+    let suiteName = "dev.atjsh.symphony.validation-gallery.perf-tests.fixture.\(name)"
     if let defaults = UserDefaults(suiteName: suiteName) {
       defaults.removePersistentDomain(forName: suiteName)
     }
@@ -203,6 +191,7 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
     app.launch()
     app.activate()
+    navigateToValidationTab()
 
     let browser = element("validation-gallery-browser")
     let ready = browser.waitForExistence(timeout: 15)
@@ -255,8 +244,6 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
     }
   }
 
-  /// Select A → B → A in the canonical bundle to exercise the re-selection
-  /// path that was historically slow due to cascading view re-evaluations.
   private func cycleCanonicalArtifactSelection() {
     let listButton = element("workspace-display-mode-list-button")
     if listButton.waitForExistence(timeout: 2) {
@@ -266,14 +253,12 @@ final class XcodeValidationGalleryPerformanceTests: XCTestCase {
     let browser = element("validation-gallery-browser")
     guard browser.waitForExistence(timeout: 5) else { return }
 
-    // Pick the first two visible artifact rows/cards.
     let rows = browser.buttons.allElementsBoundByIndex
     guard rows.count >= 2 else { return }
 
     let artifactA = rows[0]
     let artifactB = rows[1]
 
-    // A → B → A cycle
     artifactA.click()
     _ = app.windows.firstMatch.waitForExistence(timeout: 2)
 

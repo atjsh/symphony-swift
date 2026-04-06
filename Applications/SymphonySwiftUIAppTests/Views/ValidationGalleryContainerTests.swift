@@ -3,13 +3,13 @@ import Foundation
 import Testing
 
 import SymphonyValidationGallery
-@testable import XcodeValidationGalleryApp
+@testable import SymphonySwiftUIApp
 
-@Suite("XcodeValidationGalleryBootstrap")
-struct XcodeValidationGalleryAppBootstrapTests {
+@Suite("ValidationGalleryContainer")
+struct ValidationGalleryContainerTests {
   @Test func bundledFixtureBootstrapActionUsesBundledFixtureSource() {
     let fixtureURL = URL(fileURLWithPath: "/tmp/XcodeValidationGalleryFixture", isDirectory: true)
-    let action = XcodeValidationGalleryBootstrapResolver.resolve(
+    let action = ValidationGalleryBootstrapResolver.resolve(
       arguments: ["--ui-testing"],
       environment: ["XCODE_VALIDATION_GALLERY_UI_TEST_USE_BUNDLED_FIXTURE": "1"],
       bundledFixtureSource: .folder(fixtureURL)
@@ -20,7 +20,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @Test func explicitBundlePathOverridesBundledFixtureFlag() {
     let bundleURL = URL(fileURLWithPath: "/tmp/custom-bundle", isDirectory: true)
-    let action = XcodeValidationGalleryBootstrapResolver.resolve(
+    let action = ValidationGalleryBootstrapResolver.resolve(
       arguments: ["--ui-testing"],
       environment: [
         "XCODE_VALIDATION_GALLERY_UI_TEST_BUNDLE_PATH": bundleURL.path,
@@ -39,7 +39,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
   }
 
   @Test func uiTestingWithoutSeedSkipsRestoreFlow() {
-    let action = XcodeValidationGalleryBootstrapResolver.resolve(
+    let action = ValidationGalleryBootstrapResolver.resolve(
       arguments: ["--ui-testing"],
       environment: [:],
       bundledFixtureSource: nil
@@ -49,7 +49,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
   }
 
   @Test func regularLaunchRestoresLastOpenedBundleWhenNoExplicitSeedIsProvided() {
-    let action = XcodeValidationGalleryBootstrapResolver.resolve(
+    let action = ValidationGalleryBootstrapResolver.resolve(
       arguments: [],
       environment: [:],
       bundledFixtureSource: nil
@@ -60,7 +60,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @MainActor
   @Test func importControllerCapturesRequestsWithoutPresentingImporterDuringUiTesting() {
-    let controller = XcodeValidationGalleryImportController(
+    let controller = ValidationGalleryImportController(
       environment: ["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS": "1"]
     )
 
@@ -78,7 +78,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @MainActor
   @Test func importControllerPresentsAndClearsRequestedImporterInRegularMode() {
-    let controller = XcodeValidationGalleryImportController(environment: [:])
+    let controller = ValidationGalleryImportController(environment: [:])
 
     controller.request(.bundle)
     #expect(controller.requestedImportKind == .bundle)
@@ -99,15 +99,15 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @MainActor
   @Test func exportControllerRequestsDefaultSelectedArtifactOptions() {
-    let controller: XcodeValidationGalleryExportController
+    let controller: ValidationGalleryExportController
     #if os(macOS)
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator(),
         folderSaver: StubExportSaver(resultURL: URL(fileURLWithPath: "/tmp/exported-comments", isDirectory: true))
       )
     #else
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator()
       )
@@ -124,15 +124,15 @@ struct XcodeValidationGalleryAppBootstrapTests {
   @Test func exportControllerRoutesToUiTestingSaverWhenDirectoryIsProvided() async throws {
     let exportDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let controller: XcodeValidationGalleryExportController
+    let controller: ValidationGalleryExportController
     #if os(macOS)
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: ["XCODE_VALIDATION_GALLERY_UI_TEST_EXPORT_DIRECTORY": exportDirectory.path],
         exportCoordinator: StubExportCoordinator(),
         folderSaver: StubExportSaver(resultURL: URL(fileURLWithPath: "/tmp/ignored-folder", isDirectory: true))
       )
     #else
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: ["XCODE_VALIDATION_GALLERY_UI_TEST_EXPORT_DIRECTORY": exportDirectory.path],
         exportCoordinator: StubExportCoordinator()
       )
@@ -154,7 +154,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
     @MainActor
     @Test func exportControllerRoutesToMacSavePanelSaver() async {
       let savedURL = URL(fileURLWithPath: "/tmp/exported-comments", isDirectory: true)
-      let controller = XcodeValidationGalleryExportController(
+      let controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator(),
         folderSaver: StubExportSaver(resultURL: savedURL)
@@ -174,7 +174,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
   #else
     @MainActor
     @Test func exportControllerRoutesToPackageExporterOnMobile() async {
-      let controller = XcodeValidationGalleryExportController(
+      let controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator()
       )
@@ -195,15 +195,15 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @MainActor
   @Test func exportControllerSurfacesExportFailuresWithoutUsingBundleLoadErrors() async {
-    let controller: XcodeValidationGalleryExportController
+    let controller: ValidationGalleryExportController
     #if os(macOS)
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: FailingExportCoordinator(error: ValidationGalleryError.loadFailed("Disk full.")),
         folderSaver: StubExportSaver(resultURL: URL(fileURLWithPath: "/tmp/ignored", isDirectory: true))
       )
     #else
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: FailingExportCoordinator(error: ValidationGalleryError.loadFailed("Disk full."))
       )
@@ -223,15 +223,15 @@ struct XcodeValidationGalleryAppBootstrapTests {
 
   @MainActor
   @Test func exportControllerIgnoresUserCancelledPackageExports() {
-    let controller: XcodeValidationGalleryExportController
+    let controller: ValidationGalleryExportController
     #if os(macOS)
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator(),
         folderSaver: StubExportSaver(resultURL: URL(fileURLWithPath: "/tmp/exported-comments", isDirectory: true))
       )
     #else
-      controller = XcodeValidationGalleryExportController(
+      controller = ValidationGalleryExportController(
         environment: [:],
         exportCoordinator: StubExportCoordinator()
       )
@@ -241,7 +241,7 @@ struct XcodeValidationGalleryAppBootstrapTests {
       recentBundleStore: InMemoryRecentBundleStore()
     )
 
-    controller.packageDocument = XcodeValidationGalleryCommentExportPackageDocument(
+    controller.packageDocument = ValidationGalleryCommentExportPackageDocument(
       preparedExport: try! StubExportCoordinator().prepareExport(
         from: store,
         options: ValidationGalleryCommentExportOptions(scope: .selectedArtifact)
@@ -323,7 +323,7 @@ private final class FailingExportCoordinator: ValidationGalleryCommentExportPrep
 }
 
 @MainActor
-private struct StubExportSaver: XcodeValidationGalleryCommentExportSaving {
+private struct StubExportSaver: ValidationGalleryCommentExportSaving {
   let resultURL: URL
 
   func save(_ preparedExport: ValidationGalleryPreparedCommentExport) throws -> URL? {

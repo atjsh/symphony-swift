@@ -2,8 +2,8 @@ import SwiftUI
 
 import SymphonyValidationGallery
 
-struct XcodeValidationGalleryExportSheet: View {
-  @Bindable var controller: XcodeValidationGalleryExportController
+struct ValidationGalleryExportSheet: View {
+  @Bindable var controller: ValidationGalleryExportController
   @Bindable var store: ValidationGalleryStore
 
   @Environment(\.dismiss) private var dismiss
@@ -133,5 +133,4 @@ struct XcodeValidationGalleryExportSheet: View {
   private var sheetDetents: Set<PresentationDetent> {
     dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large]
   }
-
 }

@@ -104,11 +104,11 @@ struct APITypesTests {
     #expect(response.runID.rawValue == "run-2")
   }
 
-  @Test("HealthResponse defaults to ok")
+  @Test("ValidationServerHealthResponse defaults to ok")
   func healthResponseDefault() throws {
-    let health = HealthResponse()
+    let health = ValidationServerHealthResponse()
     let data = try JSONEncoder().encode(health)
-    let decoded = try JSONDecoder().decode(HealthResponse.self, from: data)
+    let decoded = try JSONDecoder().decode(ValidationServerHealthResponse.self, from: data)
     #expect(decoded.status == "ok")
   }
 

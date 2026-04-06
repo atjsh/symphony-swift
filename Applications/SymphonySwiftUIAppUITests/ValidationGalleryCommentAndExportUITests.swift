@@ -6,7 +6,7 @@ import XCTest
   import UIKit
 #endif
 
-extension XcodeValidationGalleryAppUITests {
+extension ValidationGalleryBrowserUITests {
 
   func testCanCreatePointCommentAndExportScreenshotComments() throws {
     let exportDirectory = try makeExportDirectory()

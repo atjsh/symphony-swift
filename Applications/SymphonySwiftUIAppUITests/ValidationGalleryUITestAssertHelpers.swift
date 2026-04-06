@@ -6,7 +6,7 @@ import XCTest
   import UIKit
 #endif
 
-extension XcodeValidationGalleryAppUITests {
+extension ValidationGalleryBrowserUITests {
 
   func launchApp(
     withFixtureBundle: Bool = false,
@@ -23,7 +23,7 @@ extension XcodeValidationGalleryAppUITests {
     }
 
     #if os(macOS)
-      let existingApplication = XCUIApplication(bundleIdentifier: "dev.atjsh.xcode-validation-gallery")
+      let existingApplication = XCUIApplication(bundleIdentifier: "dev.atjsh.symphony")
       if existingApplication.state != .notRunning {
         existingApplication.terminate()
         waitForApplicationToTerminate(existingApplication)
@@ -49,6 +49,29 @@ extension XcodeValidationGalleryAppUITests {
     #if os(macOS)
       ensureMainWindowIsVisible()
     #endif
+    navigateToValidationTab()
+  }
+
+  func navigateToValidationTab() {
+    let validationTab = element("validationTab")
+    XCTAssertTrue(validationTab.waitForExistence(timeout: 5), "Validation tab must exist.\n\(app.debugDescription)")
+    #if os(macOS)
+      validationTab.click()
+    #else
+      validationTab.tap()
+    #endif
+    waitForUIStability()
+  }
+
+  func navigateToOperatorTab() {
+    let operatorTab = element("operatorTab")
+    XCTAssertTrue(operatorTab.waitForExistence(timeout: 5), "Operator tab must exist.\n\(app.debugDescription)")
+    #if os(macOS)
+      operatorTab.click()
+    #else
+      operatorTab.tap()
+    #endif
+    waitForUIStability()
   }
 
   func element(_ identifier: String) -> XCUIElement {
@@ -211,7 +234,7 @@ extension XcodeValidationGalleryAppUITests {
   func isTransientAccessibilityAuditFailure(_ error: Error) -> Bool {
     let description = String(describing: error)
     return description.contains("Lost connection to the application")
-      || description.contains("Couldn’t communicate with a helper application")
+      || description.contains("Couldn't communicate with a helper application")
   }
 
   func recoverCheckpointForAccessibilityAudit(named checkpoint: String) {
@@ -294,7 +317,7 @@ extension XcodeValidationGalleryAppUITests {
     let isKnownMacExportSheetWindowTitleContrastFalsePositive =
       checkpoint == "export-sheet"
         && ["Contrast failed", "Contrast nearly passed"].contains(issue.compactDescription)
-        && reflectedIssue.contains("\"Xcode Validation Gallery\"")
+        && reflectedIssue.contains("\"Symphony\"")
         && reflectedIssue.contains("StaticText")
     let isKnownSwiftUIMenuButtonActionFalsePositive =
       issue.compactDescription == "Action is missing"

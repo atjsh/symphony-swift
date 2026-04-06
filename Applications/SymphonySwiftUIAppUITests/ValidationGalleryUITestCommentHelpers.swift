@@ -6,7 +6,7 @@ import XCTest
   import UIKit
 #endif
 
-extension XcodeValidationGalleryAppUITests {
+extension ValidationGalleryBrowserUITests {
 
   func captureCommentAuthoringWalkthrough() {
     createPointComment(
@@ -253,9 +253,6 @@ extension XcodeValidationGalleryAppUITests {
         ? "add-point-comment-button"
         : "add-area-comment-button"
 
-      // When a sheet is already showing, buttons behind it are not
-      // interactable.  Use the keyboard shortcut to trigger the mode change
-      // and return immediately — the caller waits for the sheet content.
       let sheetIsOpen = element("artifact-sheet-scroll-view").exists
       if sheetIsOpen {
         app.typeKey(
@@ -343,7 +340,7 @@ extension XcodeValidationGalleryAppUITests {
         partialResult.append(character)
       }
 
-    return "dev.atjsh.xcode-validation-gallery.ui-tests.\(sanitizedTestName)"
+    return "dev.atjsh.symphony.validation-gallery.ui-tests.\(sanitizedTestName)"
   }
 
   static func clearDefaultsSuite(named suiteName: String) {

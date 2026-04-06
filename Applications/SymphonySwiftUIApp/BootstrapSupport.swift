@@ -1,4 +1,5 @@
 import Foundation
+import SymphonyShared
 
 enum BootstrapRuntimeHooks {
   private final class Storage: @unchecked Sendable {

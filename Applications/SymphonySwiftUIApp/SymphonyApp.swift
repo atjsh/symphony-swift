@@ -1,5 +1,6 @@
 import SwiftUI
 import SymphonyShared
+import SymphonyValidationGallery
 
 #if canImport(AppKit)
   import AppKit
@@ -8,6 +9,10 @@ import SymphonyShared
 @main
 struct SymphonyApp: App {
   @State private var model: SymphonyOperatorModel
+  @State private var galleryStore: ValidationGalleryStore
+  @State private var galleryRunnerStore: ValidationRunnerStore
+  @State private var galleryImportController: ValidationGalleryImportController
+  @State private var galleryExportController: ValidationGalleryExportController
 
   nonisolated static func resolveClient(
     arguments: [String],
@@ -37,6 +42,11 @@ struct SymphonyApp: App {
       _model = State(initialValue: SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint))
     #endif
 
+    _galleryStore = State(initialValue: Self.makeGalleryStore(environment: environment))
+    _galleryRunnerStore = State(initialValue: Self.makeRunnerStore(environment: environment))
+    _galleryImportController = State(initialValue: ValidationGalleryImportController(environment: environment))
+    _galleryExportController = State(initialValue: ValidationGalleryExportController(environment: environment))
+
     Self.emitStartupLogsIfNeeded(environment: environment)
   }
 
@@ -62,6 +72,11 @@ struct SymphonyApp: App {
     #else
       _model = State(initialValue: SymphonyOperatorModel(client: client, initialEndpoint: sharedEndpoint))
     #endif
+
+    _galleryStore = State(initialValue: Self.makeGalleryStore(environment: environment))
+    _galleryRunnerStore = State(initialValue: Self.makeRunnerStore(environment: environment))
+    _galleryImportController = State(initialValue: ValidationGalleryImportController(environment: environment))
+    _galleryExportController = State(initialValue: ValidationGalleryExportController(environment: environment))
 
     Self.emitStartupLogsIfNeeded(environment: environment, output: startupOutput)
   }
@@ -107,16 +122,72 @@ struct SymphonyApp: App {
     print(line)
   }
 
+  private static func makeGalleryStore(environment: [String: String]) -> ValidationGalleryStore {
+    ValidationGalleryStore(
+      loader: ValidationBundleLoader(),
+      recentBundleStore: makeRecentBundleStore(environment: environment),
+      workspacePreferencesStore: makeWorkspacePreferencesStore(environment: environment)
+    )
+  }
+
+  private static func makeRunnerStore(environment: [String: String]) -> ValidationRunnerStore {
+    let serverURL = URL(string: environment["XCODE_VALIDATION_SERVER_URL"] ?? "http://127.0.0.1:8090")
+      ?? URL(string: "http://127.0.0.1:8090")!  // swiftlint:disable:this force_unwrapping
+    return ValidationRunnerStore(serverURL: serverURL)
+  }
+
+  private static func makeRecentBundleStore(
+    environment: [String: String]
+  ) -> UserDefaultsValidationRecentBundleStore {
+    guard
+      let suiteName = environment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"],
+      suiteName.isEmpty == false,
+      let userDefaults = UserDefaults(suiteName: suiteName)
+    else {
+      return UserDefaultsValidationRecentBundleStore()
+    }
+    return UserDefaultsValidationRecentBundleStore(userDefaults: userDefaults)
+  }
+
+  private static func makeWorkspacePreferencesStore(
+    environment: [String: String]
+  ) -> UserDefaultsValidationGalleryWorkspacePreferencesStore {
+    guard
+      let suiteName = environment["XCODE_VALIDATION_GALLERY_UI_TEST_DEFAULTS_SUITE"],
+      suiteName.isEmpty == false,
+      let userDefaults = UserDefaults(suiteName: suiteName)
+    else {
+      return UserDefaultsValidationGalleryWorkspacePreferencesStore()
+    }
+    return UserDefaultsValidationGalleryWorkspacePreferencesStore(userDefaults: userDefaults)
+  }
+
   private var isUITesting: Bool {
     BootstrapEnvironment.isUITesting()
   }
 
   var body: some Scene {
     WindowGroup {
-      ContentView(model: model)
-        .task {
-          if isUITesting { await model.connect() }
+      TabView {
+        Tab("Operator", systemImage: "desktopcomputer") {
+          ContentView(model: model)
+            .task {
+              if isUITesting { await model.connect() }
+            }
         }
+        .accessibilityIdentifier("operatorTab")
+
+        Tab("Validation", systemImage: "checkmark.shield") {
+          ValidationGalleryContainerView(
+            store: galleryStore,
+            runnerStore: galleryRunnerStore,
+            importController: galleryImportController,
+            exportController: galleryExportController
+          )
+        }
+        .accessibilityIdentifier("validationTab")
+      }
+      .tabViewStyle(.sidebarAdaptable)
     }
     .defaultSize(width: 1280, height: 820)
     #if os(macOS)
@@ -127,6 +198,12 @@ struct SymphonyApp: App {
     #if os(macOS)
       .commands {
         SymphonyCommands(model: model)
+      }
+      .commands {
+        ValidationGalleryEmbeddedCommands(
+          store: galleryStore,
+          importController: galleryImportController
+        )
       }
     #endif
     #if os(macOS)
