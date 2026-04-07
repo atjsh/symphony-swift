@@ -108,3 +108,35 @@ mutate-files +files:
 # Run mutation testing only on files changed since the previous commit.
 mutate-changed:
     just muter-run --files-to-mutate $(echo "$(git diff --name-only HEAD HEAD~1 | tr '\n' ',')")
+
+# Run mutation testing scoped to a target (sets filter for faster runs).
+# Usage: just mutate-target SymphonyShared
+mutate-target target:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=$(find "Sources/{{target}}" -name '*.swift' | tr '\n' ',')
+
+    # Temporarily inject --filter into muter.conf.yml arguments
+    # so the test wrapper only runs tests matching this target.
+    cp muter.conf.yml muter.conf.yml.bak
+    sed -i '' 's/^arguments: \[\]/arguments: ["--filter", "{{target}}Tests"]/' muter.conf.yml
+    trap 'mv muter.conf.yml.bak muter.conf.yml' EXIT
+
+    # Inline muter-run logic so everything runs in one shell.
+    stash="/tmp/symphony-muter-build-stash"
+    if [[ -d .build ]]; then
+      rm -rf "$stash"
+      mv .build "$stash"
+      mkdir -p .build
+      for dir in vendor checkouts repositories artifacts; do
+        if [[ -d "$stash/$dir" ]]; then
+          cp -a "$stash/$dir" ".build/$dir"
+        fi
+      done
+      if [[ -f "$stash/workspace-state.json" ]]; then
+        cp -a "$stash/workspace-state.json" .build/workspace-state.json
+      fi
+    fi
+    # Extend trap to also restore .build
+    trap 'mv muter.conf.yml.bak muter.conf.yml; [[ -d "$stash" ]] && { rm -rf .build 2>/dev/null; mv "$stash" .build; }' EXIT
+    muter run --skip-coverage --skip-update-check --files-to-mutate "$files"
