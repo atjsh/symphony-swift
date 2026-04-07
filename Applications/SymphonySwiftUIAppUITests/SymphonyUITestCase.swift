@@ -243,11 +243,14 @@ class SymphonyUITestCase: XCTestCase {
     let identifierMatch = app.descendants(matching: .any)
       .matching(identifier: "runnerTab").firstMatch
     let tabMatch = app.tabs["Runner"]
+    let buttonMatch = app.buttons["Runner"]
     let tabElement: XCUIElement
     if identifierMatch.waitForExistence(timeout: 3) {
       tabElement = identifierMatch
     } else if tabMatch.waitForExistence(timeout: 3) {
       tabElement = tabMatch
+    } else if buttonMatch.waitForExistence(timeout: 3) {
+      tabElement = buttonMatch
     } else {
       XCTFail("Runner inner tab must exist")
       return
@@ -264,11 +267,14 @@ class SymphonyUITestCase: XCTestCase {
     let identifierMatch = app.descendants(matching: .any)
       .matching(identifier: "galleryTab").firstMatch
     let tabMatch = app.tabs["Gallery"]
+    let buttonMatch = app.buttons["Gallery"]
     let tabElement: XCUIElement
     if identifierMatch.waitForExistence(timeout: 3) {
       tabElement = identifierMatch
     } else if tabMatch.waitForExistence(timeout: 3) {
       tabElement = tabMatch
+    } else if buttonMatch.waitForExistence(timeout: 3) {
+      tabElement = buttonMatch
     } else {
       XCTFail("Gallery inner tab must exist")
       return

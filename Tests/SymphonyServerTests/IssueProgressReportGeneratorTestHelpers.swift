@@ -199,9 +199,23 @@ final class ConcurrencyTrackingGitCommandRunner: GitCommandRunning, @unchecked S
 
   /// Yield the CPU to encourage peer-task scheduling, then sleep to hold the
   /// concurrent-load region open long enough for peer overlap to be recorded.
+  /// Uses a rendezvous pattern: the first entrant waits for a peer to arrive.
+  /// When the second entrant enters, it releases the first immediately. Falls
+  /// back to a short timeout if the cooperative pool cannot schedule a peer.
+  private var rendezvousWaiting = false
+  private let peerArrived = DispatchSemaphore(value: 0)
+
   private func yieldAndSleep() {
-    sched_yield()
-    Thread.sleep(forTimeInterval: 1.0)
+    lock.lock()
+    if rendezvousWaiting {
+      rendezvousWaiting = false
+      lock.unlock()
+      peerArrived.signal()
+    } else {
+      rendezvousWaiting = true
+      lock.unlock()
+      _ = peerArrived.wait(timeout: .now() + 0.1)
+    }
   }
 
   private func beginConcurrentLoad() {

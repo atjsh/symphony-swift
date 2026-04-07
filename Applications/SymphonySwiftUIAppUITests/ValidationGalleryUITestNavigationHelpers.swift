@@ -194,6 +194,15 @@ extension ValidationGalleryBrowserUITests {
     return element(identifiers[0])
   }
 
+  #if os(iOS)
+    func scrollExportSheetToRevealAppearanceSection() {
+      let sheet = element("export-comments-sheet")
+      guard sheet.waitForExistence(timeout: 3) else { return }
+      sheet.swipeUp()
+      waitForUIStability()
+    }
+  #endif
+
   func makeExportDirectory() throws -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent(UUID().uuidString, isDirectory: true)

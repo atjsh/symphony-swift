@@ -94,6 +94,18 @@ struct ValidationGalleryContainerView: View {
     }
   }
 
+  /// On macOS the Gallery and Operator tabs share a single window toolbar, so
+  /// enabling `.searchable()` on both would create duplicate search fields.
+  /// On iOS each tab owns an independent `NavigationStack`, avoiding the
+  /// conflict, so the native `.searchable()` modifier can be used directly.
+  private var usesNativeSearchableModifier: Bool {
+    #if os(macOS)
+      return false
+    #else
+      return true
+    #endif
+  }
+
   private var galleryContentView: some View {
     ValidationGalleryRootView(
       store: store,
@@ -102,7 +114,7 @@ struct ValidationGalleryContainerView: View {
       onRequestExport: { exportController.requestExport(scope: $0) },
       exportFeedback: exportController.feedbackMessage,
       isModalPresentationActive: exportController.request != nil,
-      usesToolbarSearch: false
+      usesToolbarSearch: usesNativeSearchableModifier
     )
     .overlay(alignment: .bottomTrailing) {
       if importController.capturesRequests {

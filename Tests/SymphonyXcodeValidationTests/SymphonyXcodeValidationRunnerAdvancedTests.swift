@@ -353,6 +353,7 @@ struct SymphonyXcodeValidationRunnerAdvancedTests {
         projectRoot: environment.projectRoot,
         outputRoot: environment.outputRoot,
         artifactRetention: .canonicalOnly,
+        executionProfile: .serial,
         logLevel: .quiet
       )
     )

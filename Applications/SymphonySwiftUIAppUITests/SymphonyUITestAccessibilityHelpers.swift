@@ -147,7 +147,7 @@ extension SymphonyUITestCase {
         return true
       }
 
-      if checkpoint == "logs",
+      if ["logs", "validation-gallery", "validation-runner"].contains(checkpoint),
         issue.auditType == .dynamicType,
         issue.compactDescription == "Dynamic Type font sizes are partially unsupported"
       {

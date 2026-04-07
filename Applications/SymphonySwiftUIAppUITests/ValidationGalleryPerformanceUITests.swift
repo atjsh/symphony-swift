@@ -157,10 +157,20 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
     app.launchEnvironment["XCODE_VALIDATION_GALLERY_UI_TEST_CAPTURE_IMPORT_REQUESTS"] = "0"
     app.launch()
     app.activate()
+    #if os(macOS)
+      _ = app.wait(for: .runningForeground, timeout: 10)
+    #endif
     navigateToValidationTab()
 
     let browser = element("validation-gallery-browser")
-    let ready = browser.waitForExistence(timeout: 15)
+    var ready = browser.waitForExistence(timeout: 15)
+    #if os(macOS)
+      if !ready {
+        app.typeKey("n", modifierFlags: .command)
+        navigateToValidationTab()
+        ready = browser.waitForExistence(timeout: 10)
+      }
+    #endif
     XCTAssertTrue(ready, "Bundle failed to load: browser not visible after 15s.\n\(app.debugDescription)")
 
     #if os(macOS)
@@ -192,12 +202,20 @@ final class ValidationGalleryPerformanceUITests: XCTestCase {
     app.launch()
     app.activate()
     #if os(macOS)
+      _ = app.wait(for: .runningForeground, timeout: 10)
       dismissReopenDialogIfPresent()
     #endif
     navigateToValidationTab()
 
     let browser = element("validation-gallery-browser")
-    let ready = browser.waitForExistence(timeout: 15)
+    var ready = browser.waitForExistence(timeout: 15)
+    #if os(macOS)
+      if !ready {
+        app.typeKey("n", modifierFlags: .command)
+        navigateToValidationTab()
+        ready = browser.waitForExistence(timeout: 10)
+      }
+    #endif
     XCTAssertTrue(ready, "Fixture bundle failed to load: browser not visible after 15s.\n\(app.debugDescription)")
 
     #if os(macOS)

@@ -55,6 +55,8 @@ public struct ValidationGalleryRootView: View {
         NavigationStack {
           browserView(compact: horizontalSizeClass != .regular)
             .navigationTitle("Validation Gallery")
+            .modifier(ConditionalSearchable(text: $store.searchText, isEnabled: usesToolbarSearch))
+            .toolbar { primaryActionToolbarContent }
         }
       }
     }
@@ -62,7 +64,7 @@ public struct ValidationGalleryRootView: View {
     .accessibilityLabel("Validation Gallery")
     .accessibilityIdentifier("validation-gallery-root")
     .accessibilityHidden(isModalPresentationActive)
-    .modifier(ConditionalSearchable(text: $store.searchText, isEnabled: usesToolbarSearch))
+    .modifier(ConditionalSearchable(text: $store.searchText, isEnabled: usesToolbarSearch && horizontalSizeClass == .regular))
     .toolbar {
       if horizontalSizeClass == .regular, store.snapshot != nil {
         ToolbarItem(placement: .secondaryAction) {
@@ -170,25 +172,8 @@ public struct ValidationGalleryRootView: View {
           }
       }
 
-      ToolbarItemGroup(placement: .primaryAction) {
-        Button("Open Bundle", systemImage: "folder.badge.plus", action: onOpenBundle)
-          .accessibilityIdentifier("toolbar-open-validation-bundle-button")
-        Button("Open Manifest", systemImage: "doc.badge.plus", action: onOpenManifest)
-          .accessibilityIdentifier("toolbar-open-manifest-button")
-
-        if let source = store.snapshot?.source {
-          Button("Reload", systemImage: "arrow.clockwise") {
-            Task { await store.open(source, rememberRecent: false) }
-          }
-          .disabled(store.isLoading)
-        }
-
-        if store.hasCommentsInCurrentBundle {
-          Button("Export Bundle Comments", systemImage: "square.and.arrow.down") {
-            requestBundleExport()
-          }
-          .accessibilityIdentifier("export-bundle-comments-button")
-        }
+      if horizontalSizeClass == .regular {
+        primaryActionToolbarContent
       }
     }
     .sheet(item: $sheetRoute) { route in
@@ -229,6 +214,30 @@ public struct ValidationGalleryRootView: View {
       onRequestExport(pendingExportScope)
     }
     .animation(.snappy(duration: 0.22), value: exportFeedback)
+  }
+
+  @ToolbarContentBuilder
+  private var primaryActionToolbarContent: some ToolbarContent {
+    ToolbarItemGroup(placement: .primaryAction) {
+      Button("Open Bundle", systemImage: "folder.badge.plus", action: onOpenBundle)
+        .accessibilityIdentifier("toolbar-open-validation-bundle-button")
+      Button("Open Manifest", systemImage: "doc.badge.plus", action: onOpenManifest)
+        .accessibilityIdentifier("toolbar-open-manifest-button")
+
+      if let source = store.snapshot?.source {
+        Button("Reload", systemImage: "arrow.clockwise") {
+          Task { await store.open(source, rememberRecent: false) }
+        }
+        .disabled(store.isLoading)
+      }
+
+      if store.hasCommentsInCurrentBundle {
+        Button("Export Bundle Comments", systemImage: "square.and.arrow.down") {
+          requestBundleExport()
+        }
+        .accessibilityIdentifier("export-bundle-comments-button")
+      }
+    }
   }
 
   private func browserView(compact: Bool) -> some View {

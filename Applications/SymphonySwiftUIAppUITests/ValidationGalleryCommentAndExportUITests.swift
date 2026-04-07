@@ -41,6 +41,7 @@ extension ValidationGalleryBrowserUITests {
     #if os(macOS)
       XCTAssertTrue(app.colorWells.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
     #else
+      scrollExportSheetToRevealAppearanceSection()
       XCTAssertTrue(element("export-annotation-color-picker").waitForExistence(timeout: 5), app.debugDescription)
     #endif
     XCTAssertFalse(element("export-annotation-color-blue").exists, app.debugDescription)
@@ -86,6 +87,7 @@ extension ValidationGalleryBrowserUITests {
 
     activate(app.buttons["Close"].firstMatch)
     waitForUIStability()
+    returnToBrowserIfNeeded()
 
     let exportBundleButton = element("export-bundle-comments-button")
     XCTAssertTrue(exportBundleButton.waitForExistence(timeout: 5), app.debugDescription)
@@ -94,7 +96,12 @@ extension ValidationGalleryBrowserUITests {
     XCTAssertTrue(exportSheetIsVisible(timeout: 5), app.debugDescription)
     let applyDiagramToggle = element("export-apply-area-diagram-toggle")
     XCTAssertTrue(applyDiagramToggle.waitForExistence(timeout: 5), app.debugDescription)
-    activate(applyDiagramToggle)
+    #if os(macOS)
+      activate(applyDiagramToggle)
+    #else
+      applyDiagramToggle.switches.firstMatch.tap()
+    #endif
+    waitForUIStability()
     activate(element("confirm-export-comments-button"))
 
     let exportRoot = try waitForCompletedExportRoot(

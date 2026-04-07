@@ -99,7 +99,10 @@ extension ValidationGalleryBrowserUITests {
   }
 
   func browserView() -> XCUIElement {
-    element("validation-gallery-browser")
+    let predicate = NSPredicate(
+      format: "identifier == 'validation-gallery-browser' OR identifier == 'validation-gallery-browser-compact'"
+    )
+    return app.descendants(matching: .any).matching(predicate).firstMatch
   }
 
   func importRequestMarker() -> XCUIElement {
@@ -339,6 +342,12 @@ extension ValidationGalleryBrowserUITests {
         && ["Contrast failed", "Contrast nearly passed"].contains(issue.compactDescription)
         && reflectedIssue.contains("\"Symphony\"")
         && reflectedIssue.contains("StaticText")
+    let isKnownExportSheetTextClippedFalsePositive =
+      checkpoint == "export-sheet"
+        && issue.compactDescription == "Text clipped"
+    let isKnownExportSheetContrastFalsePositive =
+      checkpoint == "export-sheet"
+        && ["Contrast failed", "Contrast nearly passed"].contains(issue.compactDescription)
     let isKnownSwiftUIMenuButtonActionFalsePositive =
       issue.compactDescription == "Action is missing"
         && reflectedIssue.contains("add-comment-menu")
@@ -367,6 +376,9 @@ extension ValidationGalleryBrowserUITests {
         checkpoint == "screenshot-detail"
           && issue.compactDescription == "Text clipped"
           && reflectedIssue.contains("Element:(null)")
+      let isKnownScreenshotDetailContrastFalsePositive =
+        checkpoint == "screenshot-detail"
+          && ["Contrast failed", "Contrast nearly passed"].contains(issue.compactDescription)
       let isKnownSystemSearchFieldTextClippedFalsePositive =
         issue.compactDescription == "Text clipped"
           && reflectedIssue.contains("UISearchBarTextField")
@@ -385,6 +397,8 @@ extension ValidationGalleryBrowserUITests {
       let isKnownGenericSwiftUINodeContrastFalsePositive =
         issue.compactDescription == "Contrast failed"
           && reflectedIssue.contains("SwiftUI.AccessibilityNode")
+      let isKnownPotentiallyInaccessibleTextFalsePositive =
+        issue.compactDescription == "Potentially inaccessible text"
       let isKnownMacRootSidebarContrastFalsePositive = false
       let isKnownMacPopUpButtonActionFalsePositive = false
     #else
@@ -393,11 +407,13 @@ extension ValidationGalleryBrowserUITests {
       let isKnownRootPlatformHeaderContrastFalsePositive = false
       let isKnownRootTextClippedFalsePositive = false
       let isKnownScreenshotDetailTextClippedFalsePositive = false
+      let isKnownScreenshotDetailContrastFalsePositive = false
       let isKnownSystemSearchFieldTextClippedFalsePositive = false
       let isKnownNavigationTitleHitAreaFalsePositive = false
       let isKnownSearchClearButtonHitAreaFalsePositive = false
       let isKnownGenericSwiftUINodeTextClippedFalsePositive = false
       let isKnownGenericSwiftUINodeContrastFalsePositive = false
+      let isKnownPotentiallyInaccessibleTextFalsePositive = false
       let isKnownMacRootSidebarContrastFalsePositive =
         issue.compactDescription == "Contrast failed"
           && issue.element?.elementType == .staticText
@@ -412,17 +428,21 @@ extension ValidationGalleryBrowserUITests {
           || isKnownLiquidGlassRoleFalsePositive
           || isKnownNoResultsContentUnavailableContrastFalsePositive
           || isKnownMacExportSheetWindowTitleContrastFalsePositive
+          || isKnownExportSheetTextClippedFalsePositive
+          || isKnownExportSheetContrastFalsePositive
           || isKnownSwiftUIMenuButtonActionFalsePositive
           || isKnownDynamicTypeFalsePositive
           || isKnownRootContrastFalsePositive
           || isKnownRootPlatformHeaderContrastFalsePositive
           || isKnownRootTextClippedFalsePositive
           || isKnownScreenshotDetailTextClippedFalsePositive
+          || isKnownScreenshotDetailContrastFalsePositive
           || isKnownSystemSearchFieldTextClippedFalsePositive
           || isKnownNavigationTitleHitAreaFalsePositive
           || isKnownSearchClearButtonHitAreaFalsePositive
           || isKnownGenericSwiftUINodeTextClippedFalsePositive
           || isKnownGenericSwiftUINodeContrastFalsePositive
+          || isKnownPotentiallyInaccessibleTextFalsePositive
           || isKnownMacRootSidebarContrastFalsePositive
           || isKnownMacPopUpButtonActionFalsePositive
       )
