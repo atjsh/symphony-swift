@@ -62,3 +62,49 @@ preflight-app:
 preflight-closeout:
     just preflight-swiftpm
     just preflight-app
+
+# ── Mutation Testing (Muter) ──────────────────────────────────────────
+
+# Muter copies the entire project to a temp directory. The .build/ dir can be
+# tens of gigabytes of derived data, so we move it out during the copy, keeping
+# only the directories needed for compilation and package resolution:
+#   vendor/       – go-enry C library for CGoEnryBridge
+#   checkouts/    – SPM checked-out package sources
+#   repositories/ – SPM bare git repository cache
+#   artifacts/    – SPM binary artifact cache
+#   workspace-state.json – SPM workspace resolution state
+[private]
+muter-run +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stash="/tmp/symphony-muter-build-stash"
+
+    if [[ -d .build ]]; then
+      rm -rf "$stash"
+      mv .build "$stash"
+      mkdir -p .build
+      for dir in vendor checkouts repositories artifacts; do
+        if [[ -d "$stash/$dir" ]]; then
+          cp -a "$stash/$dir" ".build/$dir"
+        fi
+      done
+      if [[ -f "$stash/workspace-state.json" ]]; then
+        cp -a "$stash/workspace-state.json" .build/workspace-state.json
+      fi
+    fi
+
+    trap '[[ -d "$stash" ]] && { rm -rf .build 2>/dev/null; mv "$stash" .build; }' EXIT
+
+    muter {{args}}
+
+# Run full mutation testing across all non-excluded sources.
+mutate *flags:
+    just muter-run {{flags}}
+
+# Run mutation testing only on specific files (comma-separated or glob).
+mutate-files +files:
+    just muter-run --files-to-mutate {{files}}
+
+# Run mutation testing only on files changed since the previous commit.
+mutate-changed:
+    just muter-run --files-to-mutate $(echo "$(git diff --name-only HEAD HEAD~1 | tr '\n' ',')")

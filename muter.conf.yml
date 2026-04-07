@@ -1,0 +1,31 @@
+executable: scripts/muter-test.sh
+arguments: []
+exclude:
+  # Non-source / third-party / CLI entry points
+  - ThirdParty
+  - Sources/CGoEnryBridge
+  - Sources/GoEnryBridge
+  - Sources/harness
+  - Sources/SymphonyServerCLI
+  - Sources/SymphonyHarnessCLI
+  - Sources/SymphonyXcodeValidationRunner
+  - Sources/SymphonyXcodeValidationServerRunner
+  - Sources/SymphonyXcodeValidationCLI
+  - Sources/SymphonyXcodeValidationServerCLI
+  - Sources/SymphonyXcodeValidationServer
+  - Applications
+  # SwiftUI views — Muter schemata injection breaks ViewBuilder / opaque return
+  - Sources/SymphonyValidationGallery/Views
+  - Sources/SymphonyValidationGallery/Theme
+  - Sources/SymphonyValidationGallery/Models/ValidationGalleryModels.swift
+  # Complex async / ternary-heavy files that break under schemata injection
+  - Sources/SymphonyXcodeValidation/ValidationRunner+Parallel.swift
+  - Sources/SymphonyXcodeValidation/ValidationRunner+Execution.swift
+  - Sources/SymphonyXcodeValidation/ValidationRunner+ScenarioExecution.swift
+  - Sources/SymphonyXcodeValidation/ValidationRunnerTypes.swift
+  - Sources/SymphonyXcodeValidation/ValidationLogging.swift
+  - Sources/SymphonyHarness/Artifacts/ArtifactManager.swift
+  - Sources/SymphonyHarness/SymphonyHarnessTool+Validation.swift
+  - Sources/SymphonyHarness/SymphonyHarnessTool+Artifacts.swift
+excludeCalls: []
+testSuiteTimeout: 600

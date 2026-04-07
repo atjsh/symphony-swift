@@ -207,3 +207,10 @@ $RECYCLE.BIN/
 
 Plans/
 plan.md
+
+# Muter mutation testing
+muter_tmp/
+muter_logs/
+_mutated/
+*_mutated/
+muter-mappings.json
