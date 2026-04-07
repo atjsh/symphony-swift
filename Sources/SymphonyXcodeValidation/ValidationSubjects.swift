@@ -85,7 +85,7 @@ extension ValidationSubject {
             plan: .uiTests,
             runName: "accessibility-audit",
             onlyTesting: [
-              "SymphonySwiftUIAppUITests/SymphonySwiftUIAppUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
+              "SymphonySwiftUIAppUITests/RichMediaAndValidationUITests/testAccessibilityAuditCoversRequiredCheckpoints()"
             ],
             exportAttachments: true,
             recordVideo: false,

@@ -19,6 +19,7 @@ struct ConditionalSearchable: ViewModifier {
           TextField("Filter artifacts", text: $text)
             .textFieldStyle(.roundedBorder)
             .frame(minWidth: 160, maxWidth: 240)
+            .accessibilityLabel("Filter artifacts")
         }
       }
     }

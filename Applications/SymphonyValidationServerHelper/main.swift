@@ -1,0 +1,3 @@
+import SymphonyXcodeValidationServerCLI
+
+XcodeValidationServerCommand.main()

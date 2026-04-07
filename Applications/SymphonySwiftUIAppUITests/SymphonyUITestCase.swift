@@ -207,6 +207,80 @@ class SymphonyUITestCase: XCTestCase {
     #endif
   }
 
+  // MARK: - Validation Tab Navigation
+
+  func navigateToValidationTab() {
+    let validationTab = app.descendants(matching: .any)
+      .matching(identifier: "validationTab").firstMatch
+    XCTAssertTrue(
+      validationTab.waitForExistence(timeout: 5),
+      "Validation tab must exist"
+    )
+    #if os(macOS)
+      validationTab.click()
+    #else
+      validationTab.tap()
+    #endif
+    waitForUIStability()
+  }
+
+  func navigateToOperatorTab() {
+    let operatorTab = app.descendants(matching: .any)
+      .matching(identifier: "operatorTab").firstMatch
+    XCTAssertTrue(
+      operatorTab.waitForExistence(timeout: 5),
+      "Operator tab must exist"
+    )
+    #if os(macOS)
+      operatorTab.click()
+    #else
+      operatorTab.tap()
+    #endif
+    waitForUIStability()
+  }
+
+  func navigateToRunnerInnerTab() {
+    let identifierMatch = app.descendants(matching: .any)
+      .matching(identifier: "runnerTab").firstMatch
+    let tabMatch = app.tabs["Runner"]
+    let tabElement: XCUIElement
+    if identifierMatch.waitForExistence(timeout: 3) {
+      tabElement = identifierMatch
+    } else if tabMatch.waitForExistence(timeout: 3) {
+      tabElement = tabMatch
+    } else {
+      XCTFail("Runner inner tab must exist")
+      return
+    }
+    #if os(macOS)
+      tabElement.click()
+    #else
+      tabElement.tap()
+    #endif
+    waitForUIStability()
+  }
+
+  func navigateToGalleryInnerTab() {
+    let identifierMatch = app.descendants(matching: .any)
+      .matching(identifier: "galleryTab").firstMatch
+    let tabMatch = app.tabs["Gallery"]
+    let tabElement: XCUIElement
+    if identifierMatch.waitForExistence(timeout: 3) {
+      tabElement = identifierMatch
+    } else if tabMatch.waitForExistence(timeout: 3) {
+      tabElement = tabMatch
+    } else {
+      XCTFail("Gallery inner tab must exist")
+      return
+    }
+    #if os(macOS)
+      tabElement.click()
+    #else
+      tabElement.tap()
+    #endif
+    waitForUIStability()
+  }
+
   // MARK: - Screenshots & Checkpoints
 
   func captureCheckpoint(named name: String) {

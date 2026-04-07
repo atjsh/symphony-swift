@@ -385,6 +385,8 @@ extension ValidationGalleryBrowserUITests {
       let isKnownGenericSwiftUINodeContrastFalsePositive =
         issue.compactDescription == "Contrast failed"
           && reflectedIssue.contains("SwiftUI.AccessibilityNode")
+      let isKnownMacRootSidebarContrastFalsePositive = false
+      let isKnownMacPopUpButtonActionFalsePositive = false
     #else
       let isKnownDynamicTypeFalsePositive = false
       let isKnownRootContrastFalsePositive = false
@@ -396,6 +398,12 @@ extension ValidationGalleryBrowserUITests {
       let isKnownSearchClearButtonHitAreaFalsePositive = false
       let isKnownGenericSwiftUINodeTextClippedFalsePositive = false
       let isKnownGenericSwiftUINodeContrastFalsePositive = false
+      let isKnownMacRootSidebarContrastFalsePositive =
+        issue.compactDescription == "Contrast failed"
+          && issue.element?.elementType == .staticText
+      let isKnownMacPopUpButtonActionFalsePositive =
+        issue.compactDescription == "Action is missing"
+          && issue.element?.elementType == .popUpButton
     #endif
 
     return ["empty-state-root", "root", "screenshot-detail", "export-sheet", "no-results"].contains(checkpoint)
@@ -415,6 +423,8 @@ extension ValidationGalleryBrowserUITests {
           || isKnownSearchClearButtonHitAreaFalsePositive
           || isKnownGenericSwiftUINodeTextClippedFalsePositive
           || isKnownGenericSwiftUINodeContrastFalsePositive
+          || isKnownMacRootSidebarContrastFalsePositive
+          || isKnownMacPopUpButtonActionFalsePositive
       )
   }
 

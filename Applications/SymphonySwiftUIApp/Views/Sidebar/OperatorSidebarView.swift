@@ -65,7 +65,6 @@ struct OperatorSidebarView: View {
     .navigationTitle("Symphony")
     .searchable(
       text: Bindable(model).issueSearchText,
-      placement: .sidebar,
       prompt: "Search issues"
     )
     .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 380)

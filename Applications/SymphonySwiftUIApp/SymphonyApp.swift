@@ -133,7 +133,21 @@ struct SymphonyApp: App {
   private static func makeRunnerStore(environment: [String: String]) -> ValidationRunnerStore {
     let serverURL = URL(string: environment["XCODE_VALIDATION_SERVER_URL"] ?? "http://127.0.0.1:8090")
       ?? URL(string: "http://127.0.0.1:8090")!  // swiftlint:disable:this force_unwrapping
-    return ValidationRunnerStore(serverURL: serverURL)
+    #if os(macOS)
+      let isUITesting = BootstrapEnvironment.isUITesting(
+        arguments: ProcessInfo.processInfo.arguments,
+        environment: environment
+      )
+      let serverManager: any ValidationServerLifecycleManaging = isUITesting
+        ? UITestingValidationServerManager()
+        : DefaultValidationServerManager(
+          processLauncher: DefaultValidationServerProcessLauncher(),
+          helperLocator: BundledValidationServerHelperLocator()
+        )
+      return ValidationRunnerStore(serverURL: serverURL, serverManager: serverManager)
+    #else
+      return ValidationRunnerStore(serverURL: serverURL)
+    #endif
   }
 
   private static func makeRecentBundleStore(
@@ -176,28 +190,32 @@ struct SymphonyApp: App {
       ? .validation : .operator
   }()
 
+  private var tabContent: some View {
+    TabView(selection: $selectedTab) {
+      Tab("Operator", systemImage: "desktopcomputer", value: .operator) {
+        ContentView(model: model)
+          .task {
+            if isUITesting { await model.connect() }
+          }
+      }
+      .accessibilityIdentifier("operatorTab")
+
+      Tab("Validation", systemImage: "checkmark.shield", value: .validation) {
+        ValidationGalleryContainerView(
+          store: galleryStore,
+          runnerStore: galleryRunnerStore,
+          importController: galleryImportController,
+          exportController: galleryExportController
+        )
+      }
+      .accessibilityIdentifier("validationTab")
+    }
+  }
+
   var body: some Scene {
     WindowGroup {
-      TabView(selection: $selectedTab) {
-        Tab("Operator", systemImage: "desktopcomputer", value: .operator) {
-          ContentView(model: model)
-            .task {
-              if isUITesting { await model.connect() }
-            }
-        }
-        .accessibilityIdentifier("operatorTab")
-
-        Tab("Validation", systemImage: "checkmark.shield", value: .validation) {
-          ValidationGalleryContainerView(
-            store: galleryStore,
-            runnerStore: galleryRunnerStore,
-            importController: galleryImportController,
-            exportController: galleryExportController
-          )
-        }
-        .accessibilityIdentifier("validationTab")
-      }
-      .tabViewStyle(.sidebarAdaptable)
+      tabContent
+        .modifier(SidebarAdaptableTabViewStyleModifier(isEnabled: !isUITesting))
     }
     .defaultSize(width: 1280, height: 820)
     #if os(macOS)
@@ -224,6 +242,23 @@ struct SymphonyApp: App {
       .restorationBehavior(.disabled)
       .defaultPosition(.center)
     #endif
+  }
+}
+
+/// Applies `.sidebarAdaptable` tab view style only when enabled.
+///
+/// On macOS 26 the sidebarAdaptable style makes the inner
+/// `NavigationSplitView` sidebar non-hittable in XCUITest, so UI tests
+/// skip the style to keep the default (automatic) tab view layout.
+private struct SidebarAdaptableTabViewStyleModifier: ViewModifier {
+  let isEnabled: Bool
+
+  func body(content: Content) -> some View {
+    if isEnabled {
+      content.tabViewStyle(.sidebarAdaptable)
+    } else {
+      content
+    }
   }
 }
 

@@ -119,6 +119,160 @@ struct ValidationRunnerStoreTests {
   }
 }
 
+// MARK: - Server Lifecycle Tests
+
+@MainActor
+final class RecordingServerManager: ValidationServerLifecycleManaging, @unchecked Sendable {
+  var onStatusChange: (@MainActor (ValidationServerStatusSnapshot) -> Void)?
+  private(set) var statusSnapshot = ValidationServerStatusSnapshot(state: .idle)
+  private(set) var startCallCount = 0
+  private(set) var stopCallCount = 0
+  private(set) var lastHostname: String?
+  private(set) var lastPort: Int?
+  private(set) var lastProjectRoot: URL?
+
+  var nextStartSnapshot = ValidationServerStatusSnapshot(
+    state: .running,
+    hostname: "127.0.0.1",
+    port: 8090,
+    transcript: ["[ValidationServer] started"],
+    processIdentifier: 9999
+  )
+  var nextStopSnapshot = ValidationServerStatusSnapshot(state: .idle)
+
+  func start(hostname: String, port: Int, projectRoot: URL) async {
+    startCallCount += 1
+    lastHostname = hostname
+    lastPort = port
+    lastProjectRoot = projectRoot
+    statusSnapshot = nextStartSnapshot
+    onStatusChange?(statusSnapshot)
+  }
+
+  func stop() async {
+    stopCallCount += 1
+    statusSnapshot = nextStopSnapshot
+    onStatusChange?(statusSnapshot)
+  }
+}
+
+@Suite("ValidationRunnerStore – Server Lifecycle")
+@MainActor
+struct ValidationRunnerStoreServerLifecycleTests {
+  @Test("hasServerSupport is false when serverManager is nil")
+  func hasServerSupportNil() {
+    let client = MockValidationServerClient()
+    let store = ValidationRunnerStore(client: client, serverManager: nil)
+    #expect(store.hasServerSupport == false)
+  }
+
+  @Test("hasServerSupport is true when serverManager is provided")
+  func hasServerSupportProvided() {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    #expect(store.hasServerSupport == true)
+  }
+
+  @Test("startServer calls manager and updates state")
+  func startServerCallsManager() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    await store.startServer()
+    #expect(manager.startCallCount == 1)
+    #expect(store.serverLaunchState == .running)
+    #expect(store.serverTranscript == ["[ValidationServer] started"])
+  }
+
+  @Test("stopServer calls manager and clears connected")
+  func stopServerCallsManager() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    await store.startServer()
+    await store.stopServer()
+    #expect(manager.stopCallCount == 1)
+    #expect(store.isConnected == false)
+    #expect(store.serverLaunchState == .idle)
+  }
+
+  @Test("startServer without manager is a no-op")
+  func startServerNoManager() async {
+    let client = MockValidationServerClient()
+    let store = ValidationRunnerStore(client: client, serverManager: nil)
+    await store.startServer()
+    #expect(store.serverLaunchState == .idle)
+  }
+
+  @Test("stopServer without manager is a no-op")
+  func stopServerNoManager() async {
+    let client = MockValidationServerClient()
+    let store = ValidationRunnerStore(client: client, serverManager: nil)
+    await store.stopServer()
+    #expect(store.isConnected == false)
+  }
+
+  @Test("isServerRunning reflects serverLaunchState")
+  func isServerRunning() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    #expect(store.isServerRunning == false)
+    await store.startServer()
+    #expect(store.isServerRunning == true)
+  }
+
+  @Test("server failure state is applied from snapshot")
+  func failureState() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    manager.nextStartSnapshot = ValidationServerStatusSnapshot(
+      state: .failed,
+      hostname: "127.0.0.1",
+      port: 8090,
+      transcript: ["[ValidationServer] failed to start"],
+      failureDescription: "Port in use"
+    )
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    await store.startServer()
+    #expect(store.serverLaunchState == .failed)
+    #expect(store.serverFailureDescription == "Port in use")
+  }
+
+  @Test("startServer uses configured hostname and port")
+  func startServerUsesConfiguredValues() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    store.serverHostname = "192.168.1.1"
+    store.serverPort = "9090"
+    await store.startServer()
+    #expect(manager.lastHostname == "192.168.1.1")
+    #expect(manager.lastPort == 9090)
+  }
+
+  @Test("startServer falls back to defaults for empty hostname")
+  func startServerDefaultHostname() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    store.serverHostname = ""
+    await store.startServer()
+    #expect(manager.lastHostname == "127.0.0.1")
+  }
+
+  @Test("startServer falls back to default port for invalid string")
+  func startServerInvalidPort() async {
+    let client = MockValidationServerClient()
+    let manager = RecordingServerManager()
+    let store = ValidationRunnerStore(client: client, serverManager: manager)
+    store.serverPort = "abc"
+    await store.startServer()
+    #expect(manager.lastPort == 8090)
+  }
+}
+
 // MARK: - ValidationServerClient Error Tests
 
 @Suite("ValidationServerClientError")

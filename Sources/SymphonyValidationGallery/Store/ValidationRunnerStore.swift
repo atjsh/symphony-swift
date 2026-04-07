@@ -19,6 +19,23 @@ public final class ValidationRunnerStore {
   public var errorMessage: String?
   public var completedSummary: ValidationSummary?
 
+  // MARK: - Server Lifecycle State
+
+  public var serverLaunchState: ValidationServerLaunchState = .idle
+  public var serverTranscript: [String] = []
+  public var serverHostname: String = "127.0.0.1"
+  public var serverPort: String = "8090"
+  public var serverFailureDescription: String?
+  public private(set) var serverManager: (any ValidationServerLifecycleManaging)?
+
+  public var hasServerSupport: Bool {
+    serverManager != nil
+  }
+
+  public var isServerRunning: Bool {
+    serverLaunchState == .running
+  }
+
   // MARK: - Internal
 
   private(set) var activeRunID: RunID?
@@ -34,7 +51,8 @@ public final class ValidationRunnerStore {
 
   public init<Client: ValidationServerConnecting>(
     client: Client,
-    pollingInterval: Duration = .seconds(2)
+    pollingInterval: Duration = .seconds(2),
+    serverManager: (any ValidationServerLifecycleManaging)? = nil
   ) {
     self._startRun = { try await client.startRun($0) }
     self._pollStatus = { try await client.pollStatus($0, afterLine: $1) }
@@ -42,14 +60,17 @@ public final class ValidationRunnerStore {
     self._cancelRun = { try await client.cancelRun($0) }
     self._healthCheck = { try await client.healthCheck() }
     self.pollingInterval = pollingInterval
+    self.serverManager = serverManager
+    configureServerManagerCallback()
   }
 
   public convenience init(
     serverURL: URL,
-    pollingInterval: Duration = .seconds(2)
+    pollingInterval: Duration = .seconds(2),
+    serverManager: (any ValidationServerLifecycleManaging)? = nil
   ) {
     let client = URLSessionValidationServerClient(baseURL: serverURL)
-    self.init(client: client, pollingInterval: pollingInterval)
+    self.init(client: client, pollingInterval: pollingInterval, serverManager: serverManager)
     self.serverURL = serverURL
   }
 
@@ -161,5 +182,58 @@ public final class ValidationRunnerStore {
         }
       }
     }
+  }
+
+  // MARK: - Server Lifecycle
+
+  public func startServer() async {
+    guard let serverManager else { return }
+    guard let projectRoot = resolvedProjectRoot() else { return }
+    let hostname = serverHostname.isEmpty ? "127.0.0.1" : serverHostname
+    let port = Int(serverPort) ?? 8090
+    serverURL = URL(string: "http://\(hostname):\(port)")
+    await serverManager.start(hostname: hostname, port: port, projectRoot: projectRoot)
+    await checkConnection()
+  }
+
+  public func stopServer() async {
+    guard let serverManager else { return }
+    await serverManager.stop()
+    isConnected = false
+  }
+
+  private func configureServerManagerCallback() {
+    serverManager?.onStatusChange = { [weak self] snapshot in
+      self?.applyServerStatus(snapshot)
+    }
+  }
+
+  private func applyServerStatus(_ snapshot: ValidationServerStatusSnapshot) {
+    serverLaunchState = snapshot.state
+    serverTranscript = snapshot.transcript
+    serverFailureDescription = snapshot.failureDescription
+  }
+
+  private func resolvedProjectRoot() -> URL? {
+    #if os(macOS)
+      let process = Process()
+      let pipe = Pipe()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+      process.arguments = ["rev-parse", "--show-toplevel"]
+      process.standardOutput = pipe
+      process.standardError = FileHandle.nullDevice
+      do {
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !path.isEmpty {
+          return URL(fileURLWithPath: path)
+        }
+      } catch {
+        // Fall through to fallback.
+      }
+    #endif
+    return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
   }
 }

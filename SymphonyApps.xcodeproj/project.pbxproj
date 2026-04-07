@@ -27,6 +27,9 @@
 		A5EB66BF435A82DF797E81AF /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = 4C68215C3CE80F18F246B0B0 /* SymphonyShared */; };
 		D30100000000000000000001 /* SymphonyValidationGallery in Frameworks */ = {isa = PBXBuildFile; productRef = D30100000000000000000002 /* SymphonyValidationGallery */; };
 		C45294D9DCCA2247107643E5 /* SymphonyShared in Frameworks */ = {isa = PBXBuildFile; productRef = FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */; };
+		B30100000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30400000000000000000001 /* main.swift */; };
+		B30100000000000000000002 /* SymphonyXcodeValidationServerCLI in Frameworks */ = {isa = PBXBuildFile; productRef = B30C00000000000000000001 /* SymphonyXcodeValidationServerCLI */; };
+		B30100000000000000000003 /* SymphonyValidationServerHelper in Embed Validation Server Helper */ = {isa = PBXBuildFile; fileRef = B30400000000000000000002 /* SymphonyValidationServerHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +54,13 @@
 			remoteGlobalIDString = 2299CB2884BEEF9AA816D6F8;
 			remoteInfo = SymphonySwiftUIApp;
 		};
+		B30200000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4106BBA2672AB3F9DA74F38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B30700000000000000000001;
+			remoteInfo = SymphonyValidationServerHelper;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -63,6 +73,17 @@
 				44DD55EE66FF77AA88BB99CC /* SymphonyLocalServerHelper in Embed Local Server Helper */,
 			);
 			name = "Embed Local Server Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30300000000000000000001 /* Embed Validation Server Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				B30100000000000000000003 /* SymphonyValidationServerHelper in Embed Validation Server Helper */,
+			);
+			name = "Embed Validation Server Helper";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -83,6 +104,8 @@
 		A20200000000000000000009 /* ValidationGalleryCommentAndExportUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationGalleryCommentAndExportUITests.swift; sourceTree = "<group>"; };
 		A2020000000000000000000A /* ValidationGalleryRunnerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationGalleryRunnerUITests.swift; sourceTree = "<group>"; };
 		A2020000000000000000000B /* ValidationGalleryPerformanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationGalleryPerformanceUITests.swift; sourceTree = "<group>"; };
+		B30400000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B30400000000000000000002 /* SymphonyValidationServerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SymphonyValidationServerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB3BDD964B47278C650FADD7 /* Symphony.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Symphony.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC72EB26FCE346CEC8C6A5F0 /* symphony-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "symphony-swift"; path = .; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -136,6 +159,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B30600000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B30100000000000000000002 /* SymphonyXcodeValidationServerCLI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -145,6 +176,7 @@
 				E9EBDE2FA6B8050169009581 /* SymphonySwiftUIApp */,
 				E55126918B907B93F4719E52 /* SymphonySwiftUIAppTests */,
 				AABBCCDDEEFF001122334455 /* SymphonyLocalServerHelper */,
+				B30500000000000000000001 /* SymphonyValidationServerHelper */,
 				ECA6159E86D40365C55C150F /* SymphonySwiftUIAppUITests */,
 			);
 			path = Applications;
@@ -164,6 +196,7 @@
 			children = (
 				BB3BDD964B47278C650FADD7 /* Symphony.app */,
 				88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */,
+				B30400000000000000000002 /* SymphonyValidationServerHelper */,
 				97B3808013853F93DBBD1B9A /* SymphonySwiftUIAppTests.xctest */,
 				706D16BB2EDD06B285EE65B4 /* SymphonySwiftUIAppUITests.xctest */,
 			);
@@ -176,6 +209,14 @@
 				77AA88BB99CC00DD11EE22FF /* main.swift */,
 			);
 			path = SymphonyLocalServerHelper;
+			sourceTree = "<group>";
+		};
+		B30500000000000000000001 /* SymphonyValidationServerHelper */ = {
+			isa = PBXGroup;
+			children = (
+				B30400000000000000000001 /* main.swift */,
+			);
+			path = SymphonyValidationServerHelper;
 			sourceTree = "<group>";
 		};
 		B6D433E99BA0FDDD859BD595 /* Packages */ = {
@@ -258,11 +299,13 @@
 				5B5D61BB6DDE3ADDF81D5FA3 /* Sources */,
 				BF8266663C0352E7516D33FF /* Frameworks */,
 				CCDDEEFF0011223344556677 /* Embed Local Server Helper */,
+				B30300000000000000000001 /* Embed Validation Server Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				EEFF00112233445566778899 /* PBXTargetDependency */,
+				B30900000000000000000001 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E9EBDE2FA6B8050169009581 /* SymphonySwiftUIApp */,
@@ -296,6 +339,25 @@
 			productReference = 88BB99CC00DD11EE22FF33AA /* SymphonyLocalServerHelper */;
 			productType = "com.apple.product-type.tool";
 		};
+		B30700000000000000000001 /* SymphonyValidationServerHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B30B00000000000000000001 /* Build configuration list for PBXNativeTarget "SymphonyValidationServerHelper" */;
+			buildPhases = (
+				B30800000000000000000001 /* Sources */,
+				B30600000000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SymphonyValidationServerHelper;
+			packageProductDependencies = (
+				B30C00000000000000000001 /* SymphonyXcodeValidationServerCLI */,
+			);
+			productName = SymphonyValidationServerHelper;
+			productReference = B30400000000000000000002 /* SymphonyValidationServerHelper */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -316,6 +378,9 @@
 						ProvisioningStyle = Automatic;
 					};
 					BBCCDDEEFF00112233445566 = {
+						ProvisioningStyle = Automatic;
+					};
+					B30700000000000000000001 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -339,6 +404,7 @@
 			targets = (
 				2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */,
 				BBCCDDEEFF00112233445566 /* SymphonyLocalServerHelper */,
+				B30700000000000000000001 /* SymphonyValidationServerHelper */,
 				13AD461CA49A2003317B8214 /* SymphonySwiftUIAppTests */,
 				0B018AD9F48103DB6D8603F4 /* SymphonySwiftUIAppUITests */,
 			);
@@ -386,6 +452,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B30800000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B30100000000000000000001 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -403,6 +477,11 @@
 			isa = PBXTargetDependency;
 			target = 2299CB2884BEEF9AA816D6F8 /* SymphonySwiftUIApp */;
 			targetProxy = C06066C147D616984F81FD92 /* PBXContainerItemProxy */;
+		};
+		B30900000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B30700000000000000000001 /* SymphonyValidationServerHelper */;
+			targetProxy = B30200000000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -723,6 +802,40 @@
 			};
 			name = Release;
 		};
+		B30A00000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.atjsh.symphony.validation-server-helper";
+				PRODUCT_NAME = SymphonyValidationServerHelper;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		B30A00000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.atjsh.symphony.validation-server-helper";
+				PRODUCT_NAME = SymphonyValidationServerHelper;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -771,6 +884,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		B30B00000000000000000001 /* Build configuration list for PBXNativeTarget "SymphonyValidationServerHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B30A00000000000000000001 /* Debug */,
+				B30A00000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -804,6 +926,10 @@
 		FDBDF0E5C31E95A6CDEB61F2 /* SymphonyShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SymphonyShared;
+		};
+		B30C00000000000000000001 /* SymphonyXcodeValidationServerCLI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SymphonyXcodeValidationServerCLI;
 		};
 		D30100000000000000000002 /* SymphonyValidationGallery */ = {
 			isa = XCSwiftPackageProductDependency;

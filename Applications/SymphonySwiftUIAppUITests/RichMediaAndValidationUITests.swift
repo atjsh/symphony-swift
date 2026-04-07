@@ -54,6 +54,46 @@ final class RichMediaAndValidationUITests: SymphonyUITestCase {
       captureCheckpoint(surface: "workflow-local-server", variant: "top")
       try captureScrollVariants(for: localServerStep, surface: "workflow-local-server")
     #endif
+
+    // MARK: Validation Tab Surfaces
+
+    navigateToValidationTab()
+
+    let galleryContent = app.descendants(matching: .any)
+      .matching(identifier: "validation-gallery-browser").firstMatch
+    if galleryContent.waitForExistence(timeout: 5) {
+      captureCheckpoint(surface: "validation-gallery-browser", variant: "top")
+    }
+
+    navigateToRunnerInnerTab()
+
+    let runnerStartButton = app.descendants(matching: .any)
+      .matching(identifier: "startRunButton").firstMatch
+    XCTAssertTrue(runnerStartButton.waitForExistence(timeout: 5))
+    captureCheckpoint(surface: "validation-runner-idle")
+
+    #if os(macOS)
+      let serverStartButton = app.descendants(matching: .any)
+        .matching(identifier: "validationServerStartButton").firstMatch
+      if serverStartButton.waitForExistence(timeout: 3) {
+        captureCheckpoint(surface: "validation-server-editor")
+        serverStartButton.click()
+        waitForUIStability()
+
+        let connectionIndicator = app.descendants(matching: .any)
+          .matching(identifier: "connectionIndicator").firstMatch
+        if connectionIndicator.waitForExistence(timeout: 10) {
+          captureCheckpoint(surface: "validation-runner-server-running")
+        }
+
+        let serverStopButton = app.descendants(matching: .any)
+          .matching(identifier: "validationServerStopButton").firstMatch
+        if serverStopButton.waitForExistence(timeout: 3) {
+          serverStopButton.click()
+          waitForUIStability()
+        }
+      }
+    #endif
   }
 
   func testValidationMatrixCapturesNamedCheckpointsAndAuditsVisibleScreens() throws {
@@ -71,6 +111,20 @@ final class RichMediaAndValidationUITests: SymphonyUITestCase {
 
     openLogsTab()
     captureCheckpoint(named: "logs")
+
+    navigateToValidationTab()
+    captureCheckpoint(named: "validation-gallery")
+
+    navigateToRunnerInnerTab()
+    captureCheckpoint(named: "validation-runner")
+
+    #if os(macOS)
+      let serverControls = app.descendants(matching: .any)
+        .matching(identifier: "validationServerStartButton").firstMatch
+      if serverControls.waitForExistence(timeout: 3) {
+        captureCheckpoint(named: "validation-runner-controls")
+      }
+    #endif
   }
 
   func testAccessibilityAuditCoversRequiredCheckpoints() throws {
@@ -88,5 +142,11 @@ final class RichMediaAndValidationUITests: SymphonyUITestCase {
 
     openLogsTab()
     try performAccessibilityAuditForCurrentCheckpoint(named: "logs")
+
+    navigateToValidationTab()
+    try performAccessibilityAuditForCurrentCheckpoint(named: "validation-gallery")
+
+    navigateToRunnerInnerTab()
+    try performAccessibilityAuditForCurrentCheckpoint(named: "validation-runner")
   }
 }

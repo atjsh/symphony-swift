@@ -26,6 +26,7 @@ let package = Package(
     .library(name: "SymphonyHarnessCLI", targets: ["SymphonyHarnessCLI"]),
     .library(name: "SymphonyValidationGallery", targets: ["SymphonyValidationGallery"]),
     .library(name: "SymphonyXcodeValidationServerCore", targets: ["SymphonyXcodeValidationServerCore"]),
+    .library(name: "SymphonyXcodeValidationServerCLI", targets: ["SymphonyXcodeValidationServerCLI"]),
     .executable(name: "symphony-server", targets: ["SymphonyServerCLI"]),
     .executable(name: "harness", targets: ["harness"]),
     .executable(name: "xcode-validation-server", targets: ["SymphonyXcodeValidationServerRunner"]),

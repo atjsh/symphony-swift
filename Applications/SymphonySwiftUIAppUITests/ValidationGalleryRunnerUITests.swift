@@ -140,8 +140,22 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
   func testConfigurationFormShowsAllControls() throws {
     launchApp()
 
-    XCTAssertTrue(element("serverURLLabel").waitForExistence(timeout: 5), "Server URL label should exist")
-    XCTAssertTrue(element("connectionIndicator").waitForExistence(timeout: 5), "Connection indicator should exist")
+    #if os(macOS)
+      // macOS shows server lifecycle controls (hostname, port, start button)
+      XCTAssertTrue(
+        element("serverHostnameField").waitForExistence(timeout: 5), "Server hostname field should exist")
+      XCTAssertTrue(
+        element("serverPortField").waitForExistence(timeout: 5), "Server port field should exist")
+      XCTAssertTrue(
+        element("connectionIndicator").waitForExistence(timeout: 5), "Connection indicator should exist")
+      XCTAssertTrue(
+        element("validationServerStartButton").waitForExistence(timeout: 5),
+        "Server start button should exist")
+    #else
+      // iOS shows read-only server URL
+      XCTAssertTrue(element("serverURLLabel").waitForExistence(timeout: 5), "Server URL label should exist")
+      XCTAssertTrue(element("connectionIndicator").waitForExistence(timeout: 5), "Connection indicator should exist")
+    #endif
     XCTAssertTrue(element("subjectPicker").waitForExistence(timeout: 5), "Subject picker should exist")
     XCTAssertTrue(element("buildProfilePicker").waitForExistence(timeout: 5), "Build profile picker should exist")
     XCTAssertTrue(
@@ -182,4 +196,69 @@ final class ValidationGalleryRunnerUITests: XCTestCase {
       "Gallery content should be visible on Gallery tab"
     )
   }
+
+  // MARK: - Server Lifecycle (macOS)
+
+  #if os(macOS)
+    func testServerStartButtonVisibleWhenStopped() throws {
+      launchApp()
+
+      let startButton = element("validationServerStartButton")
+      XCTAssertTrue(startButton.waitForExistence(timeout: 5), "Server start button should be visible in idle state")
+
+      let indicator = element("connectionIndicator")
+      XCTAssertTrue(indicator.waitForExistence(timeout: 5), "Connection indicator should be visible")
+    }
+
+    func testServerStartStopCycleUpdatesUI() throws {
+      launchApp()
+
+      let startButton = element("validationServerStartButton")
+      XCTAssertTrue(startButton.waitForExistence(timeout: 5), "Server start button should exist")
+      startButton.click()
+      Thread.sleep(forTimeInterval: 2)
+
+      // After starting with UITestingValidationServerManager, should transition to running
+      let stopButton = element("validationServerStopButton")
+      XCTAssertTrue(
+        stopButton.waitForExistence(timeout: 10),
+        "Server stop button should appear after start"
+      )
+
+      stopButton.click()
+      Thread.sleep(forTimeInterval: 2)
+
+      // After stopping, start button should reappear
+      let startButtonAgain = element("validationServerStartButton")
+      XCTAssertTrue(
+        startButtonAgain.waitForExistence(timeout: 5),
+        "Server start button should reappear after stop"
+      )
+    }
+
+    func testServerTranscriptVisibleAfterStart() throws {
+      launchApp()
+
+      let startButton = element("validationServerStartButton")
+      XCTAssertTrue(startButton.waitForExistence(timeout: 5))
+      startButton.click()
+      Thread.sleep(forTimeInterval: 2)
+
+      let transcriptDisclosure = element("serverTranscriptDisclosure")
+      XCTAssertTrue(
+        transcriptDisclosure.waitForExistence(timeout: 5),
+        "Server transcript disclosure should be visible after start"
+      )
+    }
+
+    func testServerHostnameAndPortFieldsEditable() throws {
+      launchApp()
+
+      let hostnameField = element("serverHostnameField")
+      XCTAssertTrue(hostnameField.waitForExistence(timeout: 5), "Hostname field should exist")
+
+      let portField = element("serverPortField")
+      XCTAssertTrue(portField.waitForExistence(timeout: 5), "Port field should exist")
+    }
+  #endif
 }
