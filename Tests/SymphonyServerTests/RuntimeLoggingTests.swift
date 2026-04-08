@@ -72,3 +72,72 @@ import Testing
   #expect(!log.line.contains("ghp_super_secret_token"))
   #expect(!log.line.contains("github_pat_secret_value"))
 }
+
+// MARK: - Mutation-Targeted Runtime Logging Tests
+
+@Test func runtimeLoggerOmitsEmptyErrorString() async throws {
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    RuntimeLogger.log(
+      level: .info,
+      event: "mutation_empty_error",
+      context: RuntimeLogContext(),
+      error: ""
+    )
+  }
+
+  let log = try #require(logs.first { $0.entry.event == "mutation_empty_error" })
+  #expect(log.entry.error == nil, "Empty error string must not appear in payload")
+}
+
+@Test func runtimeLoggerOmitsEmptyContextFields() async throws {
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    RuntimeLogger.log(
+      level: .info,
+      event: "mutation_empty_context",
+      context: RuntimeLogContext(
+        issueID: "",
+        runID: "real-run",
+        provider: ""
+      )
+    )
+  }
+
+  let log = try #require(logs.first { $0.entry.event == "mutation_empty_context" })
+  #expect(log.entry.runID == "real-run")
+  #expect(log.entry.issueID == nil, "Empty issueID must not appear in payload")
+  #expect(log.entry.provider == nil, "Empty provider must not appear in payload")
+}
+
+@Test func runtimeLoggerMetadataDoesNotOverrideBuiltInFields() async throws {
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    RuntimeLogger.log(
+      level: .warning,
+      event: "mutation_metadata_conflict",
+      context: RuntimeLogContext(
+        runID: "real-run",
+        metadata: ["run_id": "fake-run", "level": "overridden"]
+      )
+    )
+  }
+
+  let log = try #require(logs.first { $0.entry.event == "mutation_metadata_conflict" })
+  #expect(log.entry.runID == "real-run", "Built-in run_id must not be overridden by metadata")
+  #expect(log.entry.level == "warning", "Built-in level must not be overridden by metadata")
+}
+
+@Test func runtimeLoggerHandlesWhitespaceOnlySensitiveValues() async throws {
+  let (_, logs) = try await withCapturedRuntimeLogs {
+    RuntimeLogger.log(
+      level: .info,
+      event: "mutation_whitespace_sensitive",
+      context: RuntimeLogContext(),
+      error: "token=ghp_real_123",
+      sensitiveValues: ["  ", "ghp_real_123", ""]
+    )
+  }
+
+  let log = try #require(logs.first { $0.entry.event == "mutation_whitespace_sensitive" })
+  let error = try #require(log.entry.error)
+  #expect(!error.contains("ghp_real_123"))
+  #expect(error.contains("[REDACTED]"))
+}
