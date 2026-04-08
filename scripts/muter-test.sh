@@ -92,7 +92,12 @@ _MUTER_TIMEOUT="$timeout_secs" _MUTER_LOG="$log_file" perl -e '
             { local $/; $content = <$fh>; }
             close $fh;
             my $failed = () = $content =~ /Test \S+\(\) failed/g;
-            $exit_code = 1 if $failed > 0;
+            # Swift Testing logs "recorded an issue" for expectation
+            # failures. When the process hangs before printing the
+            # final "Test X() failed" line, we must still detect
+            # these as test failures so Muter counts the kill.
+            my $issues = () = $content =~ /recorded an issue/g;
+            $exit_code = 1 if $failed > 0 || $issues > 0;
           }
           kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
           exit($exit_code);
@@ -116,8 +121,9 @@ _MUTER_TIMEOUT="$timeout_secs" _MUTER_LOG="$log_file" perl -e '
     close $fh;
     my $passed = () = $content =~ /Test \S+\(\) passed/g;
     my $failed = () = $content =~ /Test \S+\(\) failed/g;
-    if ($passed > 0 && $failed == 0) { exit(0); }
-    if ($failed > 0) { exit(1); }
+    my $issues = () = $content =~ /recorded an issue/g;
+    if ($failed > 0 || $issues > 0) { exit(1); }
+    if ($passed > 0) { exit(0); }
   }
   exit(124);
 ' "$log_file" "$@"
