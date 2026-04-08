@@ -186,3 +186,207 @@ import Testing
   #expect(logs.items.count == 3)
   #expect(logs.hasMore)
 }
+
+// MARK: - Resource Endpoint Coverage
+
+@Test func httpAPIIssuesListReturnsItems() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-iss.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertIssue(fixture.issue)
+  try store.upsertRun(fixture.runDetail)
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "GET", path: "/api/v1/issues")
+  )
+  #expect(response.statusCode == 200)
+  let issues = try decodeBody(IssuesResponse.self, from: response)
+  #expect(issues.items.count == 1)
+  #expect(issues.items[0].issueID == fixture.issue.id)
+}
+
+@Test func httpAPIIssuesListRejectsNonGET() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-iss-m.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "POST", path: "/api/v1/issues")
+  )
+  #expect(response.statusCode == 405)
+}
+
+@Test func httpAPIIssueDetailReturnsIssue() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-det.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertIssue(fixture.issue)
+  try store.upsertRun(fixture.runDetail)
+  try store.upsertSession(fixture.session)
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+  let response = try api.respond(
+    to: SymphonyAPIRequest(
+      method: "GET",
+      path: "/api/v1/issues/\(fixture.issue.id.rawValue)"
+    )
+  )
+  #expect(response.statusCode == 200)
+  let detail = try decodeBody(IssueDetail.self, from: response)
+  #expect(detail.issue.id == fixture.issue.id)
+  #expect(detail.workspacePath == "/tmp/symphony/atjsh_example_42")
+}
+
+@Test func httpAPIIssueDetailReturns404ForUnknownIssue() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-det404.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "GET", path: "/api/v1/issues/no-such-issue")
+  )
+  #expect(response.statusCode == 404)
+  let body = try decodeBody(ErrorEnvelope.self, from: response)
+  #expect(body.error.code == "issue_not_found")
+}
+
+@Test func httpAPIIssueDetailRejectsNonGET() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-detm.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertRun(fixture.runDetail)
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+  let response = try api.respond(
+    to: SymphonyAPIRequest(
+      method: "DELETE",
+      path: "/api/v1/issues/\(fixture.issue.id.rawValue)"
+    )
+  )
+  #expect(response.statusCode == 405)
+}
+
+@Test func httpAPIRunDetailReturnsRun() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-run.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertRun(fixture.runDetail)
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+  let response = try api.respond(
+    to: SymphonyAPIRequest(
+      method: "GET",
+      path: "/api/v1/runs/\(fixture.runDetail.runID.rawValue)"
+    )
+  )
+  #expect(response.statusCode == 200)
+  let run = try decodeBody(RunDetail.self, from: response)
+  #expect(run.runID == fixture.runDetail.runID)
+}
+
+@Test func httpAPIRunDetailReturns404ForUnknownRun() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-run404.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "GET", path: "/api/v1/runs/unknown-run")
+  )
+  #expect(response.statusCode == 404)
+  let body = try decodeBody(ErrorEnvelope.self, from: response)
+  #expect(body.error.code == "run_not_found")
+}
+
+@Test func httpAPIRunDetailRejectsNonGET() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-runm.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "PUT", path: "/api/v1/runs/any-run")
+  )
+  #expect(response.statusCode == 405)
+}
+
+@Test func httpAPILogsSessionNotFoundReturns404() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-log404.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "GET", path: "/api/v1/logs/no-session")
+  )
+  #expect(response.statusCode == 404)
+  let body = try decodeBody(ErrorEnvelope.self, from: response)
+  #expect(body.error.code == "session_not_found")
+}
+
+@Test func httpAPILogsRejectsNonGET() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-logm.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "POST", path: "/api/v1/logs/some-session")
+  )
+  #expect(response.statusCode == 405)
+}
+
+@Test func httpAPILogsWithCursorReturnsSubsequentPage() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-cur.sqlite3")
+  let fixture = try makeFixtureRecords()
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  try store.upsertIssue(fixture.issue)
+  try store.upsertRun(fixture.runDetail)
+  try store.upsertSession(fixture.session)
+
+  for i in 1...5 {
+    _ = try store.appendEvent(
+      sessionID: fixture.session.sessionID,
+      provider: fixture.session.provider,
+      timestamp: "2026-03-24T03:00:\(String(format: "%02d", i))Z",
+      rawJSON: #"{"n":\#(i)}"#,
+      providerEventType: "message",
+      normalizedEventKind: "message"
+    )
+  }
+
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  // First page with limit=3
+  let page1 = try api.respond(
+    to: SymphonyAPIRequest(
+      method: "GET",
+      path: "/api/v1/logs/\(fixture.session.sessionID.rawValue)?limit=3"
+    )
+  )
+  #expect(page1.statusCode == 200)
+  let first = try decodeBody(LogEntriesResponse.self, from: page1)
+  #expect(first.items.count == 3)
+  #expect(first.hasMore)
+  let cursor = try #require(first.nextCursor)
+
+  // Second page using cursor
+  let page2 = try api.respond(
+    to: SymphonyAPIRequest(
+      method: "GET",
+      path: "/api/v1/logs/\(fixture.session.sessionID.rawValue)?limit=3&cursor=\(cursor.rawValue)"
+    )
+  )
+  #expect(page2.statusCode == 200)
+  let second = try decodeBody(LogEntriesResponse.self, from: page2)
+  #expect(second.items.count == 2)
+  #expect(!second.hasMore)
+}
+
+@Test func httpAPIHealthRejectsNonGET() throws {
+  let databaseURL = try makeTemporaryDirectory().appendingPathComponent("api-hm.sqlite3")
+  let store = try SQLiteServerStateStore(databaseURL: databaseURL)
+  let api = SymphonyHTTPAPI(store: store, version: "1.0.0", trackerKind: "github")
+
+  let response = try api.respond(
+    to: SymphonyAPIRequest(method: "POST", path: "/api/v1/health")
+  )
+  #expect(response.statusCode == 405)
+}

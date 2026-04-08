@@ -156,6 +156,7 @@ private func makeTempRoot() throws -> (path: String, cleanup: () -> Void) {
   let manager = WorkspaceManager(root: root)
 
   // Valid paths
+  try manager.validateContainment(path: root)
   try manager.validateContainment(path: root + "/subdir")
   try manager.validateContainment(path: root + "/deep/nested/path")
 

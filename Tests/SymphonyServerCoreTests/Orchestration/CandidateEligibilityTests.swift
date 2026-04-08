@@ -280,3 +280,16 @@ private func makeIssue(
   // "In Progress" is in activeStates and not in blockedStates
   #expect(!CandidateEligibility.isBlocked(issue: issue, config: .defaults))
 }
+
+@Test func isBlockedOpenBlockerInTerminalStateNotBlocked() throws {
+  let blocker = BlockerReference(
+    issueID: IssueID("b1"),
+    identifier: try IssueIdentifier(validating: "org/repo#2"),
+    state: "Done",
+    issueState: "OPEN",
+    url: nil
+  )
+  let issue = try makeIssue(blockedBy: [blocker])
+  // "Done" is in terminalStates (but not blockedStates) → should NOT block
+  #expect(!CandidateEligibility.isBlocked(issue: issue, config: .defaults))
+}
