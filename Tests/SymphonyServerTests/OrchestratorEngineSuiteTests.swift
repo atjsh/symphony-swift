@@ -201,6 +201,27 @@ struct WorkflowReloaderTests {
     reloader.stopWatching()
     #expect(!reloader.isWatching)
   }
+
+  @Test func unchangedContentDoesNotTriggerCallback() throws {
+    let tmpFile = NSTemporaryDirectory() + "reloader_unchanged_\(UUID().uuidString).md"
+    let content = "---\npolling:\n  interval_ms: 500\n---\nPrompt"
+    FileManager.default.createFile(atPath: tmpFile, contents: Data(content.utf8))
+    defer { try? FileManager.default.removeItem(atPath: tmpFile) }
+
+    let reloadCount = Mutex(0)
+    let reloader = WorkflowReloader(workflowPath: tmpFile) { _ in
+      reloadCount.withLock { $0 += 1 }
+    }
+
+    // First call: definition differs from nil → triggers callback
+    reloader.processFileChange()
+    #expect(reloadCount.withLock { $0 } == 1)
+
+    // Second call with same content: definition == previous → NO callback
+    // Mutating `!=` to `==` would cause this to trigger, caught here.
+    reloader.processFileChange()
+    #expect(reloadCount.withLock { $0 } == 1, "Same definition must not trigger onChange")
+  }
 }
 
 // swiftlint:enable force_try
