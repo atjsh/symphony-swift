@@ -27,28 +27,86 @@ timeout_secs="${MUTER_TEST_TIMEOUT:-240}"
 # IMPORTANT: When the child is killed by a signal (not a normal exit),
 # $? >> 8 is 0. We must detect signal-kills and return non-zero so that
 # Muter treats crashes as test failures, not passes.
-_MUTER_TIMEOUT="$timeout_secs" perl -e '
+_MUTER_TIMEOUT="$timeout_secs" _MUTER_LOG="$log_file" perl -e '
   use POSIX ":sys_wait_h";
   my $timeout = $ENV{"_MUTER_TIMEOUT"};
+  my $log     = $ENV{"_MUTER_LOG"};
   my $pid = fork();
   if ($pid == 0) {
     open STDOUT, ">", $ARGV[0] or die;
     open STDERR, ">&STDOUT";
     exec("/usr/bin/swift", "test", @ARGV[1..$#ARGV]) or die "exec: $!";
   }
+
+  # Poll: wait for child exit OR detect test completion in the log file.
+  # swiftpm-testing-helper often hangs after all tests finish, so we check
+  # the log every second for a "Test run with ... passed/failed" summary
+  # or a 10-second period with no new "passed/failed" test results after
+  # at least one test was observed.
   my $elapsed = 0;
+  my $last_result_time = 0;
+  my $prev_count = 0;
+  my $stable_since = 0;
+
   while ($elapsed < $timeout) {
     my $w = waitpid($pid, WNOHANG);
     if ($w > 0) {
-      # Child exited normally or by signal
       my $code = $? >> 8;
       my $sig  = $? & 127;
       exit($sig ? 128 + $sig : $code);
     }
+
+    # Every 2 seconds, check log for completion signals
+    if ($elapsed > 5 && $elapsed % 2 == 0 && -f $log) {
+      if (open my $fh, "<", $log) {
+        my $tail = "";
+        my $size = -s $fh;
+        if ($size > 8192) { seek($fh, -8192, 2); }
+        { local $/; $tail = <$fh>; }
+        close $fh;
+
+        # Check for summary line (definitive)
+        if ($tail =~ /Test run with \d+ tests? in \d+ suites? passed/) {
+          kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
+          exit(0);
+        }
+        if ($tail =~ /Test run with \d+ tests? in \d+ suites? failed/) {
+          kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
+          exit(1);
+        }
+
+        # Count test results to detect hanging after completion
+        my $cur_count = () = $tail =~ /Test \S+\(\) (?:passed|failed)/g;
+        if ($cur_count > 0 && $cur_count == $prev_count) {
+          $stable_since++ ;
+          # If no new test results for 15 seconds, tests are done; process is hanging
+          if ($stable_since >= 8) {
+            my $failed = () = $tail =~ /Test \S+\(\) failed/g;
+            kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
+            exit($failed > 0 ? 1 : 0);
+          }
+        } else {
+          $stable_since = 0;
+          $prev_count = $cur_count;
+        }
+      }
+    }
+
     sleep 1; $elapsed++;
   }
-  # Timeout: kill child and report failure (exit 124, like GNU timeout)
+
+  # Hard timeout: kill and inspect log
   kill "TERM", $pid; sleep 2;
   kill "KILL", $pid; waitpid($pid, 0);
+
+  if (open my $fh, "<", $log) {
+    my $content = "";
+    { local $/; $content = <$fh>; }
+    close $fh;
+    my $passed = () = $content =~ /Test \S+\(\) passed/g;
+    my $failed = () = $content =~ /Test \S+\(\) failed/g;
+    if ($passed > 0 && $failed == 0) { exit(0); }
+    if ($failed > 0) { exit(1); }
+  }
   exit(124);
 ' "$log_file" "$@"
