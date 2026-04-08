@@ -19,7 +19,7 @@ log_dir="${PWD}/muter_logs"
 mkdir -p "$log_dir"
 log_file="${log_dir}/swift-test-$(date +%s).log"
 
-timeout_secs="${MUTER_TEST_TIMEOUT:-240}"
+timeout_secs="${MUTER_TEST_TIMEOUT:-600}"
 
 # Run swift test with timeout; kill after timeout + grace period.
 # We use perl because macOS doesn't ship GNU timeout / gtimeout.
@@ -41,11 +41,9 @@ _MUTER_TIMEOUT="$timeout_secs" _MUTER_LOG="$log_file" perl -e '
   # Poll: wait for child exit OR detect test completion in the log file.
   # swiftpm-testing-helper often hangs after all tests finish, so we check
   # the log every second for a "Test run with ... passed/failed" summary
-  # or a 10-second period with no new "passed/failed" test results after
-  # at least one test was observed.
+  # or a prolonged period where the log stops growing (no new output).
   my $elapsed = 0;
-  my $last_result_time = 0;
-  my $prev_count = 0;
+  my $prev_size = 0;
   my $stable_since = 0;
 
   while ($elapsed < $timeout) {
@@ -57,38 +55,51 @@ _MUTER_TIMEOUT="$timeout_secs" _MUTER_LOG="$log_file" perl -e '
     }
 
     # Every 2 seconds, check log for completion signals
-    if ($elapsed > 5 && $elapsed % 2 == 0 && -f $log) {
-      if (open my $fh, "<", $log) {
-        my $tail = "";
-        my $size = -s $fh;
-        if ($size > 8192) { seek($fh, -8192, 2); }
-        { local $/; $tail = <$fh>; }
-        close $fh;
+    if ($elapsed > 10 && $elapsed % 2 == 0 && -f $log) {
+      my $cur_size = -s $log;
 
-        # Check for summary line (definitive)
-        if ($tail =~ /Test run with \d+ tests? in \d+ suites? passed/) {
-          kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
-          exit(0);
-        }
-        if ($tail =~ /Test run with \d+ tests? in \d+ suites? failed/) {
-          kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
-          exit(1);
-        }
+      if ($cur_size > 8192) {
+        if (open my $fh, "<", $log) {
+          seek($fh, -8192, 2);
+          my $tail = "";
+          { local $/; $tail = <$fh>; }
+          close $fh;
 
-        # Count test results to detect hanging after completion
-        my $cur_count = () = $tail =~ /Test \S+\(\) (?:passed|failed)/g;
-        if ($cur_count > 0 && $cur_count == $prev_count) {
-          $stable_since++ ;
-          # If no new test results for 15 seconds, tests are done; process is hanging
-          if ($stable_since >= 8) {
-            my $failed = () = $tail =~ /Test \S+\(\) failed/g;
+          # Check for summary line (definitive)
+          if ($tail =~ /Test run with \d+ tests? in \d+ suites? passed/) {
             kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
-            exit($failed > 0 ? 1 : 0);
+            exit(0);
           }
-        } else {
-          $stable_since = 0;
-          $prev_count = $cur_count;
+          if ($tail =~ /Test run with \d+ tests? in \d+ suites? failed/) {
+            kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
+            exit(1);
+          }
         }
+      }
+
+      # Use log FILE SIZE to detect that output has stopped (process hanging).
+      # Previous approach counted test-result lines in the 8KB tail window;
+      # that stabilises even while tests are still running because old lines
+      # scroll out of the window at the same rate new ones appear.
+      if ($cur_size > 0 && $cur_size == $prev_size) {
+        $stable_since++;
+        # No new output for 60 seconds → tests are done; process is hanging.
+        if ($stable_since >= 30) {
+          # Read the FULL log to classify (failures may be outside the tail).
+          my $exit_code = 0;
+          if (open my $fh, "<", $log) {
+            my $content = "";
+            { local $/; $content = <$fh>; }
+            close $fh;
+            my $failed = () = $content =~ /Test \S+\(\) failed/g;
+            $exit_code = 1 if $failed > 0;
+          }
+          kill "TERM", $pid; sleep 1; kill "KILL", $pid; waitpid($pid, 0);
+          exit($exit_code);
+        }
+      } else {
+        $stable_since = 0;
+        $prev_size = $cur_size;
       }
     }
 
