@@ -70,6 +70,55 @@ struct RuntimeLoggingTests {
     #expect(payload["event"] == "stderr.fallback")
     #expect(payload["level"] == "info")
   }
+
+  @Test func metadataDoesNotOverwriteContextFields() throws {
+    let originalSink = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = originalSink }
+
+    let capturedLines = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { capturedLines.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.metadata_guard",
+      context: RuntimeLogContext(
+        runID: "context-run",
+        metadata: [
+          "run_id": "metadata-run",
+          "custom_key": "custom_value",
+        ]
+      )
+    )
+
+    #expect(capturedLines.values.count == 1)
+    let payload = try runtimeLogPayload(from: capturedLines.values[0])
+    #expect(payload["run_id"] == "context-run", "Context run_id must not be overwritten by metadata")
+    #expect(
+      payload["custom_key"] == "custom_value", "Non-conflicting metadata must be preserved")
+  }
+
+  @Test func sensitiveValuesRedactedLongestFirst() throws {
+    let originalSink = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = originalSink }
+
+    let capturedLines = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { capturedLines.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.redact_order",
+      context: RuntimeLogContext(
+        metadata: ["value": "topsecret"]
+      ),
+      sensitiveValues: ["secret", "topsecret"]
+    )
+
+    #expect(capturedLines.values.count == 1)
+    let payload = try runtimeLogPayload(from: capturedLines.values[0])
+    #expect(
+      payload["value"] == "[REDACTED]",
+      "Longest secret must be redacted first to fully replace overlapping values")
+  }
 }
 
 private func runtimeLogPayload(from line: String) throws -> [String: String] {
