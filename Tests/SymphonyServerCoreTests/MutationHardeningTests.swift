@@ -406,4 +406,38 @@ private func makeIssue(
   #expect(result == nil, "Non-readable explicit path must return nil, not the URL")
 }
 
+// MARK: - Orchestrator enqueueRetry dueAt Calculation
+
+@Test func enqueueRetryWithNonZeroDelayComputesDueAtCorrectly() throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(
+    tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "delay-1", number: 1, state: "In Progress")
+  let now = Date(timeIntervalSince1970: 1_000_000)
+
+  let record = orchestrator.enqueueRetry(
+    issue: issue, attempt: 2, delayMS: 5000, error: "timeout", now: now)
+
+  // 5000ms = 5.0 seconds
+  #expect(record.dueAt.timeIntervalSince1970 == 1_000_005)
+}
+
+@Test func enqueueRetryWithSmallDelayConvertsMillisecondsCorrectly() throws {
+  let tracker = StubTracker()
+  let delegate = StubOrchestratorDelegate()
+  let orchestrator = Orchestrator(
+    tracker: tracker, config: .defaults, delegate: delegate)
+
+  let issue = try makeIssue(id: "delay-2", number: 2, state: "In Progress")
+  let now = Date(timeIntervalSince1970: 0)
+
+  let record = orchestrator.enqueueRetry(
+    issue: issue, attempt: 1, delayMS: 1500, error: nil, now: now)
+
+  // 1500ms = 1.5 seconds
+  #expect(record.dueAt.timeIntervalSince1970 == 1.5)
+}
+
 // MARK: - Helpers
