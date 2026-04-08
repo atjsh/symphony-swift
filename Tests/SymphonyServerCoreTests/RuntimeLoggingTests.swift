@@ -119,6 +119,162 @@ struct RuntimeLoggingTests {
       payload["value"] == "[REDACTED]",
       "Longest secret must be redacted first to fully replace overlapping values")
   }
+
+  // MARK: - Mutation Hardening: Boundary Tests
+
+  @Test func nilErrorNotIncludedInPayload() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(level: .info, event: "test.nil_error", error: nil)
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["error"] == nil, "nil error must not appear in payload")
+  }
+
+  @Test func emptyErrorNotIncludedInPayload() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(level: .info, event: "test.empty_error", error: "")
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["error"] == nil, "Empty error must not appear in payload (tests !error.isEmpty)")
+  }
+
+  @Test func nilContextFieldOmitsKey() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.nil_field",
+      context: RuntimeLogContext(issueID: nil, runID: "r1")
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["issue_id"] == nil, "nil context field must be omitted")
+    #expect(payload["run_id"] == "r1")
+  }
+
+  @Test func emptyContextFieldOmitsKey() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.empty_field",
+      context: RuntimeLogContext(issueID: "", runID: "r1")
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["issue_id"] == nil, "Empty context field must be omitted (tests !value.isEmpty)")
+    #expect(payload["run_id"] == "r1")
+  }
+
+  @Test func whitespaceOnlySensitiveValuesFiltered() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.ws_sensitive",
+      context: RuntimeLogContext(metadata: ["key": "value secret123"]),
+      sensitiveValues: ["  ", "\t", "secret123"]
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(
+      payload["key"] == "value [REDACTED]",
+      "Whitespace-only sensitive values must be filtered, real secrets still redacted"
+    )
+  }
+
+  @Test func nonEmptyErrorIsRedacted() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .error,
+      event: "test.redact_error",
+      error: "ghp_mySecretToken123",
+      sensitiveValues: []
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(
+      payload["error"] == "[REDACTED]",
+      "GitHub token in error field must be redacted by tokenLikeValueRule"
+    )
+  }
+
+  @Test func bearerTokenRedacted() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.bearer",
+      context: RuntimeLogContext(metadata: ["auth": "Bearer abc123.xyz"])
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["auth"] == "Bearer [REDACTED]")
+  }
+
+  @Test func keyValueSecretRedacted() throws {
+    let original = RuntimeLogHooks.sinkOverride
+    defer { RuntimeLogHooks.sinkOverride = original }
+
+    let captured = LockedStringBox()
+    RuntimeLogHooks.sinkOverride = { captured.append($0) }
+
+    RuntimeLogger.log(
+      level: .info,
+      event: "test.kvredact",
+      context: RuntimeLogContext(
+        metadata: ["log": "api_key=supersecret123"]
+      )
+    )
+
+    #expect(captured.values.count == 1)
+    let payload = try runtimeLogPayload(from: captured.values[0])
+    #expect(payload["log"]?.contains("supersecret123") == false, "Key-value secret must be redacted")
+  }
+
+  @Test func redactionRulesCompile() {
+    // This test verifies the try! NSRegularExpression(...) calls don't crash.
+    // The patterns are compile-time constants, so this is a smoke test.
+    RuntimeLogger.log(level: .info, event: "test.compile_check")
+  }
 }
 
 private func runtimeLogPayload(from line: String) throws -> [String: String] {
