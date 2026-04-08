@@ -321,6 +321,12 @@ struct AggregateMetricsMutationTests {
     #expect(summary.largestFile != nil)
     #expect(summary.smallestFile != nil)
     #expect(summary.largestFile?.byteCount == summary.smallestFile?.byteCount)
+    // Strict > means the first encountered file (A.swift) remains largest — a >= mutant
+    // would replace it with the second file (B.swift).
+    #expect(summary.largestFile?.path == "Sources/A.swift")
+    // Strict < means the first encountered file (A.swift) remains smallest — a <= mutant
+    // would replace it with B.swift.
+    #expect(summary.smallestFile?.path == "Sources/A.swift")
   }
 
   @Test func emptyWorkspacePathThrows() throws {
