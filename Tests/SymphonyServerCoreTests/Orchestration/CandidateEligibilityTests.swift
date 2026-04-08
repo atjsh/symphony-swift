@@ -293,3 +293,42 @@ private func makeIssue(
   // "Done" is in terminalStates (but not blockedStates) → should NOT block
   #expect(!CandidateEligibility.isBlocked(issue: issue, config: .defaults))
 }
+
+// MARK: - Multi-Blocker Continue-vs-Break Tests
+
+@Test func isBlockedClosedBlockerSkippedAndOpenBlockerCaught() throws {
+  // First blocker is closed (should be skipped via `continue`).
+  // Second blocker is open and in blockedStates (should block).
+  // Kills `continue` → `break` mutation on the "CLOSED" guard.
+  let closedBlocker = BlockerReference(
+    issueID: IssueID("closed-1"),
+    identifier: try IssueIdentifier(validating: "org/repo#10"),
+    state: "Todo",
+    issueState: "CLOSED",
+    url: nil
+  )
+  let openBlocker = BlockerReference(
+    issueID: IssueID("open-1"),
+    identifier: try IssueIdentifier(validating: "org/repo#11"),
+    state: "Todo",
+    issueState: "OPEN",
+    url: nil
+  )
+  let issue = try makeIssue(blockedBy: [closedBlocker, openBlocker])
+  #expect(CandidateEligibility.isBlocked(issue: issue, config: .defaults))
+}
+
+@Test func isBlockedMultipleClosedBlockersAllSkipped() throws {
+  // All blockers are closed — loop should `continue` through all and return false.
+  let blockers = try (1...3).map { i in
+    BlockerReference(
+      issueID: IssueID("closed-\(i)"),
+      identifier: try IssueIdentifier(validating: "org/repo#\(i)"),
+      state: "Todo",
+      issueState: "CLOSED",
+      url: nil
+    )
+  }
+  let issue = try makeIssue(blockedBy: blockers)
+  #expect(!CandidateEligibility.isBlocked(issue: issue, config: .defaults))
+}
