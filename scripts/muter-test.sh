@@ -15,6 +15,13 @@
 set -euo pipefail
 export PATH="/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
+# When running inside the muter-copied directory, the .build/ModuleCache
+# contains precompiled modules with hardcoded paths from the original repo.
+# Nuke the module cache so SwiftPM rebuilds them with the correct paths.
+if [[ "$PWD" == *_mutated ]]; then
+  rm -rf .build/arm64-apple-macosx/debug/ModuleCache 2>/dev/null || true
+fi
+
 log_dir="${PWD}/muter_logs"
 mkdir -p "$log_dir"
 log_file="${log_dir}/swift-test-$(date +%s).log"

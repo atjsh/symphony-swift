@@ -258,6 +258,13 @@ public final class StubLaunchedProcess: LaunchedProcess, @unchecked Sendable {
     }
   }
 
+  public func simulateRawOutput(_ data: Data) {
+    lock.lock()
+    let handler = _outputHandler
+    lock.unlock()
+    handler?(data)
+  }
+
   public func simulateTermination(exitCode: Int32) {
     lock.lock()
     guard !_terminated else {
